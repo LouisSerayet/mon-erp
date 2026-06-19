@@ -152,7 +152,19 @@ export default function ProjetDetail() {
               </button>
             </>
           ) : (
-            <button onClick={() => setEdit(true)} style={{ padding: '8px 14px', border: '0.5px solid #ddd', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Modifier</button>
+            <>
+              <button
+                onClick={async () => {
+                  if (window.confirm('Supprimer ce projet ? Cette action est irreversible.')) {
+                    await supabase.from('projets').delete().eq('id', id)
+                    navigate('/projets')
+                  }
+                }}
+                style={{ padding: '8px 14px', border: '0.5px solid #E24B4A', borderRadius: 8, background: '#fff', color: '#E24B4A', cursor: 'pointer', fontSize: 13 }}>
+                Supprimer
+              </button>
+              <button onClick={() => setEdit(true)} style={{ padding: '8px 14px', border: '0.5px solid #ddd', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Modifier</button>
+            </>
           )}
         </div>
       </div>

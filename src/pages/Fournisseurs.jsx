@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useNavigate } from 'react-router-dom'
 
 export default function Fournisseurs() {
   const [fournisseurs, setFournisseurs] = useState([])
@@ -8,6 +9,7 @@ export default function Fournisseurs() {
   const [form, setForm] = useState({ raison_sociale: '', contact: '', categorie: '' })
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
+  const navigate = useNavigate()
 
   useEffect(() => { fetchFournisseurs() }, [])
 
@@ -28,7 +30,8 @@ export default function Fournisseurs() {
     fetchFournisseurs()
   }
 
-  async function deleteFournisseur(id) {
+  async function deleteFournisseur(id, e) {
+    e.stopPropagation()
     if (!window.confirm('Supprimer ce fournisseur ?')) return
     await supabase.from('fournisseurs').delete().eq('id', id)
     fetchFournisseurs()
@@ -48,10 +51,8 @@ export default function Fournisseurs() {
           <h1 style={{ fontSize: 20, fontWeight: 500 }}>Fournisseurs</h1>
           <p style={{ color: '#888', fontSize: 13, marginTop: 2 }}>{fournisseurs.length} fournisseurs</p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          style={{ background: '#185FA5', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}
-        >
+        <button onClick={() => setShowForm(true)}
+          style={{ background: '#185FA5', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
           + Nouveau fournisseur
         </button>
       </div>
@@ -70,21 +71,15 @@ export default function Fournisseurs() {
       </div>
 
       <div style={{ marginBottom: 14 }}>
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Rechercher un fournisseur..."
-          style={{ width: '100%', padding: '9px 12px', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13, background: '#fff' }}
-        />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un fournisseur..."
+          style={{ width: '100%', padding: '9px 12px', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13, background: '#fff' }} />
       </div>
 
       <div style={{ background: '#fff', border: '0.5px solid #e5e5e5', borderRadius: 12, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>Chargement...</div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>
-            Aucun fournisseur. Cliquez sur "+ Nouveau fournisseur" pour commencer.
-          </div>
+          <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>Aucun fournisseur.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
@@ -96,26 +91,20 @@ export default function Fournisseurs() {
             </thead>
             <tbody>
               {filtered.map(f => (
-                <tr
-                  key={f.id}
-                  style={{ borderBottom: '0.5px solid #f0f0f0' }}
+                <tr key={f.id} style={{ borderBottom: '0.5px solid #f0f0f0', cursor: 'pointer' }}
+                  onClick={() => navigate('/fournisseurs/' + f.id)}
                   onMouseEnter={e => e.currentTarget.style.background = '#fafaf8'}
-                  onMouseLeave={e => e.currentTarget.style.background = ''}
-                >
-                  <td style={{ padding: '11px 14px', fontWeight: 500 }}>{f.raison_sociale}</td>
+                  onMouseLeave={e => e.currentTarget.style.background = ''}>
+                  <td style={{ padding: '11px 14px', fontWeight: 500, color: '#185FA5' }}>{f.raison_sociale}</td>
                   <td style={{ padding: '11px 14px', color: '#555' }}>{f.contact || ''}</td>
                   <td style={{ padding: '11px 14px' }}>
                     {f.categorie && (
-                      <span style={{ background: '#E6F1FB', color: '#185FA5', padding: '3px 10px', borderRadius: 10, fontSize: 12 }}>
-                        {f.categorie}
-                      </span>
+                      <span style={{ background: '#E6F1FB', color: '#185FA5', padding: '3px 10px', borderRadius: 10, fontSize: 12 }}>{f.categorie}</span>
                     )}
                   </td>
                   <td style={{ padding: '11px 14px' }}>
-                    <button
-                      onClick={() => deleteFournisseur(f.id)}
-                      style={{ background: 'none', border: 'none', color: '#E24B4A', cursor: 'pointer', fontSize: 12 }}
-                    >
+                    <button onClick={e => deleteFournisseur(f.id, e)}
+                      style={{ background: 'none', border: 'none', color: '#E24B4A', cursor: 'pointer', fontSize: 12 }}>
                       Supprimer
                     </button>
                   </td>
@@ -132,26 +121,20 @@ export default function Fournisseurs() {
             <h2 style={{ fontSize: 17, fontWeight: 500, marginBottom: 20 }}>Nouveau fournisseur</h2>
             <form onSubmit={saveFournisseur}>
               {[
-                { label: 'Raison sociale', key: 'raison_sociale', placeholder: 'ex: CIGC', required: true },
-                { label: 'Contact', key: 'contact', placeholder: 'ex: Jean Dupont' },
+                { label: 'Raison sociale', key: 'raison_sociale', required: true },
+                { label: 'Contact', key: 'contact' },
                 { label: 'Categorie', key: 'categorie', placeholder: 'ex: Electricite, Menuiserie...' },
               ].map(f => (
                 <div key={f.key} style={{ marginBottom: 14 }}>
                   <label style={{ display: 'block', fontSize: 12, color: '#666', marginBottom: 4 }}>{f.label}</label>
-                  <input
-                    value={form[f.key]}
-                    onChange={e => setForm({ ...form, [f.key]: e.target.value })}
-                    placeholder={f.placeholder}
-                    required={f.required || false}
-                    style={{ width: '100%', padding: '8px 10px', border: '0.5px solid #ddd', borderRadius: 6, fontSize: 13 }}
-                  />
+                  <input value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })}
+                    placeholder={f.placeholder || ''} required={f.required || false}
+                    style={{ width: '100%', padding: '8px 10px', border: '0.5px solid #ddd', borderRadius: 6, fontSize: 13 }} />
                 </div>
               ))}
               <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
                 <button type="button" onClick={() => setShowForm(false)}
-                  style={{ flex: 1, padding: '9px', border: '0.5px solid #ddd', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>
-                  Annuler
-                </button>
+                  style={{ flex: 1, padding: '9px', border: '0.5px solid #ddd', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
                 <button type="submit" disabled={saving}
                   style={{ flex: 1, padding: '9px', border: 'none', borderRadius: 8, background: '#185FA5', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
                   {saving ? 'Enregistrement...' : 'Creer'}
