@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Projets from './pages/Projets'
+import ProjetDetail from './pages/ProjetDetail'
 import Fournisseurs from './pages/Fournisseurs'
 import Commandes from './pages/Commandes'
 import FacturesFrs from './pages/FacturesFrs'
@@ -14,6 +15,7 @@ export default function App() {
         <Route index element={<Navigate to="/projets" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="projets" element={<Projets />} />
+        <Route path="projets/:id" element={<ProjetDetail />} />
         <Route path="fournisseurs" element={<Fournisseurs />} />
         <Route path="commandes" element={<Commandes />} />
         <Route path="factures-frs" element={<FacturesFrs />} />
