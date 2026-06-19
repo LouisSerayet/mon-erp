@@ -169,7 +169,8 @@ export default function ProjetDetail() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '0.5px solid #e5e5e5', paddingBottom: 0 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '0.5px solid #e5e5e5', paddingBottom: 0, alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: 6 }}>
         {[
           { key: 'infos', label: 'Informations' },
           { key: 'rentabilite', label: 'Rentabilite' },
@@ -181,6 +182,11 @@ export default function ProjetDetail() {
             {t.label}
           </button>
         ))}
+        </div>
+        <button onClick={() => navigate('/projets/' + id + '/devis')}
+          style={{ padding: '7px 14px', border: 'none', borderRadius: 8, background: '#1a1a1a', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500, marginBottom: 4 }}>
+          Ouvrir le Devis →
+        </button>
       </div>
 
       {tab === 'infos' && (
