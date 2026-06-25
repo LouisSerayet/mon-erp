@@ -3,27 +3,19 @@ import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Projets from './pages/Projets'
 import ProjetDetail from './pages/ProjetDetail'
-import Devis from './pages/Devis'
+import Clients from './pages/Clients'
 import Fournisseurs from './pages/Fournisseurs'
-import FournisseurDetail from './pages/FournisseurDetail'
-import Commandes from './pages/Commandes'
-import FacturesFrs from './pages/FacturesFrs'
-import FacturesCli from './pages/FacturesCli'
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Layout />}>
-        <Route index element={<Navigate to="/projets" replace />} />
+        <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="projets" element={<Projets />} />
         <Route path="projets/:id" element={<ProjetDetail />} />
-        <Route path="projets/:id/devis" element={<Devis />} />
+        <Route path="clients" element={<Clients />} />
         <Route path="fournisseurs" element={<Fournisseurs />} />
-        <Route path="fournisseurs/:id" element={<FournisseurDetail />} />
-        <Route path="commandes" element={<Commandes />} />
-        <Route path="factures-frs" element={<FacturesFrs />} />
-        <Route path="factures-cli" element={<FacturesCli />} />
       </Route>
     </Routes>
   )

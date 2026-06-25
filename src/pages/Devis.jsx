@@ -1,351 +1,419 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import * as XLSX from 'xlsx'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import { useNavigate } from 'react-router-dom'
 
-const UNITES = ['m2', 'm3', 'ml', 'u', 'ens', 'sem', 'VA', 'CA', 'forfait']
-const TYPES = ['Negoce', 'Total', 'Chapitre']
-
-const Modal = ({ title, onClose, onSave, value, onChange }) => (
-  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-    <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 380 }}>
-      <h3 style={{ fontSize: 16, fontWeight: 500, marginBottom: 16 }}>{title}</h3>
-      <input autoFocus value={value} onChange={e => onChange(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && onSave()}
-        placeholder="Nom..."
-        style={{ width: '100%', padding: '9px 12px', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 14, marginBottom: 16 }} />
-      <div style={{ display: 'flex', gap: 10 }}>
-        <button onClick={onClose} style={{ flex: 1, padding: '8px', border: '0.5px solid #ddd', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-        <button onClick={onSave} style={{ flex: 1, padding: '8px', border: 'none', borderRadius: 8, background: '#1a1a1a', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>Ajouter</button>
-      </div>
-    </div>
-  </div>
-)
-
-// Composant ligne éditable — état local pour éviter rechargement à chaque frappe
-const LigneRow = ({ lg, index, fournisseurs, onSave, onDelete }) => {
-  const [vals, setVals] = useState({
-    description: lg.description || '',
-    type: lg.type || 'Negoce',
-    unite: lg.unite || 'u',
-    quantite: lg.quantite ?? 1,
-    prix_achat: lg.prix_achat ?? 0,
-    coefficient: lg.coefficient ?? 1.21,
-    prix_vente: lg.prix_vente ?? 0,
-    fournisseur_id: lg.fournisseur_id || '',
-  })
-
-  useEffect(() => {
-    setVals({
-      description: lg.description || '',
-      type: lg.type || 'Negoce',
-      unite: lg.unite || 'u',
-      quantite: lg.quantite ?? 1,
-      prix_achat: lg.prix_achat ?? 0,
-      coefficient: lg.coefficient ?? 1.21,
-      prix_vente: lg.prix_vente ?? 0,
-      fournisseur_id: lg.fournisseur_id || '',
-    })
-  }, [lg.id])
-
-  function handleChange(field, value) {
-    const next = { ...vals, [field]: value }
-    if (field === 'prix_achat' || field === 'coefficient') {
-      const pa = field === 'prix_achat' ? parseFloat(value) || 0 : parseFloat(vals.prix_achat) || 0
-      const coef = field === 'coefficient' ? parseFloat(value) || 1 : parseFloat(vals.coefficient) || 1.21
-      next.prix_vente = Math.round(pa * coef * 100) / 100
-    }
-    setVals(next)
-  }
-
-  function handleBlur(field) {
-    onSave(lg.id, field, vals[field], vals)
-  }
-
-  const totalVente = (vals.prix_vente || 0) * (vals.quantite || 0)
-  const inp = { border: 'none', background: 'transparent', fontSize: 12, width: '100%', padding: '2px 4px', borderRadius: 3, outline: 'none', fontFamily: 'inherit' }
-
-  return (
-    <tr style={{ borderBottom: '0.5px solid #f0f0f0' }}
-      onMouseEnter={e => e.currentTarget.style.background = '#fafff7'}
-      onMouseLeave={e => e.currentTarget.style.background = ''}>
-      <td style={{ padding: '5px 10px', color: '#bbb', fontSize: 10 }}>{index}</td>
-      <td style={{ padding: '5px 6px', minWidth: 70 }}>
-        <select value={vals.type} onChange={e => { handleChange('type', e.target.value); onSave(lg.id, 'type', e.target.value, { ...vals, type: e.target.value }) }}
-          style={{ ...inp, fontSize: 11 }}>
-          {TYPES.map(t => <option key={t}>{t}</option>)}
-        </select>
-      </td>
-      <td style={{ padding: '5px 6px', minWidth: 220 }}>
-        <input value={vals.description}
-          onChange={e => handleChange('description', e.target.value)}
-          onBlur={() => handleBlur('description')}
-          onFocus={e => e.target.style.background = '#EEF5FF'}
-          style={{ ...inp }} />
-      </td>
-      <td style={{ padding: '5px 6px', minWidth: 65 }}>
-        <select value={vals.unite} onChange={e => { handleChange('unite', e.target.value); onSave(lg.id, 'unite', e.target.value, { ...vals, unite: e.target.value }) }}
-          style={{ ...inp, fontSize: 11 }}>
-          {UNITES.map(u => <option key={u}>{u}</option>)}
-        </select>
-      </td>
-      <td style={{ padding: '5px 6px', minWidth: 60 }}>
-        <input type="number" value={vals.quantite}
-          onChange={e => handleChange('quantite', e.target.value)}
-          onBlur={() => handleBlur('quantite')}
-          onFocus={e => e.target.style.background = '#EEF5FF'}
-          style={{ ...inp, textAlign: 'right' }} />
-      </td>
-      <td style={{ padding: '5px 6px', minWidth: 85 }}>
-        <input type="number" value={vals.prix_achat}
-          onChange={e => handleChange('prix_achat', e.target.value)}
-          onBlur={() => onSave(lg.id, 'prix_achat', vals.prix_achat, vals)}
-          onFocus={e => e.target.style.background = '#EEF5FF'}
-          style={{ ...inp, textAlign: 'right' }} />
-      </td>
-      <td style={{ padding: '5px 6px', minWidth: 60 }}>
-        <input type="number" step="0.01" value={vals.coefficient}
-          onChange={e => handleChange('coefficient', e.target.value)}
-          onBlur={() => onSave(lg.id, 'coefficient', vals.coefficient, vals)}
-          onFocus={e => e.target.style.background = '#EEF5FF'}
-          style={{ ...inp, textAlign: 'right' }} />
-      </td>
-      <td style={{ padding: '5px 10px', textAlign: 'right', color: '#185FA5', fontWeight: 500, minWidth: 85, fontSize: 12 }}>
-        {(vals.prix_vente || 0).toLocaleString('fr-FR')}
-      </td>
-      <td style={{ padding: '5px 10px', textAlign: 'right', fontWeight: 600, minWidth: 95 }}>
-        {totalVente.toLocaleString('fr-FR')}
-      </td>
-      <td style={{ padding: '5px 6px', minWidth: 130 }}>
-        <select value={vals.fournisseur_id} onChange={e => { handleChange('fournisseur_id', e.target.value); onSave(lg.id, 'fournisseur_id', e.target.value || null, { ...vals, fournisseur_id: e.target.value }) }}
-          style={{ ...inp, fontSize: 11 }}>
-          <option value="">—</option>
-          {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.raison_sociale}</option>)}
-        </select>
-      </td>
-      <td style={{ padding: '5px 6px', textAlign: 'right' }}>
-        <button onClick={() => onDelete(lg.id)} style={{ background: 'none', border: 'none', color: '#E24B4A', cursor: 'pointer', fontSize: 14 }}>✕</button>
-      </td>
-    </tr>
-  )
+const STATUTS = ['Brouillon', 'Envoyé', 'Accepté', 'Refusé']
+const STATUS_STYLE = {
+  'Brouillon': { bg: '#F3F4F6', color: '#6B7280' },
+  'Envoyé':    { bg: '#EFF6FF', color: '#2563EB' },
+  'Accepté':   { bg: '#ECFDF5', color: '#059669' },
+  'Refusé':    { bg: '#FEF2F2', color: '#DC2626' },
 }
 
 export default function Devis() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  const [projet, setProjet] = useState(null)
-  const [chapitres, setChapitres] = useState([])
-  const [fournisseurs, setFournisseurs] = useState([])
+  const [devis, setDevis] = useState([])
+  const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
-  const [modal, setModal] = useState(null)
-  const [modalVal, setModalVal] = useState('')
-  const [modalTarget, setModalTarget] = useState(null)
-  const printRef = useRef()
+  const [showForm, setShowForm] = useState(false)
+  const [devisOuvert, setDevisOuvert] = useState(null)
+  const [search, setSearch] = useState('')
+  const [filtreStatut, setFiltreStatut] = useState('Tous')
+  const [importError, setImportError] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [createError, setCreateError] = useState('')
+  const [creatingProjet, setCreatingProjet] = useState(false)
+  const [form, setForm] = useState({ client_id: '', titre: '', statut: 'Brouillon', notes: '' })
+  const navigate = useNavigate()
 
-  useEffect(() => { fetchAll() }, [id])
+  useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: p }, { data: ch }, { data: lots }, { data: lignes }, { data: frs }] = await Promise.all([
-      supabase.from('projets').select('*').eq('id', id).single(),
-      supabase.from('devis_chapitres').select('*').eq('projet_id', id).order('ordre'),
-      supabase.from('devis_lots').select('*').eq('projet_id', id).order('ordre'),
-      supabase.from('devis_lignes').select('*, fournisseurs(raison_sociale)').eq('projet_id', id).order('ordre'),
-      supabase.from('fournisseurs').select('id, raison_sociale').order('raison_sociale'),
+    const [{ data: d }, { data: c }] = await Promise.all([
+      supabase.from('devis').select('*, clients(nom)').order('created_at', { ascending: false }),
+      supabase.from('clients').select('id, nom').order('nom')
     ])
-    const chapitresWithData = (ch || []).map(c => ({
-      ...c,
-      lots: (lots || []).filter(l => l.chapitre_id === c.id).map(l => ({
-        ...l,
-        lignes: (lignes || []).filter(lg => lg.lot_id === l.id)
-      }))
-    }))
-    setProjet(p)
-    setChapitres(chapitresWithData)
-    setFournisseurs(frs || [])
+    setDevis(d || [])
+    setClients(c || [])
     setLoading(false)
   }
 
-  async function handleModalSave() {
-    if (!modalVal.trim()) return
-    if (modal === 'chapitre') {
-      await supabase.from('devis_chapitres').insert([{ projet_id: id, titre: modalVal, ordre: chapitres.length + 1 }])
-    } else if (modal === 'lot') {
-      const ch = chapitres.find(c => c.id === modalTarget)
-      await supabase.from('devis_lots').insert([{ projet_id: id, chapitre_id: modalTarget, titre: modalVal, ordre: (ch?.lots?.length || 0) + 1 }])
+  function parseExcel(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(e.target.result, { type: 'array' })
+          const ws = wb.Sheets[wb.SheetNames[0]]
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+          const lignes = []
+          let currentLot = null
+          let totalGeneral = 0
+          for (let i = 1; i < rows.length; i++) {
+            const r = rows[i]
+            const num = String(r[0] || '').trim()
+            const categorie = String(r[1] || '').trim()
+            const descriptif = String(r[2] || '').trim()
+            const unite = String(r[3] || '').trim()
+            const qte = parseFloat(r[4]) || 0
+            const prixUnit = parseFloat(r[5]) || 0
+            const totalPrixUnit = parseFloat(r[6]) || 0
+            const coeff = parseFloat(r[7]) || 0
+            const prixAchat = parseFloat(r[8]) || 0
+            const totalAchat = parseFloat(r[9]) || 0
+            const fournisseur = String(r[10] || '').trim()
+            if (!num && !categorie && !descriptif) continue
+            if (descriptif.toLowerCase() === 'total' && totalPrixUnit > 0) { totalGeneral = totalPrixUnit; continue }
+            const isLot = /^\d+$/.test(num) && categorie && totalPrixUnit > 0
+            if (isLot) { currentLot = num; lignes.push({ type: 'lot', numero: num, categorie, descriptif, total_ht: totalPrixUnit, total_achat: totalAchat, coeff }); continue }
+            const isTitre = num && !categorie && !unite && qte === 0 && prixUnit === 0 && descriptif
+            if (isTitre) { lignes.push({ type: 'titre', numero: num, descriptif, lot: currentLot }); continue }
+            if (num || descriptif) lignes.push({ type: 'ligne', numero: num, lot: currentLot, descriptif, unite, qte, prix_unit_ht: prixUnit, total_ht: totalPrixUnit, coeff, prix_achat_ht: prixAchat, total_achat: totalAchat, fournisseur })
+          }
+          resolve({ lignes, totalGeneral })
+        } catch (err) { reject(err) }
+      }
+      reader.onerror = reject
+      reader.readAsArrayBuffer(file)
+    })
+  }
+
+  async function handleImport(e, devisId) {
+    const file = e.target.files[0]
+    if (!file) return
+    setImporting(true); setImportError('')
+    try {
+      const { lignes, totalGeneral } = await parseExcel(file)
+      await supabase.from('devis_lignes').delete().eq('devis_id', devisId)
+      const { error } = await supabase.from('devis_lignes').insert(lignes.map((l, idx) => ({ ...l, devis_id: devisId, ordre: idx })))
+      if (error) throw error
+      await supabase.from('devis').update({ montant_ht: totalGeneral }).eq('id', devisId)
+      await fetchAll()
+      const { data: lignesData } = await supabase.from('devis_lignes').select('*').eq('devis_id', devisId).order('ordre')
+      setDevisOuvert(prev => ({ ...prev, lignes: lignesData, montant_ht: totalGeneral }))
+    } catch (err) { setImportError("Erreur import : " + err.message) }
+    setImporting(false); e.target.value = ''
+  }
+
+  async function ouvrirDevis(d) {
+    const { data: lignes } = await supabase.from('devis_lignes').select('*').eq('devis_id', d.id).order('ordre')
+    setDevisOuvert({ ...d, lignes: lignes || [] })
+  }
+
+  async function creerDevis() {
+    setCreateError('')
+    if (!form.titre.trim()) { setCreateError('Le titre est obligatoire.'); return }
+    if (!form.client_id) { setCreateError('Sélectionne un client.'); return }
+    const { data, error } = await supabase.from('devis').insert([{ titre: form.titre.trim(), statut: form.statut, notes: form.notes, client_id: form.client_id, montant_ht: 0 }]).select().single()
+    if (error) { setCreateError('Erreur : ' + error.message); return }
+    setShowForm(false); setCreateError(''); setForm({ client_id: '', titre: '', statut: 'Brouillon', notes: '' })
+    await fetchAll(); ouvrirDevis(data)
+  }
+
+  async function updateStatut(id, statut) {
+    await supabase.from('devis').update({ statut }).eq('id', id)
+    setDevisOuvert(prev => ({ ...prev, statut }))
+    fetchAll()
+  }
+
+  async function supprimerDevis(id) {
+    if (!confirm('Supprimer ce devis ?')) return
+    await supabase.from('devis_lignes').delete().eq('devis_id', id)
+    await supabase.from('devis').delete().eq('id', id)
+    setDevisOuvert(null); fetchAll()
+  }
+
+  async function creerProjetDepuisDevis() {
+    if (!devisOuvert) return
+    setCreatingProjet(true)
+    const { data: projet, error } = await supabase.from('projets').insert([{
+      nom: devisOuvert.titre,
+      client_id: devisOuvert.client_id,
+      devis_id: devisOuvert.id,
+      montant_ht: devisOuvert.montant_ht,
+      statut: 'En cours',
+    }]).select().single()
+    if (error) { alert('Erreur : ' + error.message); setCreatingProjet(false); return }
+    await supabase.from('devis').update({ statut: 'Accepté' }).eq('id', devisOuvert.id)
+    setCreatingProjet(false)
+    navigate('/projets/' + projet.id)
+  }
+
+  function generatePDF(d) {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const lots = (d.lignes || []).filter(l => l.type === 'lot')
+    const lignesParLot = (d.lignes || []).reduce((acc, l) => {
+      if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
+      return acc
+    }, {})
+    const fmtN = (n) => n > 0 ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+
+    doc.setFillColor(30, 41, 59); doc.rect(0, 0, 297, 22, 'F')
+    doc.setTextColor(255, 255, 255); doc.setFontSize(14); doc.setFont('helvetica', 'bold')
+    doc.text(d.titre, 14, 12)
+    doc.setFontSize(8); doc.setFont('helvetica', 'normal')
+    doc.text('Date : ' + new Date(d.created_at).toLocaleDateString('fr-FR'), 240, 12)
+    if (d.clients?.nom) doc.text('Client : ' + d.clients.nom, 14, 19)
+    doc.setTextColor(30, 41, 59)
+
+    autoTable(doc, {
+      startY: 28,
+      head: [['N° Lot', 'Désignation', 'Total HT']],
+      body: lots.map(l => ['LOT ' + l.numero, (l.categorie || '') + (l.descriptif ? ' — ' + l.descriptif : ''), fmtN(l.total_ht) + ' €']),
+      foot: [['', 'TOTAL GÉNÉRAL HT', fmtN(d.montant_ht) + ' €']],
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
+      footStyles: { fillColor: [240, 253, 244], textColor: [6, 95, 70], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 22 }, 2: { halign: 'right', cellWidth: 38 } },
+      margin: { left: 14, right: 14 },
+    })
+
+    let y = doc.lastAutoTable.finalY + 10
+    for (const lot of lots) {
+      const lignes = lignesParLot[lot.numero] || []
+      if (!lignes.length) continue
+      if (y > 170) { doc.addPage(); y = 14 }
+      doc.setFillColor(30, 41, 59); doc.rect(14, y - 5, 269, 8, 'F')
+      doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont('helvetica', 'bold')
+      doc.text('LOT ' + lot.numero + ' — ' + (lot.categorie || '') + '   ' + fmtN(lot.total_ht) + ' €', 16, y)
+      doc.setTextColor(30, 41, 59); y += 4
+      autoTable(doc, {
+        startY: y,
+        head: [['N°', 'Désignation', 'Unité', 'Qté', 'P.U. HT', 'Total HT']],
+        body: lignes.map(l => l.type === 'titre'
+          ? [{ content: l.descriptif || '', colSpan: 6, styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [71, 85, 105] } }]
+          : [l.numero || '', l.descriptif || '', l.unite || '', l.qte > 0 ? l.qte : '', fmtN(l.prix_unit_ht), fmtN(l.total_ht)]
+        ),
+        styles: { fontSize: 7, cellPadding: 1.5, overflow: 'linebreak' },
+        headStyles: { fillColor: [248, 250, 252], textColor: [107, 114, 128], fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 14 }, 2: { cellWidth: 14, halign: 'center' }, 3: { cellWidth: 14, halign: 'right' }, 4: { cellWidth: 30, halign: 'right' }, 5: { cellWidth: 30, halign: 'right', fontStyle: 'bold' } },
+        margin: { left: 14, right: 14 },
+      })
+      y = doc.lastAutoTable.finalY + 8
     }
-    setModal(null); setModalVal(''); setModalTarget(null)
-    fetchAll()
-  }
-
-  async function addLigne(lotId) {
-    await supabase.from('devis_lignes').insert([{ projet_id: id, lot_id: lotId, description: 'Nouvelle ligne', quantite: 1, prix_achat: 0, coefficient: 1.21, prix_vente: 0, unite: 'u', type: 'Negoce', ordre: 99 }])
-    fetchAll()
-  }
-
-  async function saveLigne(ligneId, field, value, allVals) {
-    const update = { [field]: value }
-    if (field === 'prix_achat' || field === 'coefficient') {
-      const pa = field === 'prix_achat' ? parseFloat(value) || 0 : parseFloat(allVals.prix_achat) || 0
-      const coef = field === 'coefficient' ? parseFloat(value) || 1 : parseFloat(allVals.coefficient) || 1.21
-      update.prix_vente = Math.round(pa * coef * 100) / 100
+    const n = doc.getNumberOfPages()
+    for (let i = 1; i <= n; i++) {
+      doc.setPage(i); doc.setFontSize(7); doc.setTextColor(156, 163, 175)
+      doc.text('Page ' + i + ' / ' + n, 283, 205, { align: 'right' })
+      doc.text(d.titre, 14, 205)
     }
-    await supabase.from('devis_lignes').update(update).eq('id', ligneId)
-    if (field === 'prix_achat' || field === 'coefficient' || field === 'quantite') fetchAll()
+    doc.save(d.titre.replace(/[^a-z0-9]/gi, '_') + '.pdf')
   }
 
-  async function deleteLigne(ligneId) {
-    await supabase.from('devis_lignes').delete().eq('id', ligneId)
-    fetchAll()
-  }
+  const fmt = (n) => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
+  const devisFiltres = devis.filter(d => {
+    const matchSearch = d.titre?.toLowerCase().includes(search.toLowerCase()) || d.clients?.nom?.toLowerCase().includes(search.toLowerCase())
+    return matchSearch && (filtreStatut === 'Tous' || d.statut === filtreStatut)
+  })
 
-  async function deleteLot(lotId) {
-    await supabase.from('devis_lignes').delete().eq('lot_id', lotId)
-    await supabase.from('devis_lots').delete().eq('id', lotId)
-    fetchAll()
-  }
+  // ── Vue détail ────────────────────────────────────────────────
+  if (devisOuvert) {
+    const lots = (devisOuvert.lignes || []).filter(l => l.type === 'lot')
+    const lignesParLot = (devisOuvert.lignes || []).reduce((acc, l) => {
+      if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
+      return acc
+    }, {})
 
-  async function deleteChapitre(chapId) {
-    const ch = chapitres.find(c => c.id === chapId)
-    for (const lot of ch?.lots || []) {
-      await supabase.from('devis_lignes').delete().eq('lot_id', lot.id)
-      await supabase.from('devis_lots').delete().eq('id', lot.id)
-    }
-    await supabase.from('devis_chapitres').delete().eq('id', chapId)
-    fetchAll()
-  }
-
-  function exportPDF() {
-    const content = printRef.current
-    const w = window.open('', '_blank')
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Devis - ${projet?.nom}</title>
-    <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; color: #1a1a1a; }
-    .cover { width: 100%; height: 100vh; display: flex; flex-direction: column; justify-content: space-between; padding: 60px; page-break-after: always; }
-    .logo { font-size: 52px; font-weight: 800; letter-spacing: -3px; } .cover-title { font-size: 32px; font-weight: 200; letter-spacing: 4px; text-transform: uppercase; margin-bottom: 8px; }
-    .cover-sub { font-size: 16px; color: #555; margin-bottom: 4px; } .cover-date { font-size: 13px; color: #999; margin-top: 16px; } .cover-footer { font-size: 11px; color: #aaa; }
-    .content { padding: 40px; } table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 20px; }
-    th { background: #1a1a1a; color: #fff; padding: 7px 8px; text-align: left; font-weight: 500; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; }
-    td { padding: 6px 8px; border-bottom: 0.5px solid #f0f0f0; font-size: 11px; }
-    .ch td { background: #1a1a1a; color: #fff; font-weight: 700; font-size: 12px; padding: 9px 8px; }
-    .lot td { background: #f5f5f5; font-weight: 600; font-size: 11px; } .grand td { background: #1a1a1a; color: #fff; font-weight: 700; font-size: 13px; }
-    @media print { .cover { break-after: page; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }</style>
-    </head><body>
-    <div class="cover"><div class="logo">PP</div><div><div class="cover-title">Devis</div>
-    <div class="cover-sub">${projet?.client_nom || ''}</div><div class="cover-sub" style="font-weight:600;font-size:18px">${projet?.nom || ''}</div>
-    <div class="cover-date">${new Date().toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' })}</div></div>
-    <div class="cover-footer">Partenaires Particuliers &nbsp;·&nbsp; Document confidentiel</div></div>
-    <div class="content">${content.innerHTML}</div>
-    <script>window.onload=function(){window.print()}<\/script></body></html>`)
-    w.document.close()
-  }
-
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>Chargement...</div>
-
-  const allLignes = chapitres.flatMap(c => c.lots).flatMap(l => l.lignes)
-  const totalVente = allLignes.reduce((s, l) => s + ((l.prix_vente || 0) * (l.quantite || 0)), 0)
-  const totalAchat = allLignes.reduce((s, l) => s + ((l.prix_achat || 0) * (l.quantite || 0)), 0)
-  const marge = totalVente - totalAchat
-  const pctMarge = totalVente > 0 ? Math.round((marge / totalVente) * 100) : 0
-
-  return (
-    <div style={{ padding: 24 }}>
-      {modal && <Modal title={modal === 'chapitre' ? 'Nouveau chapitre' : 'Nouveau lot'} value={modalVal} onChange={setModalVal} onClose={() => { setModal(null); setModalVal('') }} onSave={handleModalSave} />}
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-        <button onClick={() => navigate('/projets/' + id)} style={{ background: 'none', border: 'none', color: '#185FA5', cursor: 'pointer', fontSize: 13 }}>← Fiche projet</button>
-        <span style={{ color: '#ddd' }}>/</span>
-        <span style={{ fontSize: 13, color: '#888' }}>Devis</span>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div>
-          <h1 style={{ fontSize: 20, fontWeight: 500 }}>Devis — {projet?.nom}</h1>
-          <p style={{ color: '#888', fontSize: 13, marginTop: 2 }}>{projet?.client_nom || 'Aucun client'}</p>
+    return (
+      <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+          <button onClick={() => setDevisOuvert(null)}
+            style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>← Retour</button>
+          <div style={{ flex: 1 }}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{devisOuvert.titre}</h2>
+            {devisOuvert.clients?.nom && <span style={{ fontSize: 12, color: '#6B7280' }}>Client : {devisOuvert.clients.nom}</span>}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={devisOuvert.statut} onChange={e => updateStatut(devisOuvert.id, e.target.value)}
+              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13, background: STATUS_STYLE[devisOuvert.statut]?.bg, color: STATUS_STYLE[devisOuvert.statut]?.color, fontWeight: 500, cursor: 'pointer' }}>
+              {STATUTS.map(s => <option key={s}>{s}</option>)}
+            </select>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#2563EB', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+              {importing ? '⏳' : '⬆'} Importer Excel
+              <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={e => handleImport(e, devisOuvert.id)} />
+            </label>
+            <button onClick={() => generatePDF(devisOuvert)}
+              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+              ⬇ PDF
+            </button>
+            {devisOuvert.statut === 'Accepté' && (
+              <button onClick={creerProjetDepuisDevis} disabled={creatingProjet}
+                style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: '#7C3AED', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                {creatingProjet ? '⏳' : '🚀'} Créer le projet
+              </button>
+            )}
+            <button onClick={() => supprimerDevis(devisOuvert.id)}
+              style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 13 }}>
+              Supprimer
+            </button>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => { setModal('chapitre'); setModalVal('') }}
-            style={{ background: '#fff', color: '#185FA5', border: '0.5px solid #185FA5', borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
-            + Chapitre
-          </button>
-          <button onClick={exportPDF}
-            style={{ background: '#1a1a1a', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
-            Exporter PDF
-          </button>
-        </div>
-      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
-        {[
-          { label: 'Total vente HT', value: totalVente.toLocaleString('fr-FR') + ' EUR', bold: true },
-          { label: 'Total achat HT', value: totalAchat.toLocaleString('fr-FR') + ' EUR' },
-          { label: 'Marge brute', value: marge.toLocaleString('fr-FR') + ' EUR', color: marge >= 0 ? '#3B6D11' : '#A32D2D' },
-          { label: '% Marge', value: pctMarge + '%', color: pctMarge >= 15 ? '#3B6D11' : pctMarge >= 5 ? '#854F0B' : '#A32D2D' },
-        ].map(k => (
-          <div key={k.label} style={{ background: '#fff', border: '0.5px solid #e5e5e5', borderRadius: 10, padding: '12px 16px' }}>
-            <div style={{ fontSize: 11, color: '#999', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{k.label}</div>
-            <div style={{ fontSize: 18, fontWeight: k.bold ? 600 : 500, color: k.color || 'inherit' }}>{k.value}</div>
+        {importError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{importError}</div>}
+
+        {/* Cartes résumé */}
+        <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '14px 20px', flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#059669', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total HT</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#065F46', marginTop: 4 }}>{fmt(devisOuvert.montant_ht)}</div>
+          </div>
+          <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '14px 20px', flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#2563EB', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lots</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#1E40AF', marginTop: 4 }}>{lots.length}</div>
+          </div>
+          <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 20px', flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lignes</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#374151', marginTop: 4 }}>{(devisOuvert.lignes || []).filter(l => l.type === 'ligne').length}</div>
+          </div>
+        </div>
+
+        {/* Bandeau "Créer le projet" si Accepté */}
+        {devisOuvert.statut === 'Accepté' && (
+          <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 10, padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontWeight: 600, color: '#5B21B6', fontSize: 14 }}>✅ Devis accepté</div>
+              <div style={{ fontSize: 12, color: '#7C3AED', marginTop: 2 }}>Tu peux maintenant créer le projet et commencer à gérer les commandes fournisseurs.</div>
+            </div>
+            <button onClick={creerProjetDepuisDevis} disabled={creatingProjet}
+              style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#7C3AED', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, flexShrink: 0 }}>
+              {creatingProjet ? '⏳ Création...' : '🚀 Créer le projet'}
+            </button>
+          </div>
+        )}
+
+        {(devisOuvert.lignes || []).length === 0 && (
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>📄</div>
+            <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>Aucune ligne</div>
+            <div style={{ fontSize: 13 }}>Importe ton Excel pour peupler le devis</div>
+          </div>
+        )}
+
+        {lots.map(lot => (
+          <div key={lot.numero} style={{ marginBottom: 20, borderRadius: 10, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+            <div style={{ background: '#1E293B', color: '#fff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>LOT {lot.numero} — {lot.categorie}{lot.descriptif ? ' · ' + lot.descriptif : ''}</span>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>{fmt(lot.total_ht)}</span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+                  {['N°', 'Désignation', 'Unité', 'Qté', 'P.U. HT', 'Total HT', 'Coeff.', 'Achat HT'].map(h => (
+                    <th key={h} style={{ padding: '7px 10px', textAlign: h === 'Désignation' || h === 'N°' ? 'left' : 'right', color: '#6B7280', fontWeight: 500 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(lignesParLot[lot.numero] || []).map((l, i) => l.type === 'titre' ? (
+                  <tr key={i} style={{ background: '#F1F5F9' }}>
+                    <td style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
+                    <td colSpan={7} style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
+                  </tr>
+                ) : (
+                  <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                    <td style={{ padding: '7px 10px', color: '#9CA3AF', fontSize: 11 }}>{l.numero}</td>
+                    <td style={{ padding: '7px 10px', color: '#374151', maxWidth: 400, wordBreak: 'break-word' }}>{l.descriptif}</td>
+                    <td style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280' }}>{l.unite}</td>
+                    <td style={{ padding: '7px 10px', textAlign: 'right', color: '#374151' }}>{l.qte > 0 ? l.qte : '—'}</td>
+                    <td style={{ padding: '7px 10px', textAlign: 'right', color: '#374151' }}>{l.prix_unit_ht > 0 ? Number(l.prix_unit_ht).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+                    <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: l.total_ht > 0 ? '#065F46' : '#9CA3AF' }}>{l.total_ht > 0 ? Number(l.total_ht).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+                    <td style={{ padding: '7px 10px', textAlign: 'right', color: '#6B7280' }}>{l.coeff > 0 ? '×' + l.coeff : '—'}</td>
+                    <td style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB' }}>{l.total_achat > 0 ? Number(l.total_achat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ))}
       </div>
+    )
+  }
 
-      <div ref={printRef} style={{ background: '#fff', border: '0.5px solid #e5e5e5', borderRadius: 12, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
-          <thead>
-            <tr style={{ background: '#1a1a1a' }}>
-              {['N', 'Type', 'Description', 'Unite', 'Qte', 'Prix achat', 'Coef', 'Prix vente', 'Total vente', 'Fournisseur', ''].map((h, i) => (
-                <th key={i} style={{ padding: '10px 10px', textAlign: ['Prix achat', 'Prix vente', 'Total vente', 'Coef', 'Qte'].includes(h) ? 'right' : 'left', fontWeight: 500, fontSize: 10, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {chapitres.length === 0 ? (
-              <tr><td colSpan={11} style={{ padding: 40, textAlign: 'center', color: '#888' }}>Aucun chapitre. Cliquez sur "+ Chapitre" pour commencer.</td></tr>
-            ) : chapitres.map((ch, ci) => {
-              const chTotal = ch.lots.flatMap(l => l.lignes).reduce((s, l) => s + ((l.prix_vente || 0) * (l.quantite || 0)), 0)
-              return [
-                <tr key={'ch-' + ch.id} style={{ background: '#1a1a1a' }}>
-                  <td style={{ padding: '10px', color: '#fff', fontWeight: 700, fontSize: 13 }} colSpan={8}>{ci + 1}. {ch.titre}</td>
-                  <td style={{ padding: '10px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>{chTotal.toLocaleString('fr-FR')}</td>
-                  <td style={{ padding: '10px', color: '#888', fontSize: 10 }}></td>
-                  <td style={{ padding: '10px', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                      <button onClick={() => { setModal('lot'); setModalTarget(ch.id); setModalVal('') }}
-                        style={{ background: '#185FA5', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}>+ Lot</button>
-                      <button onClick={() => deleteChapitre(ch.id)} style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer', fontSize: 13 }}>✕</button>
-                    </div>
-                  </td>
-                </tr>,
-                ...ch.lots.map((lot, li) => {
-                  const lotTotal = lot.lignes.reduce((s, l) => s + ((l.prix_vente || 0) * (l.quantite || 0)), 0)
-                  return [
-                    <tr key={'lot-' + lot.id} style={{ background: '#f5f5f5' }}>
-                      <td style={{ padding: '8px 10px', color: '#888', fontSize: 11 }}>{ci + 1}.{li + 1}</td>
-                      <td colSpan={7} style={{ padding: '8px 10px', fontWeight: 600, fontStyle: 'italic' }}>{lot.titre}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>{lotTotal.toLocaleString('fr-FR')}</td>
-                      <td></td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                          <button onClick={() => addLigne(lot.id)} style={{ background: '#639922', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}>+ Ligne</button>
-                          <button onClick={() => deleteLot(lot.id)} style={{ background: 'none', border: 'none', color: '#E24B4A', cursor: 'pointer', fontSize: 13 }}>✕</button>
-                        </div>
-                      </td>
-                    </tr>,
-                    ...lot.lignes.map((lg, lgi) => (
-                      <LigneRow key={lg.id} lg={lg} index={`${ci+1}.${li+1}.${lgi+1}`} fournisseurs={fournisseurs} onSave={saveLigne} onDelete={deleteLigne} />
-                    ))
-                  ]
-                }),
-              ]
-            })}
-            {chapitres.length > 0 && (
-              <tr style={{ background: '#1a1a1a' }}>
-                <td colSpan={8} style={{ padding: '12px 10px', color: '#fff', fontWeight: 700, fontSize: 13 }}>TOTAL GENERAL HT</td>
-                <td style={{ padding: '12px 10px', textAlign: 'right', color: '#fff', fontWeight: 700, fontSize: 14 }}>{totalVente.toLocaleString('fr-FR')} EUR</td>
-                <td colSpan={2} style={{ padding: '12px 10px', textAlign: 'right', color: '#aaa', fontSize: 11 }}>Marge: {pctMarge}% · Achat: {totalAchat.toLocaleString('fr-FR')}</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+  // ── Liste devis ───────────────────────────────────────────────
+  return (
+    <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Devis</h2>
+        <button onClick={() => { setShowForm(true); setCreateError('') }}
+          style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+          + Nouveau devis
+        </button>
       </div>
+
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..."
+          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
+        <select value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)}
+          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+          <option>Tous</option>
+          {STATUTS.map(s => <option key={s}>{s}</option>)}
+        </select>
+      </div>
+
+      {showForm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Nouveau devis</h3>
+            {createError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{createError}</div>}
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Client *</label>
+            <select value={form.client_id} onChange={e => setForm(prev => ({ ...prev, client_id: e.target.value }))}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 14, cursor: 'pointer' }}>
+              <option value=''>— Sélectionner un client —</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+            </select>
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Titre *</label>
+            <input value={form.titre} onChange={e => setForm(prev => ({ ...prev, titre: e.target.value }))}
+              placeholder="Ex: Aménagement bureau 3ème étage"
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
+            <select value={form.statut} onChange={e => setForm(prev => ({ ...prev, statut: e.target.value }))}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 14, cursor: 'pointer' }}>
+              {STATUTS.map(s => <option key={s}>{s}</option>)}
+            </select>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowForm(false); setCreateError('') }}
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={creerDevis}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Créer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loading ? <div style={{ textAlign: 'center', padding: 40, color: '#9CA3AF' }}>Chargement...</div>
+        : devisFiltres.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+            <div style={{ fontSize: 15, fontWeight: 500 }}>Aucun devis</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {devisFiltres.map(d => {
+              const st = STATUS_STYLE[d.statut] || {}
+              return (
+                <div key={d.id} onClick={() => ouvrirDevis(d)}
+                  style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}
+                  onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'}
+                  onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: '#111827', marginBottom: 2 }}>{d.titre}</div>
+                    <div style={{ fontSize: 12, color: '#9CA3AF' }}>
+                      {d.clients?.nom ? '👤 ' + d.clients.nom : 'Sans client'} · {new Date(d.created_at).toLocaleDateString('fr-FR')}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: '#111827' }}>{fmt(d.montant_ht)}</div>
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: st.bg, color: st.color, fontWeight: 500 }}>{d.statut}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
     </div>
   )
 }
