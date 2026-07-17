@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: '◻' },
   { to: '/projets', label: 'Projets', icon: '📋' },
+  { to: '/tresorerie', label: 'Trésorerie', icon: '🏦' },
   { section: 'Infos & Données' },
   { to: '/clients', label: 'Clients', icon: '👤' },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },
