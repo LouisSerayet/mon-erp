@@ -17,18 +17,27 @@ export async function getBankAccounts() {
   return org.bank_accounts || []
 }
 
-export async function getTransactions(accountSlug, perPage = 25) {
-  // L'API Qonto v2 utilise bank_account_slug pour filtrer les transactions
-  try {
-    const data = await qontoFetch(`transactions?bank_account_slug=${accountSlug}&per_page=${perPage}&sort_by=settled_at:desc`)
-    return data.transactions || []
-  } catch {
+export async function getTransactions(account, perPage = 25) {
+  // Récupérer le slug depuis l'objet compte complet
+  const slug = account?.slug || account
+  
+  // Essayer tous les formats possibles de l'API Qonto
+  const attempts = [
+    `transactions?bank_account_slug=${slug}&per_page=${perPage}`,
+    `transactions?iban=${account?.iban}&per_page=${perPage}`,
+    `transactions?per_page=${perPage}`,
+  ]
+
+  for (const endpoint of attempts) {
     try {
-      // Fallback sans filtre
-      const data = await qontoFetch(`transactions?per_page=${perPage}`)
-      return data.transactions || []
+      const data = await qontoFetch(endpoint)
+      if (data.transactions && data.transactions.length > 0) {
+        return data.transactions
+      }
+      if (data.transactions) return data.transactions
     } catch {
-      return []
+      continue
     }
   }
+  return []
 }

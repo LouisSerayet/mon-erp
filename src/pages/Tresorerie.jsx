@@ -5,6 +5,7 @@ export default function Tresorerie() {
   const [accounts, setAccounts] = useState([])
   const [transactions, setTransactions] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadingTx, setLoadingTx] = useState(false)
   const [error, setError] = useState('')
   const [selectedAccount, setSelectedAccount] = useState(null)
 
@@ -18,8 +19,7 @@ export default function Tresorerie() {
       setAccounts(accs)
       if (accs.length > 0) {
         setSelectedAccount(accs[0])
-        const txs = await getTransactions(accs[0].slug)
-        setTransactions(txs)
+        await loadTx(accs[0])
       }
     } catch (err) {
       setError('Impossible de charger les données Qonto : ' + err.message)
@@ -27,15 +27,23 @@ export default function Tresorerie() {
     setLoading(false)
   }
 
-  async function loadTransactions(account) {
-    setSelectedAccount(account)
-    setTransactions([])
+  async function loadTx(account) {
+    setLoadingTx(true)
     try {
-      const txs = await getTransactions(account.slug)
+      // Passer tout l'objet compte pour avoir slug + iban disponibles
+      const txs = await getTransactions(account)
       setTransactions(txs)
     } catch (err) {
-      setError(err.message)
+      console.error('Transactions error:', err)
+      setTransactions([])
     }
+    setLoadingTx(false)
+  }
+
+  async function selectAccount(account) {
+    setSelectedAccount(account)
+    setTransactions([])
+    await loadTx(account)
   }
 
   const fmt = n => n !== undefined && n !== null
@@ -43,7 +51,6 @@ export default function Tresorerie() {
     : '—'
 
   const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
-
   const totalSolde = accounts.reduce((s, a) => s + (a.balance_cents || 0), 0)
 
   if (loading) return (
@@ -83,7 +90,7 @@ export default function Tresorerie() {
       {accounts.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 24 }}>
           {accounts.map(acc => (
-            <div key={acc.slug} onClick={() => loadTransactions(acc)}
+            <div key={acc.slug} onClick={() => selectAccount(acc)}
               style={{ background: selectedAccount?.slug === acc.slug ? '#EFF6FF' : '#fff', border: '1px solid ' + (selectedAccount?.slug === acc.slug ? '#2563EB' : '#E5E7EB'), borderRadius: 10, padding: '14px 16px', cursor: 'pointer' }}>
               <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 4 }}>{acc.name || 'Compte principal'}</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: selectedAccount?.slug === acc.slug ? '#2563EB' : '#111827' }}>{fmt(acc.balance_cents)}</div>
@@ -98,15 +105,17 @@ export default function Tresorerie() {
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', fontSize: 14, fontWeight: 600 }}>
           Dernières transactions {selectedAccount ? `— ${selectedAccount.name || 'Compte principal'}` : ''}
         </div>
-        {transactions.length === 0 ? (
+        {loadingTx ? (
+          <div style={{ padding: '30px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>⏳ Chargement...</div>
+        ) : transactions.length === 0 ? (
           <div style={{ padding: '30px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
-            Aucune transaction
+            Aucune transaction trouvée
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                {['Date', 'Libellé', 'Émetteur/Bénéficiaire', 'Montant'].map(h => (
+                {['Date', 'Libellé', 'Contrepartie', 'Montant'].map(h => (
                   <th key={h} style={{ padding: '10px 16px', textAlign: h === 'Montant' ? 'right' : 'left', color: '#6B7280', fontWeight: 500 }}>{h}</th>
                 ))}
               </tr>
@@ -122,7 +131,7 @@ export default function Tresorerie() {
                       {tx.label || tx.reference || '—'}
                     </td>
                     <td style={{ padding: '10px 16px', color: '#6B7280', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {isCredit ? tx.counterparty_name : tx.counterparty_name || '—'}
+                      {tx.counterparty_name || '—'}
                     </td>
                     <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 600, color: isCredit ? '#059669' : '#DC2626', whiteSpace: 'nowrap' }}>
                       {isCredit ? '+' : '-'}{Math.abs(montant).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
