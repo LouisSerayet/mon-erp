@@ -137,6 +137,24 @@ export default function Devis() {
       statut: 'En cours',
     }]).select().single()
     if (error) { alert('Erreur : ' + error.message); setCreatingProjet(false); return }
+
+    // Copier les lignes du devis (lots, titres, lignes + coefficients) vers le projet
+    // pour que l'onglet Rentabilité puisse calculer le prévisionnel
+    const { data: devisLignes, error: lignesFetchError } = await supabase
+      .from('devis_lignes').select('*').eq('devis_id', devisOuvert.id).order('ordre')
+    if (lignesFetchError) {
+      alert("Projet créé, mais erreur lors de la récupération des lignes du devis : " + lignesFetchError.message)
+    } else if (devisLignes && devisLignes.length > 0) {
+      const toInsert = devisLignes.map(({ id: _id, devis_id: _devisId, created_at: _createdAt, ...rest }) => ({
+        ...rest,
+        projet_id: projet.id,
+      }))
+      const { error: lignesInsertError } = await supabase.from('projet_lignes').insert(toInsert)
+      if (lignesInsertError) {
+        alert("Projet créé, mais erreur lors de la copie des lignes vers le projet : " + lignesInsertError.message)
+      }
+    }
+
     await supabase.from('devis').update({ statut: 'Accepté' }).eq('id', devisOuvert.id)
     setCreatingProjet(false)
     navigate('/projets/' + projet.id)

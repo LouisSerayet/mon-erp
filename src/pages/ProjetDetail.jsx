@@ -307,32 +307,40 @@ export default function ProjetDetail() {
   useEffect(() => { fetchAll() }, [id])
 
   function editLigne(ligneId, champ, valeur, ligne) {
+    // Mode propre à la ligne (ac / vc / av), fallback sur 'ac'
+    const modeLocal = modeLignes[ligneId] || 'ac'
     setLignesEditees(prev => {
       const current = { ...(prev[ligneId] || {}) }
       current[champ] = valeur
 
-      // Recalcul automatique selon le mode
       const qte = parseFloat(current.qte ?? ligne.qte) || 0
       const puA = parseFloat(champ === 'prix_achat_ht' ? valeur : (current.prix_achat_ht ?? ligne.prix_achat_ht)) || 0
       const puV = parseFloat(champ === 'prix_unit_ht' ? valeur : (current.prix_unit_ht ?? ligne.prix_unit_ht)) || 0
       const co = parseFloat(champ === 'coeff' ? valeur : (current.coeff ?? ligne.coeff)) || 0
 
-      if (modeCalc === 'achat_coeff') {
-        // Achat + Coeff → Vente
+      if (modeLocal === 'ac') {
+        // Achat x Coeff -> Vente
         if ((champ === 'prix_achat_ht' || champ === 'coeff') && puA > 0 && co > 0) {
           current.prix_unit_ht = (puA * co).toFixed(2)
         }
-      } else if (modeCalc === 'vente_coeff') {
-        // Vente + Coeff → Achat
+      } else if (modeLocal === 'vc') {
+        // Vente / Coeff -> Achat  (Coeff x Vente selon libellé)
         if ((champ === 'prix_unit_ht' || champ === 'coeff') && puV > 0 && co > 0) {
           current.prix_achat_ht = (puV / co).toFixed(2)
         }
-      } else if (modeCalc === 'achat_vente') {
-        // Achat + Vente → Coeff
+      } else if (modeLocal === 'av') {
+        // Vente / Achat -> Coeff
         if ((champ === 'prix_achat_ht' || champ === 'prix_unit_ht') && puA > 0 && puV > 0) {
           current.coeff = (puV / puA).toFixed(2)
         }
       }
+
+      // Recalcul systématique des totaux avec les valeurs finales
+      const finalQte = parseFloat(current.qte ?? ligne.qte) || 0
+      const finalPuV = parseFloat(current.prix_unit_ht ?? ligne.prix_unit_ht) || 0
+      const finalPuA = parseFloat(current.prix_achat_ht ?? ligne.prix_achat_ht) || 0
+      current.total_ht = finalQte * finalPuV
+      current.total_achat = finalQte * finalPuA
 
       return { ...prev, [ligneId]: current }
     })
@@ -349,6 +357,20 @@ export default function ProjetDetail() {
       return val === 0 ? '' : val
     }
     return val
+  }
+
+  // Recalcule le CA du projet (montant_ht) à partir des lots ET des lignes
+  // sans lot, pour que l'onglet Rentabilité affiche le bon prévisionnel.
+  async function syncMontantHtProjet(lignesArr) {
+    const totalVente = (lignesArr || []).reduce((s, l) => {
+      if (l.type === 'lot') return s + (l.total_ht || 0)
+      if (l.type === 'ligne' && !l.lot) return s + (l.total_ht || 0)
+      return s
+    }, 0)
+    if (totalVente > 0) {
+      await supabase.from('projets').update({ montant_ht: totalVente }).eq('id', id)
+      setProjet(prev => ({ ...prev, montant_ht: totalVente }))
+    }
   }
 
   async function ajouterLigne() {
@@ -378,6 +400,7 @@ export default function ProjetDetail() {
     if (!error) {
       const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
       setLignes(lg || [])
+      await syncMontantHtProjet(lg || [])
       setShowAddLigne(false)
       setFormLigne({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne' })
     }
@@ -389,6 +412,7 @@ export default function ProjetDetail() {
     await supabase.from('projet_lignes').delete().eq('id', ligneId)
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
     setLignes(lg || [])
+    await syncMontantHtProjet(lg || [])
   }
 
   async function saveLignes() {
@@ -433,12 +457,8 @@ export default function ProjetDetail() {
     const { data: lgFinal } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
     setLignes(lgFinal || [])
 
-    // Mettre à jour montant_ht du projet
-    const totalVenteFinal = (lgFinal || []).filter(l => l.type === 'lot').reduce((s, l) => s + (l.total_ht || 0), 0)
-    if (totalVenteFinal > 0) {
-      await supabase.from('projets').update({ montant_ht: totalVenteFinal }).eq('id', id)
-      setProjet(prev => ({ ...prev, montant_ht: totalVenteFinal }))
-    }
+    // Mettre à jour montant_ht du projet (lots + lignes sans lot)
+    await syncMontantHtProjet(lgFinal || [])
 
     setSavingLignes(false)
   }
@@ -1211,8 +1231,8 @@ export default function ProjetDetail() {
                         const puVente = parseFloat(getLigneVal(l, 'prix_unit_ht')) || 0
                         const puAchat = parseFloat(getLigneVal(l, 'prix_achat_ht')) || 0
                         const coeff = parseFloat(getLigneVal(l, 'coeff')) || 0
-                        const totalVente = isEdited ? qte * puVente : (l.total_ht || 0)
-                        const totalAchat = isEdited ? qte * puAchat : (l.total_achat || 0)
+                        const totalVente = qte * puVente
+                        const totalAchat = qte * puAchat
                         const modeLocal = modeLignes[l.id] || 'ac'
                         return (
                           <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
@@ -1334,8 +1354,8 @@ export default function ProjetDetail() {
                         const qte = parseFloat(getLigneVal(l, 'qte')) || 0
                         const puVente = parseFloat(getLigneVal(l, 'prix_unit_ht')) || 0
                         const puAchat = parseFloat(getLigneVal(l, 'prix_achat_ht')) || 0
-                        const totalVente = isEdited ? qte * puVente : (l.total_ht || 0)
-                        const totalAchat = isEdited ? qte * puAchat : (l.total_achat || 0)
+                        const totalVente = qte * puVente
+                        const totalAchat = qte * puAchat
                         return (
                           <>
                           <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
@@ -1760,13 +1780,18 @@ export default function ProjetDetail() {
 
         {/* ── RENTABILITÉ ── */}
         {tab === 'rentabilite' && (() => {
-          // CA = montant du marché (unique)
-          const ca = projet.montant_ht || 0
+          // Calculs prévisionnels depuis les LOTS + les lignes sans lot
+          // (mêmes totaux que ceux affichés dans l'onglet Lignes)
+          const lignesSansLot = (lignesParLot['sans'] || []).filter(l => l.type === 'ligne')
+          const venteLotsOnly = lots.reduce((s, l) => s + (l.total_ht || 0), 0)
+          const achatLotsOnly = lots.reduce((s, l) => s + (l.total_achat || 0), 0)
+          const venteSansLot = lignesSansLot.reduce((s, l) => s + (l.total_ht || 0), 0)
+          const achatSansLot = lignesSansLot.reduce((s, l) => s + (l.total_achat || 0), 0)
+          const venteTotalLignes = venteLotsOnly + venteSansLot
+          const achatPrevu = achatLotsOnly + achatSansLot
 
-          // Calculs prévisionnels depuis les LOTS (totaux agrégés fiables)
-          const lotsSeuls = lignes.filter(l => l.type === 'lot')
-          const lignesSeules = lignes.filter(l => l.type === 'ligne') // pour le message d'info
-          const achatPrevu = lotsSeuls.reduce((s, l) => s + (l.total_achat || 0), 0)
+          // CA = montant du marché si renseigné, sinon total vente des lignes du projet
+          const ca = projet.montant_ht || venteTotalLignes || 0
           const margePrevu = ca - achatPrevu
           const tauxMargePrevu = ca > 0 ? ((margePrevu / ca) * 100).toFixed(1) : 0
 
@@ -1858,8 +1883,8 @@ export default function ProjetDetail() {
                 </div>
               )}
 
-              {/* Info si pas de lignes */}
-              {lotsSeuls.length === 0 && (
+              {/* Info si pas de lignes du tout */}
+              {lots.length === 0 && lignesSansLot.length === 0 && (
                 <div style={{ marginTop: 12, padding: '10px 16px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 12, color: '#92400E' }}>
                   💡 Importez les lignes du projet (onglet Lignes) pour voir le prévisionnel avec coefficients
                 </div>
