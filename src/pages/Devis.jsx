@@ -5,6 +5,8 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { useNavigate } from 'react-router-dom'
 import { calculerLigne } from '../lib/calculs'
+import { enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse } from '../lib/pdfStyle'
+import { ajouterPagesCGV } from '../lib/pdfCgv'
 
 const STATUTS = ['Brouillon', 'Envoyé', 'Accepté', 'Refusé']
 const STATUS_STYLE = {
@@ -40,7 +42,7 @@ export default function Devis() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: d }, { data: c }] = await Promise.all([
-      supabase.from('devis').select('*, clients(nom)').order('created_at', { ascending: false }),
+      supabase.from('devis').select('*, clients(nom, email, telephone, adresse, rue, code_postal, ville, pays)').order('created_at', { ascending: false }),
       supabase.from('clients').select('id, nom').order('nom')
     ])
     setDevis(d || [])
@@ -282,40 +284,32 @@ export default function Devis() {
   }
 
   function generatePDF(d) {
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const lots = (d.lignes || []).filter(l => l.type === 'lot')
     const lignesParLot = (d.lignes || []).reduce((acc, l) => {
       if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
       return acc
     }, {})
     const fmtN = (n) => n > 0 ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+    const totalHt = d.montant_ht || 0
+    const totalTva = totalHt * 0.20
+    const totalTtc = totalHt + totalTva
 
-    doc.setFillColor(30, 41, 59); doc.rect(0, 0, 297, 22, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFontSize(14); doc.setFont('helvetica', 'bold')
-    doc.text(d.titre, 14, 12)
-    doc.setFontSize(8); doc.setFont('helvetica', 'normal')
-    doc.text('Date : ' + new Date(d.created_at).toLocaleDateString('fr-FR'), 240, 12)
-    if (d.clients?.nom) doc.text('Client : ' + d.clients.nom, 14, 19)
-    doc.setTextColor(30, 41, 59)
-
-    autoTable(doc, {
-      startY: 28,
-      head: [['N° Lot', 'Désignation', 'Total HT']],
-      body: lots.map(l => ['LOT ' + l.numero, (l.categorie || '') + (l.descriptif ? ' — ' + l.descriptif : ''), fmtN(l.total_ht) + ' €']),
-      foot: [['', 'TOTAL GÉNÉRAL HT', fmtN(d.montant_ht) + ' €']],
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
-      footStyles: { fillColor: [240, 253, 244], textColor: [6, 95, 70], fontStyle: 'bold' },
-      columnStyles: { 0: { cellWidth: 22 }, 2: { halign: 'right', cellWidth: 38 } },
-      margin: { left: 14, right: 14 },
+    let y = enTeteDocument(doc, { titre: 'DEVIS' })
+    y = blocMetaEtDestinataire(doc, y, {
+      metaGauche: [
+        ['N° devis :', d.titre],
+        ['Date :', new Date(d.created_at).toLocaleDateString('fr-FR')],
+        ['Validité :', '30 jours'],
+      ],
+      destinataire: d.clients ? { titre: 'Client', lignes: [d.clients.nom, ...lignesAdresse(d.clients)] } : null,
     })
 
-    let y = doc.lastAutoTable.finalY + 10
     for (const lot of lots) {
       const lignes = lignesParLot[lot.numero] || []
       if (!lignes.length) continue
-      if (y > 170) { doc.addPage(); y = 14 }
-      doc.setFillColor(30, 41, 59); doc.rect(14, y - 5, 269, 8, 'F')
+      if (y > 250) { doc.addPage(); y = 20 }
+      doc.setFillColor(30, 41, 59); doc.rect(14, y - 5, 182, 8, 'F')
       doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont('helvetica', 'bold')
       doc.text('LOT ' + lot.numero + ' — ' + (lot.categorie || '') + '   ' + fmtN(lot.total_ht) + ' €', 16, y)
       doc.setTextColor(30, 41, 59); y += 4
@@ -328,7 +322,7 @@ export default function Devis() {
         ),
         styles: { fontSize: 7, cellPadding: 1.5, overflow: 'linebreak' },
         headStyles: { fillColor: [248, 250, 252], textColor: [107, 114, 128], fontStyle: 'bold' },
-        columnStyles: { 0: { cellWidth: 14 }, 2: { cellWidth: 14, halign: 'center' }, 3: { cellWidth: 14, halign: 'right' }, 4: { cellWidth: 30, halign: 'right' }, 5: { cellWidth: 30, halign: 'right', fontStyle: 'bold' } },
+        columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 14, halign: 'center' }, 3: { cellWidth: 12, halign: 'right' }, 4: { cellWidth: 26, halign: 'right' }, 5: { cellWidth: 26, halign: 'right', fontStyle: 'bold' } },
         margin: { left: 14, right: 14 },
       })
       y = doc.lastAutoTable.finalY + 8
@@ -337,8 +331,8 @@ export default function Devis() {
     // Lignes créées manuellement sans être rattachées à un lot
     const lignesSansLot = (d.lignes || []).filter(l => (l.type === 'ligne' || l.type === 'titre') && !l.lot)
     if (lignesSansLot.length) {
-      if (y > 170) { doc.addPage(); y = 14 }
-      doc.setFillColor(55, 65, 81); doc.rect(14, y - 5, 269, 8, 'F')
+      if (y > 250) { doc.addPage(); y = 20 }
+      doc.setFillColor(55, 65, 81); doc.rect(14, y - 5, 182, 8, 'F')
       doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont('helvetica', 'bold')
       doc.text('LIGNES SANS LOT', 16, y)
       doc.setTextColor(30, 41, 59); y += 4
@@ -351,17 +345,26 @@ export default function Devis() {
         ),
         styles: { fontSize: 7, cellPadding: 1.5, overflow: 'linebreak' },
         headStyles: { fillColor: [248, 250, 252], textColor: [107, 114, 128], fontStyle: 'bold' },
-        columnStyles: { 0: { cellWidth: 14 }, 2: { cellWidth: 14, halign: 'center' }, 3: { cellWidth: 14, halign: 'right' }, 4: { cellWidth: 30, halign: 'right' }, 5: { cellWidth: 30, halign: 'right', fontStyle: 'bold' } },
+        columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 14, halign: 'center' }, 3: { cellWidth: 12, halign: 'right' }, 4: { cellWidth: 26, halign: 'right' }, 5: { cellWidth: 26, halign: 'right', fontStyle: 'bold' } },
         margin: { left: 14, right: 14 },
       })
+      y = doc.lastAutoTable.finalY + 8
     }
-    const n = doc.getNumberOfPages()
-    for (let i = 1; i <= n; i++) {
-      doc.setPage(i); doc.setFontSize(7); doc.setTextColor(156, 163, 175)
-      doc.text('Page ' + i + ' / ' + n, 283, 205, { align: 'right' })
-      doc.text(d.titre, 14, 205)
-    }
-    doc.save(d.titre.replace(/[^a-z0-9]/gi, '_') + '.pdf')
+
+    if (y > 240) { doc.addPage(); y = 20 }
+    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc })
+    if (y > 250) { doc.addPage(); y = 20 }
+    blocConditionsEtSignature(doc, y, {
+      bullets: [
+        'Devis valable 30 jours à compter de sa date d’émission.',
+        'Montants exprimés en euros HT, TVA au taux de 20 % en sus.',
+        'Conditions générales de vente jointes en annexe du présent devis.',
+      ],
+    })
+
+    ajouterPagesCGV(doc)
+    piedDePage(doc, d.titre)
+    doc.save(d.titre.replace(/[^a-z0-9]/gi, '_') + '_devis.pdf')
   }
 
   const fmt = (n) => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'

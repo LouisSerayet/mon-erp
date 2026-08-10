@@ -5,9 +5,10 @@ import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
-import { LOGO_PP_BASE64, LOGO_PP_RATIO } from '../lib/logo'
 import { useIsMobile } from '../lib/useIsMobile'
 import { calculerLigne } from '../lib/calculs'
+import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse } from '../lib/pdfStyle'
+import { ajouterPagesCGV } from '../lib/pdfCgv'
 
 const TABS = [
   { id: 'infos', label: '📋 Infos' },
@@ -90,114 +91,68 @@ export default function ProjetDetail() {
       parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
       return parts.join(',') + ' EUR'
     }
-    const fmtNR = n => {
-      if (!n || n <= 0) return '—'
-      const s = Math.round(Number(n)).toString()
-      return s.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' EUR'
-    }
     const totalHT = lotsData.reduce((s, l) => s + (l.total_ht || 0), 0)
     const totalTVA = totalHT * 0.20
     const totalTTC = totalHT + totalTVA
+    const numero = 'DEV-' + projet.nom.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase() + '-' + new Date().getFullYear()
 
     // ── PAGE 1 : PRÉSENTATION ─────────────────────────────────
-    // Fond header
-    doc.setFillColor(30, 41, 59)
-    doc.rect(0, 0, 210, 60, 'F')
-
-    // Logo / Société — logo réel sur un encart blanc arrondi (le logo est en
-    // encre noire, donc illisible posé directement sur le bandeau bleu foncé)
-    doc.setFillColor(255, 255, 255)
-    doc.roundedRect(12, 7, 24, 17, 2, 2, 'F')
-    const logoH = 13
-    const logoW = logoH * LOGO_PP_RATIO
-    doc.addImage(LOGO_PP_BASE64, 'PNG', 12 + (24 - logoW) / 2, 7 + (17 - logoH) / 2, logoW, logoH)
-    doc.setTextColor(255, 255, 255)
-    doc.setFontSize(8); doc.setFont('helvetica', 'normal')
-    doc.text('PARTENAIRES PARTICULIERS', 14, 31)
-
-    // Titre DEVIS
-    doc.setFontSize(28); doc.setFont('helvetica', 'bold')
-    doc.text('DEVIS', 210 - 14, 24, { align: 'right' })
-    doc.setFontSize(9); doc.setFont('helvetica', 'normal')
-    doc.text('N° ' + projet.nom.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase() + '-' + new Date().getFullYear(), 210 - 14, 31, { align: 'right' })
-    doc.text('Date : ' + new Date().toLocaleDateString('fr-FR'), 210 - 14, 37, { align: 'right' })
+    let y = enTeteDocument(doc, { titre: 'DEVIS' })
+    y = blocMetaEtDestinataire(doc, y, {
+      metaGauche: [
+        ['N° devis :', numero],
+        ['Date :', new Date().toLocaleDateString('fr-FR')],
+        ['Validité :', '30 jours'],
+      ],
+      destinataire: { titre: 'Client', lignes: [projet.clients?.nom, ...lignesAdresse(projet.clients)] },
+    })
 
     // Nom du projet
-    doc.setFontSize(14); doc.setFont('helvetica', 'bold')
-    doc.text(projet.nom, 14, 46)
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
+    doc.text(projet.nom, 14, y); y += 6
     if (projet.adresse_chantier) {
-      doc.setFontSize(9); doc.setFont('helvetica', 'normal')
-      doc.text(projet.adresse_chantier, 14, 53)
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
+      doc.text(projet.adresse_chantier, 14, y); y += 6
     }
-
-    doc.setTextColor(30, 41, 59)
-
-    // Bloc client
-    doc.setFillColor(248, 250, 252)
-    doc.roundedRect(14, 68, 85, 40, 3, 3, 'F')
-    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(107, 114, 128)
-    doc.text('CLIENT', 20, 76)
-    doc.setTextColor(30, 41, 59); doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
-    doc.text(projet.clients?.nom || '—', 20, 83)
-    if (projet.clients?.email) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(projet.clients.email, 20, 89) }
-    if (projet.clients?.telephone) { doc.setFontSize(8); doc.text(projet.clients.telephone, 20, 94) }
-    if (projet.clients?.adresse) { doc.setFontSize(8); doc.text(projet.clients.adresse, 20, 99) }
-
-    // Bloc montant
-    doc.setFillColor(240, 253, 244)
-    doc.roundedRect(111, 68, 85, 40, 3, 3, 'F')
-    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(107, 114, 128)
-    doc.text('MONTANT', 117, 76)
-    doc.setTextColor(6, 95, 70); doc.setFont('helvetica', 'bold'); doc.setFontSize(16)
-    doc.text(fmtNR(totalHT), 117, 86)
-    doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(107, 114, 128)
-    doc.text('HT', 117, 92)
-    doc.setFontSize(8); doc.setTextColor(30, 41, 59)
-    doc.text('TVA 20% : ' + fmtNR(totalTVA), 117, 99)
-    doc.text('TTC : ' + fmtNR(totalTTC), 117, 104)
+    y += 2
 
     // Infos projet
-    doc.setTextColor(30, 41, 59)
-    let yInfo = 118
     if (projet.date_debut || projet.date_fin_prevue) {
-      doc.setFontSize(8); doc.setFont('helvetica', 'normal')
-      if (projet.date_debut) doc.text('Début des travaux : ' + new Date(projet.date_debut).toLocaleDateString('fr-FR'), 14, yInfo)
-      if (projet.date_fin_prevue) doc.text('Fin prévisionnelle : ' + new Date(projet.date_fin_prevue).toLocaleDateString('fr-FR'), 111, yInfo)
-      yInfo += 7
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...NAVY)
+      if (projet.date_debut) doc.text('Début des travaux : ' + new Date(projet.date_debut).toLocaleDateString('fr-FR'), 14, y)
+      if (projet.date_fin_prevue) doc.text('Fin prévisionnelle : ' + new Date(projet.date_fin_prevue).toLocaleDateString('fr-FR'), 111, y)
+      y += 6
     }
     if (projet.surface) {
       doc.setFontSize(8)
-      doc.text('Surface : ' + projet.surface + ' m²', 14, yInfo)
-      yInfo += 7
+      doc.text('Surface : ' + projet.surface + ' m²', 14, y)
+      y += 6
     }
     if (projet.acces_livraison) {
       doc.setFontSize(8)
-      doc.text('Accès/Livraison : ' + projet.acces_livraison, 14, yInfo)
-      yInfo += 7
+      doc.text('Accès/Livraison : ' + projet.acces_livraison, 14, y)
+      y += 6
     }
     if (projet.notes) {
       doc.setFillColor(255, 251, 235)
-      doc.roundedRect(14, yInfo, 182, 20, 2, 2, 'F')
+      doc.roundedRect(14, y, 182, 20, 2, 2, 'F')
       doc.setFontSize(8); doc.setFont('helvetica', 'italic'); doc.setTextColor(120, 80, 0)
       const notesLines = doc.splitTextToSize(projet.notes, 174)
-      doc.text(notesLines, 18, yInfo + 7)
-      yInfo += 26
+      doc.text(notesLines, 18, y + 7)
+      y += 26
     }
+    y += 4
 
-    // Ligne de séparation décorative
-    doc.setDrawColor(229, 231, 235)
-    doc.line(14, yInfo + 4, 196, yInfo + 4)
-
-    // ── PAGE 2 : CGV (placeholder) ────────────────────────────
-    doc.addPage()
-    doc.setFillColor(248, 250, 252)
-    doc.rect(0, 0, 210, 297, 'F')
-    doc.setFillColor(30, 41, 59); doc.rect(0, 0, 210, 16, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
-    doc.text('CONDITIONS GÉNÉRALES DE VENTE', 14, 11)
-    doc.setTextColor(156, 163, 175); doc.setFontSize(9); doc.setFont('helvetica', 'italic')
-    doc.text('Les conditions générales de vente seront intégrées ici.', 14, 40)
-    doc.text('(Section à compléter)', 14, 50)
+    if (y > 220) { doc.addPage(); y = 20 }
+    y = blocTotaux(doc, y, { totalHt: totalHT, totalTva: totalTVA, totalTtc: totalTTC })
+    if (y > 250) { doc.addPage(); y = 20 }
+    blocConditionsEtSignature(doc, y, {
+      bullets: [
+        'Devis valable 30 jours à compter de sa date d’émission.',
+        'Montants exprimés en euros HT, TVA au taux de 20 % en sus.',
+        'Le détail par lot figure en annexe ; les conditions générales de vente sont jointes en fin de document.',
+      ],
+    })
 
     // ── PAGES DÉTAIL PAR LOT ─────────────────────────────────
     for (const lot of lotsData) {
@@ -261,49 +216,9 @@ export default function ProjetDetail() {
       })
     }
 
-    // ── PAGE RÉCAP FINALE ─────────────────────────────────────
-    doc.addPage()
-    doc.setFillColor(30, 41, 59); doc.rect(0, 0, 210, 16, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
-    doc.text('RÉCAPITULATIF GÉNÉRAL', 14, 11)
-    doc.setTextColor(30, 41, 59)
-
-    autoTable(doc, {
-      startY: 24,
-      head: [['N° Lot', 'Désignation', 'Total HT (€)']],
-      body: lotsData.map(l => ['LOT ' + l.numero, (l.categorie || '') + (l.descriptif ? ' — ' + l.descriptif : ''), fmtN(l.total_ht)]),
-      foot: [
-        ['', 'TOTAL HT', fmtN(totalHT)],
-        ['', 'TVA 20%', fmtN(totalTVA)],
-        ['', 'TOTAL TTC', fmtN(totalTTC)],
-      ],
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
-      footStyles: { fillColor: [240, 253, 244], textColor: [6, 95, 70], fontStyle: 'bold', fontSize: 10 },
-      columnStyles: { 0: { cellWidth: 22 }, 2: { halign: 'right', cellWidth: 40 } },
-      margin: { left: 14, right: 14 },
-    })
-
-    // Signature
-    const ySign = doc.lastAutoTable.finalY + 20
-    if (ySign < 240) {
-      doc.setDrawColor(229, 231, 235)
-      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(107, 114, 128)
-      doc.text('Bon pour accord — Signature client :', 14, ySign)
-      doc.rect(14, ySign + 4, 80, 25)
-      doc.text('Date et signature :', 120, ySign)
-      doc.rect(120, ySign + 4, 70, 25)
-    }
-
-    // Pied de page sur toutes les pages
-    const pageCount = doc.getNumberOfPages()
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i)
-      doc.setFontSize(7); doc.setTextColor(156, 163, 175)
-      doc.text('Partenaires Particuliers — ' + projet.nom, 14, 291)
-      doc.text('Page ' + i + ' / ' + pageCount, 196, 291, { align: 'right' })
-    }
-
+    // ── CONDITIONS GÉNÉRALES DE VENTE (annexe) ────────────────
+    ajouterPagesCGV(doc)
+    piedDePage(doc, projet.nom)
     doc.save(projet.nom.replace(/[^a-z0-9]/gi, '_') + '_devis.pdf')
   }
 
@@ -638,63 +553,93 @@ export default function ProjetDetail() {
 
   function generateCmdPDF(cmd) {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    // En-tête
-    doc.setFillColor(30, 41, 59); doc.rect(0, 0, 210, 28, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont('helvetica', 'bold')
-    doc.text('BON DE COMMANDE', 14, 14)
-    doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-    doc.text(cmd.numero || '', 14, 22)
-    doc.text('Date : ' + (cmd.date_commande ? new Date(cmd.date_commande).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR')), 150, 22)
-    doc.setTextColor(30, 41, 59)
 
-    // Infos projet + fournisseur
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold'); doc.text('ÉMETTEUR', 14, 38)
-    doc.setFont('helvetica', 'normal')
-    doc.text('Partenaires Particuliers', 14, 44)
-    doc.text(projet?.nom || '', 14, 49)
-    if (projet?.adresse_chantier) doc.text(projet.adresse_chantier, 14, 54)
+    let y = enTeteDocument(doc, { titre: 'BON DE COMMANDE' })
+    y = blocMetaEtDestinataire(doc, y, {
+      metaGauche: [
+        ['N° :', cmd.numero || '—'],
+        ['Date :', cmd.date_commande ? new Date(cmd.date_commande).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR')],
+        ['Projet :', projet?.nom || '—'],
+      ],
+      destinataire: { titre: 'Fournisseur', lignes: [cmd.fournisseurs?.nom, ...lignesAdresse(cmd.fournisseurs)] },
+    })
+    if (projet?.adresse_chantier) {
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
+      doc.text('Adresse chantier : ' + projet.adresse_chantier, 14, y); y += 8
+    }
 
-    doc.setFont('helvetica', 'bold'); doc.text('FOURNISSEUR', 110, 38)
-    doc.setFont('helvetica', 'normal')
-    doc.text(cmd.fournisseurs?.nom || '—', 110, 44)
-
-    // Ligne séparation
-    doc.setDrawColor(229, 231, 235); doc.line(14, 62, 196, 62)
-
-    // Description de la commande
-    doc.setFontSize(10); doc.setFont('helvetica', 'bold')
-    doc.text('OBJET DE LA COMMANDE', 14, 72)
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
+    doc.text('Objet de la commande', 14, y); y += 6
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-    const descLines = doc.splitTextToSize(cmd.description || '', 180)
-    doc.text(descLines, 14, 79)
+    const descLines = doc.splitTextToSize(cmd.description || '', 182)
+    doc.text(descLines, 14, y)
+    y += descLines.length * 5 + 6
 
-    let y = 79 + descLines.length * 5 + 8
-
-    // Tableau montant
     autoTable(doc, {
       startY: y,
       head: [['Description', 'Montant HT']],
-      body: [[cmd.description || '', (cmd.montant_ht ? Number(cmd.montant_ht).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €' : '—')]],
-      foot: [['TOTAL HT', (cmd.montant_ht ? Number(cmd.montant_ht).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €' : '—')]],
+      body: [[cmd.description || '', fmtEUR(cmd.montant_ht)]],
+      foot: [['TOTAL HT', fmtEUR(cmd.montant_ht)]],
       styles: { fontSize: 9 },
-      headStyles: { fillColor: [30, 41, 59], textColor: 255 },
+      headStyles: { fillColor: NAVY, textColor: 255 },
       footStyles: { fillColor: [240, 253, 244], textColor: [6, 95, 70], fontStyle: 'bold' },
       columnStyles: { 1: { halign: 'right', cellWidth: 40 } },
       margin: { left: 14, right: 14 },
     })
 
-    y = doc.lastAutoTable.finalY + 15
-
-    // Statut
-    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(107, 114, 128)
+    y = doc.lastAutoTable.finalY + 12
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
     doc.text('Statut : ' + (cmd.statut || ''), 14, y)
 
-    // Pied de page
-    doc.setFontSize(7); doc.setTextColor(156, 163, 175)
-    doc.text('Partenaires Particuliers — ' + (cmd.numero || ''), 14, 287)
-    doc.text('Document généré le ' + new Date().toLocaleDateString('fr-FR'), 150, 287)
+    piedDePage(doc, cmd.numero || projet?.nom || '')
+    return doc
+  }
 
+  // ── Facture client : même charte graphique que le devis, avec CGV
+  // jointes (document de vente adressé au client) et sans bloc signature.
+  function generateFactureCliPDF(f) {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const totalHt = f.montant_ht || 0
+    const totalTva = totalHt * 0.20
+    const totalTtc = totalHt + totalTva
+    const description = 'Prestations — ' + (projet?.nom || '')
+
+    let y = enTeteDocument(doc, { titre: 'FACTURE' })
+    y = blocMetaEtDestinataire(doc, y, {
+      metaGauche: [
+        ['N° facture :', f.numero || '—'],
+        ['Date :', f.date_facture ? new Date(f.date_facture).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR')],
+        ['Échéance :', f.date_echeance ? new Date(f.date_echeance).toLocaleDateString('fr-FR') : '—'],
+      ],
+      destinataire: { titre: 'Client', lignes: [projet?.clients?.nom, ...lignesAdresse(projet?.clients)] },
+    })
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Désignation', 'Montant HT']],
+      body: [[description, fmtEUR(totalHt)]],
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: NAVY, textColor: 255 },
+      columnStyles: { 1: { halign: 'right', cellWidth: 40 } },
+      margin: { left: 14, right: 14 },
+    })
+
+    y = doc.lastAutoTable.finalY + 10
+    if (y > 220) { doc.addPage(); y = 20 }
+    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc })
+    if (y > 250) { doc.addPage(); y = 20 }
+    blocConditionsEtSignature(doc, y, {
+      bullets: [
+        'Facture payable à réception, dans un délai de 30 jours date de facture (voir échéance ci-dessus), par virement bancaire.',
+        'Montants exprimés en euros HT, TVA au taux de 20 % en sus.',
+        'Tout retard de paiement entraîne l’application d’intérêts de retard et d’une indemnité forfaitaire de 40 € pour frais de recouvrement (art. L441-10 et D441-5 du Code de commerce). Aucun escompte pour paiement anticipé.',
+        'Les conditions générales de vente sont jointes en fin de document.',
+      ],
+      avecSignature: false,
+    })
+
+    ajouterPagesCGV(doc)
+    piedDePage(doc, f.numero || projet?.nom || '')
     return doc
   }
 
@@ -1997,6 +1942,8 @@ export default function ProjetDetail() {
                             <button onClick={() => saveFacCli(f)} disabled={pennylaneBusy === f.id}
                               style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>✓</button>
                           )}
+                          <button onClick={() => generateFactureCliPDF(f).save((f.numero || 'facture') + '.pdf')}
+                            title="Générer le PDF" style={{ background: 'none', border: 'none', color: '#2563EB', cursor: 'pointer', fontSize: 14 }}>📄</button>
                           <button onClick={() => supprimer('factures_cli', f.id)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}>✕</button>
                         </div>
                       </td>
