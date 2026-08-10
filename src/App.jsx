@@ -1,15 +1,32 @@
+import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { DataProvider } from './DataContext'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Projets from './pages/Projets'
-import ProjetDetail from './pages/ProjetDetail'
-import Devis from './pages/Devis'
-import Clients from './pages/Clients'
-import Fournisseurs from './pages/Fournisseurs'
-import Tresorerie from './pages/Tresorerie'
+
+// Chargement différé : chaque page n'est téléchargée que lorsqu'on y
+// accède, au lieu de tout charger d'un bloc au premier écran — utile
+// surtout sur mobile/4G où le premier chargement compte. Login reste en
+// chargement immédiat car c'est le tout premier écran vu par quelqu'un de
+// non connecté, pas la peine de lui ajouter un aller-retour réseau.
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Projets = lazy(() => import('./pages/Projets'))
+const ProjetDetail = lazy(() => import('./pages/ProjetDetail'))
+const Devis = lazy(() => import('./pages/Devis'))
+const Clients = lazy(() => import('./pages/Clients'))
+const Fournisseurs = lazy(() => import('./pages/Fournisseurs'))
+const Tresorerie = lazy(() => import('./pages/Tresorerie'))
+const Corbeille = lazy(() => import('./pages/Corbeille'))
+const Historique = lazy(() => import('./pages/Historique'))
+
+function ChargementPage() {
+  return (
+    <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF', fontFamily: 'Inter, sans-serif', fontSize: 13 }}>
+      Chargement...
+    </div>
+  )
+}
 
 function Gate() {
   const { session, loading } = useAuth()
@@ -26,18 +43,22 @@ function Gate() {
 
   return (
     <DataProvider>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<Dashboard />} />
-          <Route path="projets" element={<Projets />} />
-          <Route path="projets/:id" element={<ProjetDetail />} />
-          <Route path="devis" element={<Devis />} />
-          <Route path="clients" element={<Clients />} />
-          <Route path="fournisseurs" element={<Fournisseurs />} />
-          <Route path="tresorerie" element={<Tresorerie />} />
-        </Route>
-      </Routes>
+      <Suspense fallback={<ChargementPage />}>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="projets" element={<Projets />} />
+            <Route path="projets/:id" element={<ProjetDetail />} />
+            <Route path="devis" element={<Devis />} />
+            <Route path="clients" element={<Clients />} />
+            <Route path="fournisseurs" element={<Fournisseurs />} />
+            <Route path="tresorerie" element={<Tresorerie />} />
+            <Route path="corbeille" element={<Corbeille />} />
+            <Route path="historique" element={<Historique />} />
+          </Route>
+        </Routes>
+      </Suspense>
     </DataProvider>
   )
 }

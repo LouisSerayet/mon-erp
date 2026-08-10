@@ -12,6 +12,8 @@ const nav = [
   { section: 'Infos & Données' },
   { to: '/clients', label: 'Clients', icon: '👤' },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },
+  { to: '/corbeille', label: 'Corbeille', icon: '🗑' },
+  { to: '/historique', label: 'Historique', icon: '🕓' },
 ]
 
 // Sur mobile, seuls les 3 usages "coup d'œil rapide" ont leur propre onglet

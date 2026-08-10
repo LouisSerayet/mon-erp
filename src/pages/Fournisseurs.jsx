@@ -18,7 +18,7 @@ export default function Fournisseurs() {
 
   async function fetchFournisseurs() {
     setLoading(true)
-    const { data } = await supabase.from('fournisseurs').select('*').order('nom')
+    const { data } = await supabase.from('fournisseurs').select('*').is('deleted_at', null).order('nom')
     setFournisseurs(data || [])
     setLoading(false)
   }
@@ -28,6 +28,7 @@ export default function Fournisseurs() {
       .from('commandes')
       .select('*, projets(nom)')
       .eq('fournisseur_id', f.id)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
     setCommandes(data || [])
     setFournisseurOuvert(f)
@@ -44,9 +45,11 @@ export default function Fournisseurs() {
   }
 
   async function supprimerFournisseur(id) {
-    if (!confirm('Supprimer ce fournisseur ?')) return
-    const { error } = await supabase.from('fournisseurs').delete().eq('id', id)
-    if (error) { alert('Erreur lors de la suppression : ' + error.message + (error.message.includes('foreign key') ? '\n\nCe fournisseur a probablement des commandes/factures liées — supprime-les d\'abord.' : '')); return }
+    if (!confirm('Déplacer ce fournisseur vers la corbeille ? Tu pourras le restaurer depuis la Corbeille pendant 30 jours.')) return
+    // Suppression douce (deleted_at) au lieu d'un DELETE définitif — voir
+    // sql/06_corbeille_soft_delete.sql et la page Corbeille.
+    const { error } = await supabase.from('fournisseurs').update({ deleted_at: new Date().toISOString() }).eq('id', id)
+    if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
     setFournisseurOuvert(null)
     fetchFournisseurs()
   }

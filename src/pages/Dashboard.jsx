@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
-import { useIsMobile } from '../lib/useIsMobile'
+import { calculerMarge } from '../lib/calculs'
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
@@ -11,17 +11,16 @@ export default function Dashboard() {
   const [facturesCliAEncaisser, setFacturesCliAEncaisser] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
-  const isMobile = useIsMobile()
 
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
     setLoading(true)
     const [{ data: p }, { data: cmd }, { data: ffrs }, { data: fcli }] = await Promise.all([
-      supabase.from('projets').select('*, clients(nom)').order('created_at', { ascending: false }),
-      supabase.from('commandes').select('*, projets(nom), fournisseurs(nom)').in('statut', ['En attente', 'Envoyée']).order('created_at', { ascending: false }),
-      supabase.from('factures_frs').select('*, projets(nom), fournisseurs(nom)').eq('statut', 'À payer').order('date_echeance', { ascending: true }),
-      supabase.from('factures_cli').select('*, projets(nom)').in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
+      supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
+      supabase.from('commandes').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).in('statut', ['En attente', 'Envoyée']).order('created_at', { ascending: false }),
+      supabase.from('factures_frs').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
+      supabase.from('factures_cli').select('*, projets(nom)').is('deleted_at', null).in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
     ])
 
     const projetsData = p || []
@@ -44,11 +43,13 @@ export default function Dashboard() {
     // périmètre que le CA ci-dessus), en excluant les commandes annulées —
     // sinon une commande annulée puis remplacée était comptée deux fois.
     const idsProjetsEnCours = new Set(projetsEnCours.map(p => p.id))
-    const { data: allCmd } = await supabase.from('commandes').select('montant_ht, statut, projet_id')
+    const { data: allCmd } = await supabase.from('commandes').select('montant_ht, statut, projet_id').is('deleted_at', null)
     const totalCmdEnCours = (allCmd || [])
       .filter(c => c.statut !== 'Annulée' && idsProjetsEnCours.has(c.projet_id))
       .reduce((s, c) => s + (c.montant_ht || 0), 0)
-    const margeGlobale = totalCA - totalCmdEnCours
+    // Formule centralisée dans lib/calculs.js (calculerMarge) pour rester
+    // identique à celle utilisée dans l'onglet Rentabilité d'un projet.
+    const { marge: margeGlobale, taux: tauxMargeGlobale } = calculerMarge(totalCA, totalCmdEnCours)
 
     // "Commandes en attente" (carte + total affiché) : même périmètre que la
     // liste réellement montrée juste en dessous (statuts En attente/Envoyée),
@@ -67,7 +68,7 @@ export default function Dashboard() {
       nbFfrsEnRetard: ffrsEnRetard.length,
       nbFcliEnRetard: fcliEnRetard.length,
       margeGlobale,
-      tauxMarge: totalCA > 0 ? ((margeGlobale / totalCA) * 100).toFixed(1) : 0,
+      tauxMarge: tauxMargeGlobale,
     })
     setProjets(projetsData.filter(p => p.statut !== 'Clôturé').slice(0, 6))
     setCmdEnAttente(cmdData.slice(0, 5))
@@ -88,7 +89,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
+    <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Tableau de bord</h1>
@@ -107,7 +108,7 @@ export default function Dashboard() {
       )}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Projets actifs', value: stats.nbEnCours + stats.nbFinalisation, sub: stats.nbEnCours + ' en cours · ' + stats.nbFinalisation + ' finalisation', color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' },
           { label: 'CA total HT', value: fmt(stats.totalCA), sub: stats.nbProjets + ' projets au total', color: '#059669', bg: '#F0FDF4', border: '#BBF7D0' },
@@ -122,7 +123,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
 
         {/* Projets en cours */}
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
@@ -186,7 +187,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
         {/* Factures frs à payer */}
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>

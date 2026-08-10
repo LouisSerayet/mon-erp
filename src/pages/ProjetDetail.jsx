@@ -7,6 +7,7 @@ import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
 import { LOGO_PP_BASE64, LOGO_PP_RATIO } from '../lib/logo'
 import { useIsMobile } from '../lib/useIsMobile'
+import { calculerLigne } from '../lib/calculs'
 
 const TABS = [
   { id: 'infos', label: '📋 Infos' },
@@ -321,37 +322,9 @@ export default function ProjetDetail() {
     // Mode propre à la ligne (ac / vc / av), fallback sur 'ac'
     const modeLocal = modeLignes[ligneId] || 'ac'
     setLignesEditees(prev => {
-      const current = { ...(prev[ligneId] || {}) }
-      current[champ] = valeur
-
-      const puA = parseFloat(champ === 'prix_achat_ht' ? valeur : (current.prix_achat_ht ?? ligne.prix_achat_ht)) || 0
-      const puV = parseFloat(champ === 'prix_unit_ht' ? valeur : (current.prix_unit_ht ?? ligne.prix_unit_ht)) || 0
-      const co = parseFloat(champ === 'coeff' ? valeur : (current.coeff ?? ligne.coeff)) || 0
-
-      if (modeLocal === 'ac') {
-        // Achat x Coeff -> Vente
-        if ((champ === 'prix_achat_ht' || champ === 'coeff') && puA > 0 && co > 0) {
-          current.prix_unit_ht = (puA * co).toFixed(2)
-        }
-      } else if (modeLocal === 'vc') {
-        // Vente / Coeff -> Achat  (Coeff x Vente selon libellé)
-        if ((champ === 'prix_unit_ht' || champ === 'coeff') && puV > 0 && co > 0) {
-          current.prix_achat_ht = (puV / co).toFixed(2)
-        }
-      } else if (modeLocal === 'av') {
-        // Vente / Achat -> Coeff
-        if ((champ === 'prix_achat_ht' || champ === 'prix_unit_ht') && puA > 0 && puV > 0) {
-          current.coeff = (puV / puA).toFixed(2)
-        }
-      }
-
-      // Recalcul systématique des totaux avec les valeurs finales
-      const finalQte = parseFloat(current.qte ?? ligne.qte) || 0
-      const finalPuV = parseFloat(current.prix_unit_ht ?? ligne.prix_unit_ht) || 0
-      const finalPuA = parseFloat(current.prix_achat_ht ?? ligne.prix_achat_ht) || 0
-      current.total_ht = finalQte * finalPuV
-      current.total_achat = finalQte * finalPuA
-
+      // Logique de calcul extraite dans lib/calculs.js (calculerLigne) pour
+      // être testable indépendamment de React — voir calculs.test.js.
+      const current = calculerLigne({ modeLocal, champ, valeur, current: prev[ligneId] || {}, ligne })
       return { ...prev, [ligneId]: current }
     })
   }
@@ -412,7 +385,7 @@ export default function ProjetDetail() {
       ordre: maxOrdre + 1,
     }])
     if (!error) {
-      const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
+      const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
       setLignes(lg || [])
       await syncMontantHtProjet(lg || [])
       setShowAddLigne(false)
@@ -422,10 +395,10 @@ export default function ProjetDetail() {
   }
 
   async function supprimerLigne(ligneId) {
-    if (!confirm('Supprimer cette ligne ?')) return
-    const { error } = await supabase.from('projet_lignes').delete().eq('id', ligneId)
+    if (!confirm('Supprimer cette ligne ? (récupérable depuis la Corbeille)')) return
+    const { error } = await supabase.from('projet_lignes').update({ deleted_at: new Date().toISOString() }).eq('id', ligneId)
     if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
-    const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
+    const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
     setLignes(lg || [])
     await syncMontantHtProjet(lg || [])
   }
@@ -464,7 +437,7 @@ export default function ProjetDetail() {
       return n
     })
     if (echecs.length) alert('Erreur : certaines lignes n\'ont pas pu être enregistrées (' + echecs.join(', ') + ').')
-    const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
+    const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
     const lgData = lg || []
     setLignes(lgData)
 
@@ -479,7 +452,7 @@ export default function ProjetDetail() {
     }
 
     // Recharger avec les lots mis à jour
-    const { data: lgFinal } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
+    const { data: lgFinal } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
     setLignes(lgFinal || [])
 
     // Mettre à jour montant_ht du projet (lots + lignes sans lot)
@@ -492,11 +465,11 @@ export default function ProjetDetail() {
     setLoading(true)
     const [{ data: p }, { data: f }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }] = await Promise.all([
       supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id)').eq('id', id).single(),
-      supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id').order('nom'),
-      supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).order('created_at', { ascending: false }),
-      supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false }),
-      supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false }),
-      supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre'),
+      supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id').is('deleted_at', null).order('nom'),
+      supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
+      supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
+      supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
+      supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre'),
     ])
     setProjet(p)
     setFournisseurs(f || [])
@@ -599,7 +572,7 @@ export default function ProjetDetail() {
         await supabase.from('projets').update({ montant_ht: totalGeneral }).eq('id', id)
         setProjet(prev => ({ ...prev, montant_ht: totalGeneral }))
       }
-      const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
+      const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
       setLignes(lg || [])
     } catch (err) { setImportError("Erreur import : " + err.message) }
     setImporting(false); e.target.value = ''
@@ -635,7 +608,7 @@ export default function ProjetDetail() {
     if (error) { setError(error.message); return }
     setShowForm(false)
     setFormCmd({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'En attente', date_commande: '' })
-    const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).order('created_at', { ascending: false })
+    const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setCommandes(data || [])
   }
 
@@ -650,7 +623,7 @@ export default function ProjetDetail() {
     const { error } = await supabase.from('commandes').update(payload).eq('id', cmdId)
     if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setCmdEditees(prev => { const n = { ...prev }; delete n[cmdId]; return n })
-    const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).order('created_at', { ascending: false })
+    const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setCommandes(data || [])
   }
 
@@ -743,7 +716,7 @@ export default function ProjetDetail() {
     }
 
     setShowForm(false); setFormFfrs({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' }); setFileFfrs(null)
-    const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
+    const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesFrs(data || [])
   }
 
@@ -753,7 +726,7 @@ export default function ProjetDetail() {
     try {
       if (!projet.clients) throw new Error('Ce projet n\'a pas de client associé.')
       await pushFactureClientPennylane(facture, projet.clients, projet.nom)
-      const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false })
+      const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
       setFacturesCli(data || [])
     } catch (err) {
       setPennylaneError(err.message)
@@ -765,7 +738,7 @@ export default function ProjetDetail() {
     setPennylaneError(''); setPennylaneBusy(facture.id)
     try {
       await syncFactureClientStatut(facture)
-      const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false })
+      const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
       setFacturesCli(data || [])
     } catch (err) {
       setPennylaneError(err.message)
@@ -782,7 +755,7 @@ export default function ProjetDetail() {
       if (dlErr) throw new Error('Impossible de récupérer le PDF : ' + dlErr.message)
       const file = new File([blob], facture.fichier_path.split('/').pop(), { type: 'application/pdf' })
       await pushFactureFrsPennylane(facture, facture.fournisseurs, file)
-      const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
+      const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
       setFacturesFrs(data || [])
     } catch (err) {
       setPennylaneError(err.message)
@@ -794,7 +767,7 @@ export default function ProjetDetail() {
     setPennylaneError(''); setPennylaneBusy(facture.id)
     try {
       await syncFactureFrsStatut(facture)
-      const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
+      const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
       setFacturesFrs(data || [])
     } catch (err) {
       setPennylaneError(err.message)
@@ -804,11 +777,16 @@ export default function ProjetDetail() {
 
   async function ajouterFactureCli() {
     setError('')
-    if (!formFcli.numero.trim()) { setError('Le numéro est obligatoire.'); return }
-    const { error } = await supabase.from('factures_cli').insert([{ ...formFcli, projet_id: id, client_id: projet?.client_id || null, montant_ht: parseFloat(formFcli.montant_ht) || 0 }])
+    // Le numéro n'est plus saisi à la main : la loi impose une suite
+    // séquentielle et non modifiable pour les factures émises, donc il est
+    // généré côté base de données (fonction next_facture_numero(), voir
+    // sql/05_numerotation_factures.sql) au moment de la création.
+    const { data: numeroGenere, error: errNumero } = await supabase.rpc('next_facture_numero')
+    if (errNumero) { setError('Impossible de générer le numéro de facture : ' + errNumero.message); return }
+    const { error } = await supabase.from('factures_cli').insert([{ ...formFcli, numero: numeroGenere, projet_id: id, client_id: projet?.client_id || null, montant_ht: parseFloat(formFcli.montant_ht) || 0 }])
     if (error) { setError(error.message); return }
     setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' })
-    const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false })
+    const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
   }
 
@@ -830,14 +808,14 @@ export default function ProjetDetail() {
     const { error } = await supabase.from('factures_cli').update(payload).eq('id', facture.id)
     if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setFacCliEditees(prev => { const n = { ...prev }; delete n[facture.id]; return n })
-    const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false })
+    const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
 
     if (facture.pennylane_invoice_id) {
       setPennylaneError(''); setPennylaneBusy(facture.id)
       try {
         await updateFactureClientPennylane({ ...facture, ...payload }, projet.nom)
-        const { data: refreshed } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false })
+        const { data: refreshed } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
         setFacturesCli(refreshed || [])
       } catch (err) {
         setPennylaneError('Mise à jour locale OK, mais échec de la synchro Pennylane : ' + err.message)
@@ -861,14 +839,14 @@ export default function ProjetDetail() {
     const { error } = await supabase.from('factures_frs').update(payload).eq('id', facture.id)
     if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setFacFrsEditees(prev => { const n = { ...prev }; delete n[facture.id]; return n })
-    const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
+    const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesFrs(data || [])
 
     if (facture.pennylane_invoice_id) {
       setPennylaneError(''); setPennylaneBusy(facture.id)
       try {
         await updateFactureFrsPennylane({ ...facture, ...payload })
-        const { data: refreshed } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
+        const { data: refreshed } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
         setFacturesFrs(refreshed || [])
       } catch (err) {
         setPennylaneError('Mise à jour locale OK, mais échec de la synchro Pennylane : ' + err.message)
@@ -878,12 +856,12 @@ export default function ProjetDetail() {
   }
 
   async function supprimer(table, itemId) {
-    if (!confirm('Supprimer ?')) return
-    const { error } = await supabase.from(table).delete().eq('id', itemId)
+    if (!confirm('Supprimer ? (récupérable depuis la Corbeille)')) return
+    const { error } = await supabase.from(table).update({ deleted_at: new Date().toISOString() }).eq('id', itemId)
     if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
-    if (table === 'commandes') { const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).order('created_at', { ascending: false }); setCommandes(data || []) }
-    if (table === 'factures_frs') { const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false }); setFacturesFrs(data || []) }
-    if (table === 'factures_cli') { const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false }); setFacturesCli(data || []) }
+    if (table === 'commandes') { const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }); setCommandes(data || []) }
+    if (table === 'factures_frs') { const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }); setFacturesFrs(data || []) }
+    if (table === 'factures_cli') { const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }); setFacturesCli(data || []) }
   }
 
   const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
@@ -1937,9 +1915,10 @@ export default function ProjetDetail() {
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle facture client</h4>
                 {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° facture *</label>
-                    <input value={formFcli.numero} onChange={e => setFormFcli(p => ({ ...p, numero: e.target.value }))} placeholder="FACT-2026-001"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
+                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° facture</label>
+                    <div style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px dashed #E5E7EB', fontSize: 13, boxSizing: 'border-box', color: '#9CA3AF', fontStyle: 'italic' }}>
+                      Généré automatiquement à la création
+                    </div></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
                     <input type="number" value={formFcli.montant_ht} onChange={e => setFormFcli(p => ({ ...p, montant_ht: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
@@ -1978,8 +1957,8 @@ export default function ProjetDetail() {
                     const inStyle = { padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #BBF7D0' : '1px solid transparent', fontSize: 12, background: isEdited ? '#F0FDF4' : 'transparent', boxSizing: 'border-box', width: '100%' }
                     return (
                     <tr key={f.id} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                      <td style={{ padding: '8px 14px', fontWeight: 500 }}>
-                        <input value={getFacCliVal(f, 'numero')} onChange={e => editFacCli(f.id, 'numero', e.target.value)} style={{ ...inStyle, width: 110, fontWeight: 600 }} />
+                      <td style={{ padding: '8px 14px', fontWeight: 600, color: '#111827' }} title="Numéro non modifiable (obligation légale de numérotation séquentielle)">
+                        {f.numero}
                       </td>
                       <td style={{ padding: '8px 14px', color: '#9CA3AF' }}>
                         <input type="date" value={getFacCliVal(f, 'date_facture')} onChange={e => editFacCli(f.id, 'date_facture', e.target.value)} style={{ ...inStyle, width: 130 }} />

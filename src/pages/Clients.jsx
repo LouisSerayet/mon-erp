@@ -19,13 +19,13 @@ export default function Clients() {
 
   async function fetchClients() {
     setLoading(true)
-    const { data } = await supabase.from('clients').select('*').order('nom')
+    const { data } = await supabase.from('clients').select('*').is('deleted_at', null).order('nom')
     setClients(data || [])
     setLoading(false)
   }
 
   async function ouvrirClient(c) {
-    const { data: p } = await supabase.from('projets').select('*').eq('client_id', c.id).order('created_at', { ascending: false })
+    const { data: p } = await supabase.from('projets').select('*').eq('client_id', c.id).is('deleted_at', null).order('created_at', { ascending: false })
     setProjets(p || [])
     setClientOuvert(c)
     setEditMode(false)
@@ -51,9 +51,11 @@ export default function Clients() {
   }
 
   async function supprimerClient(id) {
-    if (!confirm('Supprimer ce client ?')) return
-    const { error } = await supabase.from('clients').delete().eq('id', id)
-    if (error) { alert('Erreur lors de la suppression : ' + error.message + (error.message.includes('foreign key') ? '\n\nCe client a probablement des projets liés — supprime ou réattribue-les d\'abord.' : '')); return }
+    if (!confirm('Déplacer ce client vers la corbeille ? Tu pourras le restaurer depuis la Corbeille pendant 30 jours.')) return
+    // Suppression douce (deleted_at) au lieu d'un DELETE définitif — voir
+    // sql/06_corbeille_soft_delete.sql et la page Corbeille.
+    const { error } = await supabase.from('clients').update({ deleted_at: new Date().toISOString() }).eq('id', id)
+    if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
     setClientOuvert(null)
     fetchClients()
   }

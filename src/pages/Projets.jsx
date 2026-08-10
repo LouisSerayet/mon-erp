@@ -29,8 +29,8 @@ export default function Projets() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: p }, { data: c }] = await Promise.all([
-      supabase.from('projets').select('*, clients(nom)').order('created_at', { ascending: false }),
-      supabase.from('clients').select('id, nom').order('nom')
+      supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
+      supabase.from('clients').select('id, nom').is('deleted_at', null).order('nom')
     ])
     setProjets(p || [])
     setClients(c || [])
@@ -60,11 +60,13 @@ export default function Projets() {
 
   async function supprimerProjet(e, id) {
     e.stopPropagation()
-    if (!confirm('Supprimer ce projet et toutes ses données ?')) return
-    // Suppression en cascade, dans l'ordre enfants -> parent. On vérifie
-    // l'erreur à chaque étape et on s'arrête immédiatement en cas d'échec,
-    // pour ne jamais supprimer le projet parent alors que des données
-    // enfants n'ont pas pu être nettoyées (ou l'inverse).
+    if (!confirm('Déplacer ce projet et toutes ses données vers la corbeille ? Tu pourras tout restaurer depuis la Corbeille pendant 30 jours.')) return
+    // Suppression douce (deleted_at) en cascade, enfants puis parent, au
+    // lieu d'un DELETE définitif — voir sql/06_corbeille_soft_delete.sql.
+    // On vérifie l'erreur à chaque étape et on s'arrête immédiatement en
+    // cas d'échec, pour ne jamais marquer le projet supprimé alors que des
+    // données enfants n'ont pas pu être mises à jour (ou l'inverse).
+    const maintenant = new Date().toISOString()
     const etapes = [
       ['projet_lignes', 'projet_id'],
       ['commandes', 'projet_id'],
@@ -73,7 +75,7 @@ export default function Projets() {
       ['projets', 'id'],
     ]
     for (const [table, colonne] of etapes) {
-      const { error } = await supabase.from(table).delete().eq(colonne, id)
+      const { error } = await supabase.from(table).update({ deleted_at: maintenant }).eq(colonne, id)
       if (error) {
         alert('Erreur lors de la suppression (' + table + ') : ' + error.message + '\n\nLa suppression a été interrompue — vérifie l\'état du projet avant de réessayer.')
         fetchAll()

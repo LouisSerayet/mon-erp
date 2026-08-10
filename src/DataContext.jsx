@@ -11,9 +11,9 @@ export function DataProvider({ children }) {
 
   const refresh = useCallback(async () => {
     const [{ data: c }, { data: f }, { data: p }] = await Promise.all([
-      supabase.from('clients').select('*').order('nom'),
-      supabase.from('fournisseurs').select('*').order('nom'),
-      supabase.from('projets').select('*, clients(nom)').order('created_at', { ascending: false }),
+      supabase.from('clients').select('*').is('deleted_at', null).order('nom'),
+      supabase.from('fournisseurs').select('*').is('deleted_at', null).order('nom'),
+      supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
     ])
     setClients(c || [])
     setFournisseurs(f || [])
