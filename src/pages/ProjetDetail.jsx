@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut } from '../lib/usePennylane'
 
 const TABS = [
   { id: 'infos', label: '📋 Infos' },
@@ -54,6 +55,9 @@ export default function ProjetDetail() {
   const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'En attente', date_commande: '' })
   const [formFfrs, setFormFfrs] = useState({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' })
   const [formFcli, setFormFcli] = useState({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' })
+  const [fileFfrs, setFileFfrs] = useState(null) // PDF sélectionné pour la nouvelle facture fournisseur
+  const [pennylaneBusy, setPennylaneBusy] = useState(null) // id de la facture en cours de synchro
+  const [pennylaneError, setPennylaneError] = useState('')
   const [lignesEditees, setLignesEditees] = useState({}) // { [id]: {champ: valeur} }
   const [savingLignes, setSavingLignes] = useState(false)
   const [lotsReduits, setLotsReduits] = useState({}) // { [lotNumero]: true/false }
@@ -466,10 +470,10 @@ export default function ProjetDetail() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: p }, { data: f }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }] = await Promise.all([
-      supabase.from('projets').select('*, clients(nom, email, telephone, adresse)').eq('id', id).single(),
-      supabase.from('fournisseurs').select('id, nom').order('nom'),
+      supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id)').eq('id', id).single(),
+      supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id').order('nom'),
       supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).order('created_at', { ascending: false }),
-      supabase.from('factures_frs').select('*, fournisseurs(nom), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false }),
+      supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false }),
       supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false }),
       supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre'),
     ])
@@ -699,11 +703,78 @@ export default function ProjetDetail() {
   async function ajouterFactureFrs() {
     setError('')
     if (!formFfrs.numero.trim()) { setError('Le numéro est obligatoire.'); return }
-    const { error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null }])
+    const { data: inserted, error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null }]).select().single()
     if (error) { setError(error.message); return }
-    setShowForm(false); setFormFfrs({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' })
-    const { data } = await supabase.from('factures_frs').select('*, fournisseurs(nom), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
+
+    // Si un PDF a été joint, on l'archive dans le stockage du projet — ce
+    // fichier servira aussi de justificatif lors de l'envoi vers Pennylane.
+    if (fileFfrs && inserted) {
+      const fileName = 'facture_' + inserted.id + '_' + fileFfrs.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = 'projets/' + id + '/factures_frs/' + fileName
+      const { error: uploadErr } = await supabase.storage.from('documents').upload(path, fileFfrs)
+      if (!uploadErr) {
+        await supabase.from('factures_frs').update({ fichier_path: path }).eq('id', inserted.id)
+      }
+    }
+
+    setShowForm(false); setFormFfrs({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' }); setFileFfrs(null)
+    const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
     setFacturesFrs(data || [])
+  }
+
+  // ── Pennylane : envoi / synchro des factures ──────────────────
+  async function envoyerFactureCliVersPennylane(facture) {
+    setPennylaneError(''); setPennylaneBusy(facture.id)
+    try {
+      if (!projet.clients) throw new Error('Ce projet n\'a pas de client associé.')
+      await pushFactureClientPennylane(facture, projet.clients, projet.nom)
+      const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false })
+      setFacturesCli(data || [])
+    } catch (err) {
+      setPennylaneError(err.message)
+    }
+    setPennylaneBusy(null)
+  }
+
+  async function actualiserFactureCliPennylane(facture) {
+    setPennylaneError(''); setPennylaneBusy(facture.id)
+    try {
+      await syncFactureClientStatut(facture)
+      const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false })
+      setFacturesCli(data || [])
+    } catch (err) {
+      setPennylaneError(err.message)
+    }
+    setPennylaneBusy(null)
+  }
+
+  async function envoyerFactureFrsVersPennylane(facture) {
+    setPennylaneError(''); setPennylaneBusy(facture.id)
+    try {
+      if (!facture.fournisseurs) throw new Error('Cette facture n\'a pas de fournisseur associé.')
+      if (!facture.fichier_path) throw new Error('Aucun PDF joint à cette facture — supprime-la et recrée-la avec le fichier, ou ajoute cette fonctionnalité de complément.')
+      const { data: blob, error: dlErr } = await supabase.storage.from('documents').download(facture.fichier_path)
+      if (dlErr) throw new Error('Impossible de récupérer le PDF : ' + dlErr.message)
+      const file = new File([blob], facture.fichier_path.split('/').pop(), { type: 'application/pdf' })
+      await pushFactureFrsPennylane(facture, facture.fournisseurs, file)
+      const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
+      setFacturesFrs(data || [])
+    } catch (err) {
+      setPennylaneError(err.message)
+    }
+    setPennylaneBusy(null)
+  }
+
+  async function actualiserFactureFrsPennylane(facture) {
+    setPennylaneError(''); setPennylaneBusy(facture.id)
+    try {
+      await syncFactureFrsStatut(facture)
+      const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
+      setFacturesFrs(data || [])
+    } catch (err) {
+      setPennylaneError(err.message)
+    }
+    setPennylaneBusy(null)
   }
 
   async function ajouterFactureCli() {
@@ -720,7 +791,7 @@ export default function ProjetDetail() {
     if (!confirm('Supprimer ?')) return
     await supabase.from(table).delete().eq('id', itemId)
     if (table === 'commandes') { const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).order('created_at', { ascending: false }); setCommandes(data || []) }
-    if (table === 'factures_frs') { const { data } = await supabase.from('factures_frs').select('*, fournisseurs(nom), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false }); setFacturesFrs(data || []) }
+    if (table === 'factures_frs') { const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false }); setFacturesFrs(data || []) }
     if (table === 'factures_cli') { const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false }); setFacturesCli(data || []) }
   }
 
@@ -1678,13 +1749,19 @@ export default function ProjetDetail() {
                     <select value={formFfrs.statut} onChange={e => setFormFfrs(p => ({ ...p, statut: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
                       {STATUTS_FFRS.map(s => <option key={s}>{s}</option>)}</select></div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>PDF de la facture (reçu du fournisseur — requis pour l'envoi vers Pennylane)</label>
+                    <input type="file" accept="application/pdf" onChange={e => setFileFfrs(e.target.files[0] || null)}
+                      style={{ width: '100%', fontSize: 13 }} />
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => { setShowForm(false); setError('') }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                  <button onClick={() => { setShowForm(false); setError(''); setFileFfrs(null) }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
                   <button onClick={ajouterFactureFrs} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Ajouter</button>
                 </div>
               </div>
             )}
+            {pennylaneError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ Pennylane : {pennylaneError}</div>}
             {facturesFrs.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>📄</div><div style={{ fontSize: 14, fontWeight: 500 }}>Aucune facture fournisseur</div>
@@ -1692,7 +1769,7 @@ export default function ProjetDetail() {
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: 12, overflow: 'hidden', border: '1px solid #E5E7EB', fontSize: 13 }}>
                 <thead><tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                  {['N°', 'Fournisseur', 'Commande', 'Date', 'Échéance', 'Montant HT', 'Statut', ''].map(h => (
+                  {['N°', 'Fournisseur', 'Commande', 'Date', 'Échéance', 'Montant HT', 'Statut', 'Pennylane', ''].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500 }}>{h}</th>
                   ))}
                 </tr></thead>
@@ -1706,6 +1783,22 @@ export default function ProjetDetail() {
                       <td style={{ padding: '10px 14px', color: f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date() ? '#DC2626' : '#9CA3AF', fontWeight: f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date() ? 600 : 400 }}>{fmtDate(f.date_echeance)}</td>
                       <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600 }}>{fmt(f.montant_ht)}</td>
                       <td style={{ padding: '10px 14px' }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: f.statut === 'Payée' ? '#ECFDF5' : '#FFF7ED', color: f.statut === 'Payée' ? '#059669' : '#EA580C', fontWeight: 500 }}>{f.statut}</span></td>
+                      <td style={{ padding: '10px 14px' }}>
+                        {f.pennylane_invoice_id ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#F5F3FF', color: '#7C3AED', fontWeight: 500 }}>{f.pennylane_statut || 'Envoyée'}</span>
+                            <button onClick={() => actualiserFactureFrsPennylane(f)} disabled={pennylaneBusy === f.id}
+                              style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #DDD6FE', background: '#fff', color: '#7C3AED', cursor: 'pointer', fontSize: 11 }}>
+                              {pennylaneBusy === f.id ? '⏳' : '↻'}
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => envoyerFactureFrsVersPennylane(f)} disabled={pennylaneBusy === f.id}
+                            style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #FED7AA', background: '#FFF7ED', color: '#EA580C', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>
+                            {pennylaneBusy === f.id ? '⏳ Envoi...' : '↗ Envoyer'}
+                          </button>
+                        )}
+                      </td>
                       <td style={{ padding: '10px 14px' }}><button onClick={() => supprimer('factures_frs', f.id)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}>✕</button></td>
                     </tr>
                   ))}
@@ -1750,6 +1843,7 @@ export default function ProjetDetail() {
                 </div>
               </div>
             )}
+            {pennylaneError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ Pennylane : {pennylaneError}</div>}
             {facturesCli.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>💶</div><div style={{ fontSize: 14, fontWeight: 500 }}>Aucune facture client</div>
@@ -1757,7 +1851,7 @@ export default function ProjetDetail() {
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: 12, overflow: 'hidden', border: '1px solid #E5E7EB', fontSize: 13 }}>
                 <thead><tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                  {['N°', 'Date', 'Échéance', 'Montant HT', 'Statut', ''].map(h => (
+                  {['N°', 'Date', 'Échéance', 'Montant HT', 'Statut', 'Pennylane', ''].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500 }}>{h}</th>
                   ))}
                 </tr></thead>
@@ -1769,6 +1863,22 @@ export default function ProjetDetail() {
                       <td style={{ padding: '10px 14px', color: '#9CA3AF' }}>{fmtDate(f.date_echeance)}</td>
                       <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: '#059669' }}>{fmt(f.montant_ht)}</td>
                       <td style={{ padding: '10px 14px' }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: f.statut === 'Payée' ? '#ECFDF5' : f.statut === 'Envoyée' ? '#EFF6FF' : '#F9FAFB', color: f.statut === 'Payée' ? '#059669' : f.statut === 'Envoyée' ? '#2563EB' : '#6B7280', fontWeight: 500 }}>{f.statut}</span></td>
+                      <td style={{ padding: '10px 14px' }}>
+                        {f.pennylane_invoice_id ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#F5F3FF', color: '#7C3AED', fontWeight: 500 }}>{f.pennylane_statut || 'Envoyée'}</span>
+                            <button onClick={() => actualiserFactureCliPennylane(f)} disabled={pennylaneBusy === f.id}
+                              style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #DDD6FE', background: '#fff', color: '#7C3AED', cursor: 'pointer', fontSize: 11 }}>
+                              {pennylaneBusy === f.id ? '⏳' : '↻'}
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => envoyerFactureCliVersPennylane(f)} disabled={pennylaneBusy === f.id}
+                            style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>
+                            {pennylaneBusy === f.id ? '⏳ Envoi...' : '↗ Envoyer'}
+                          </button>
+                        )}
+                      </td>
                       <td style={{ padding: '10px 14px' }}><button onClick={() => supprimer('factures_cli', f.id)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}>✕</button></td>
                     </tr>
                   ))}

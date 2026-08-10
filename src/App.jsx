@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { DataProvider } from './DataContext'
+import { AuthProvider, useAuth } from './lib/AuthContext'
 import Layout from './components/Layout'
+import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Projets from './pages/Projets'
 import ProjetDetail from './pages/ProjetDetail'
@@ -8,7 +10,19 @@ import Clients from './pages/Clients'
 import Fournisseurs from './pages/Fournisseurs'
 import Tresorerie from './pages/Tresorerie'
 
-export default function App() {
+function Gate() {
+  const { session, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF', fontFamily: 'Inter, sans-serif', fontSize: 13 }}>
+        Chargement...
+      </div>
+    )
+  }
+
+  if (!session) return <Login />
+
   return (
     <DataProvider>
       <Routes>
@@ -23,5 +37,13 @@ export default function App() {
         </Route>
       </Routes>
     </DataProvider>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
   )
 }

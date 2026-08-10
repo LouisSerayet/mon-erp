@@ -1,4 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/AuthContext'
 
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: '◻' },
@@ -11,6 +13,12 @@ const nav = [
 
 export default function Layout() {
   const navigate = useNavigate()
+  const { session } = useAuth()
+
+  async function logout() {
+    await supabase.auth.signOut()
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
       <aside style={{ width: 210, background: '#fff', borderRight: '1px solid #e5e5e5', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
@@ -36,7 +44,17 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div style={{ padding: '12px 16px', borderTop: '1px solid #e5e5e5', fontSize: 11, color: '#ccc' }}>v2.0 · 2026</div>
+        <div style={{ padding: '12px 16px', borderTop: '1px solid #e5e5e5' }}>
+          {session?.user?.email && (
+            <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={session.user.email}>
+              {session.user.email}
+            </div>
+          )}
+          <button onClick={logout} style={{ fontSize: 11, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 6 }}>
+            ↩ Se déconnecter
+          </button>
+          <div style={{ fontSize: 11, color: '#ccc' }}>v2.0 · 2026</div>
+        </div>
       </aside>
       <main style={{ flex: 1, overflow: 'auto', background: '#f5f5f0' }}>
         <Outlet />
