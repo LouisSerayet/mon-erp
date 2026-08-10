@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { useNavigate } from 'react-router-dom'
+import { calculerLigne } from '../lib/calculs'
 
 const STATUTS = ['Brouillon', 'Envoyé', 'Accepté', 'Refusé']
 const STATUS_STYLE = {
@@ -26,6 +27,12 @@ export default function Devis() {
   const [createError, setCreateError] = useState('')
   const [creatingProjet, setCreatingProjet] = useState(false)
   const [form, setForm] = useState({ client_id: '', titre: '', statut: 'Brouillon', notes: '' })
+  const [showAddLigne, setShowAddLigne] = useState(false)
+  const [formLigne, setFormLigne] = useState({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30' })
+  const [savingLigne, setSavingLigne] = useState(false)
+  const [lignesEditees, setLignesEditees] = useState({})
+  const [modeLignes, setModeLignes] = useState({})
+  const [savingLignes, setSavingLignes] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => { fetchAll() }, [])
@@ -101,6 +108,120 @@ export default function Devis() {
   async function ouvrirDevis(d) {
     const { data: lignes } = await supabase.from('devis_lignes').select('*').eq('devis_id', d.id).order('ordre')
     setDevisOuvert({ ...d, lignes: lignes || [] })
+    setLignesEditees({}); setModeLignes({}); setShowAddLigne(false)
+  }
+
+  // ── Édition manuelle des lignes (même logique que ProjetDetail.jsx) ──────
+  function editLigne(ligneId, champ, valeur, ligne) {
+    const modeLocal = modeLignes[ligneId] || 'ac'
+    setLignesEditees(prev => {
+      const current = calculerLigne({ modeLocal, champ, valeur, current: prev[ligneId] || {}, ligne })
+      return { ...prev, [ligneId]: current }
+    })
+  }
+
+  function getLigneVal(ligne, champ) {
+    if (lignesEditees[ligne.id] && lignesEditees[ligne.id][champ] !== undefined) {
+      return lignesEditees[ligne.id][champ]
+    }
+    const val = ligne[champ]
+    if (val === null || val === undefined) return ''
+    if (['qte', 'prix_unit_ht', 'prix_achat_ht', 'total_ht', 'total_achat', 'coeff'].includes(champ)) {
+      return val === 0 ? '' : val
+    }
+    return val
+  }
+
+  // Recalcule le total_ht de chaque lot à partir de ses lignes, puis le
+  // montant_ht global du devis (lots + lignes sans lot) — appelé après tout
+  // ajout / édition / suppression de ligne pour que les totaux restent justes.
+  async function recalcLotsEtMontant(lignesArr) {
+    const lotsData = lignesArr.filter(l => l.type === 'lot')
+    const lignesData = lignesArr.filter(l => l.type === 'ligne')
+    for (const lot of lotsData) {
+      const lgLot = lignesData.filter(l => l.lot === lot.numero)
+      const newTotalHt = lgLot.reduce((s, l) => s + (l.total_ht || 0), 0)
+      const newTotalAchat = lgLot.reduce((s, l) => s + (l.total_achat || 0), 0)
+      if (newTotalHt !== lot.total_ht || newTotalAchat !== lot.total_achat) {
+        await supabase.from('devis_lignes').update({ total_ht: newTotalHt, total_achat: newTotalAchat }).eq('id', lot.id)
+      }
+    }
+    const { data: lgFinal } = await supabase.from('devis_lignes').select('*').eq('devis_id', devisOuvert.id).order('ordre')
+    const total = (lgFinal || []).reduce((s, l) => {
+      if (l.type === 'lot') return s + (l.total_ht || 0)
+      if (l.type === 'ligne' && !l.lot) return s + (l.total_ht || 0)
+      return s
+    }, 0)
+    await supabase.from('devis').update({ montant_ht: total }).eq('id', devisOuvert.id)
+    setDevisOuvert(prev => ({ ...prev, lignes: lgFinal || [], montant_ht: total }))
+    await fetchAll()
+  }
+
+  async function ajouterLigneDevis() {
+    if (!devisOuvert || !formLigne.descriptif.trim()) return
+    setSavingLigne(true)
+    const qte = parseFloat(formLigne.qte) || 0
+    const prixAchat = parseFloat(formLigne.prix_achat_ht) || 0
+    const coeff = parseFloat(formLigne.coeff) || 1
+    const prixVente = prixAchat * coeff
+    const maxOrdre = Math.max(...(devisOuvert.lignes || []).map(l => l.ordre || 0), 0)
+    const { error } = await supabase.from('devis_lignes').insert([{
+      devis_id: devisOuvert.id,
+      type: 'ligne',
+      lot: formLigne.lot || null,
+      descriptif: formLigne.descriptif.trim(),
+      unite: formLigne.unite,
+      qte,
+      prix_achat_ht: prixAchat,
+      prix_unit_ht: prixVente,
+      coeff,
+      total_ht: qte * prixVente,
+      total_achat: qte * prixAchat,
+      ordre: maxOrdre + 1,
+    }])
+    if (error) { alert('Erreur : ' + error.message); setSavingLigne(false); return }
+    const { data: lg } = await supabase.from('devis_lignes').select('*').eq('devis_id', devisOuvert.id).order('ordre')
+    await recalcLotsEtMontant(lg || [])
+    setShowAddLigne(false)
+    setFormLigne({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30' })
+    setSavingLigne(false)
+  }
+
+  async function supprimerLigneDevis(ligneId) {
+    if (!devisOuvert || !confirm('Supprimer cette ligne ?')) return
+    const { error } = await supabase.from('devis_lignes').delete().eq('id', ligneId)
+    if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
+    const { data: lg } = await supabase.from('devis_lignes').select('*').eq('devis_id', devisOuvert.id).order('ordre')
+    await recalcLotsEtMontant(lg || [])
+  }
+
+  async function saveLignes() {
+    if (!devisOuvert) return
+    setSavingLignes(true)
+    const updates = Object.entries(lignesEditees)
+    const echecs = []
+    const reussies = []
+    for (const [ligneId, changes] of updates) {
+      const ligne = (devisOuvert.lignes || []).find(l => l.id === ligneId)
+      if (ligne) {
+        const qte = parseFloat(changes.qte ?? ligne.qte) || 0
+        const prixUnit = parseFloat(changes.prix_unit_ht ?? ligne.prix_unit_ht) || 0
+        const prixAchat = parseFloat(changes.prix_achat_ht ?? ligne.prix_achat_ht) || 0
+        const coeff = parseFloat(changes.coeff ?? ligne.coeff) || 0
+        const payload = { ...changes, qte, prix_unit_ht: prixUnit, prix_achat_ht: prixAchat, total_ht: qte * prixUnit, total_achat: qte * prixAchat, coeff }
+        const { error } = await supabase.from('devis_lignes').update(payload).eq('id', ligneId)
+        if (error) echecs.push(ligne.descriptif || ligneId); else reussies.push(ligneId)
+      }
+    }
+    setLignesEditees(prev => {
+      const n = { ...prev }
+      for (const lId of reussies) delete n[lId]
+      return n
+    })
+    if (echecs.length) alert('Erreur : certaines lignes n\'ont pas pu être enregistrées (' + echecs.join(', ') + ').')
+    const { data: lg } = await supabase.from('devis_lignes').select('*').eq('devis_id', devisOuvert.id).order('ordre')
+    await recalcLotsEtMontant(lg || [])
+    setSavingLignes(false)
   }
 
   async function creerDevis() {
@@ -212,6 +333,28 @@ export default function Devis() {
       })
       y = doc.lastAutoTable.finalY + 8
     }
+
+    // Lignes créées manuellement sans être rattachées à un lot
+    const lignesSansLot = (d.lignes || []).filter(l => (l.type === 'ligne' || l.type === 'titre') && !l.lot)
+    if (lignesSansLot.length) {
+      if (y > 170) { doc.addPage(); y = 14 }
+      doc.setFillColor(55, 65, 81); doc.rect(14, y - 5, 269, 8, 'F')
+      doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont('helvetica', 'bold')
+      doc.text('LIGNES SANS LOT', 16, y)
+      doc.setTextColor(30, 41, 59); y += 4
+      autoTable(doc, {
+        startY: y,
+        head: [['N°', 'Désignation', 'Unité', 'Qté', 'P.U. HT', 'Total HT']],
+        body: lignesSansLot.map(l => l.type === 'titre'
+          ? [{ content: l.descriptif || '', colSpan: 6, styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [71, 85, 105] } }]
+          : [l.numero || '', l.descriptif || '', l.unite || '', l.qte > 0 ? l.qte : '', fmtN(l.prix_unit_ht), fmtN(l.total_ht)]
+        ),
+        styles: { fontSize: 7, cellPadding: 1.5, overflow: 'linebreak' },
+        headStyles: { fillColor: [248, 250, 252], textColor: [107, 114, 128], fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 14 }, 2: { cellWidth: 14, halign: 'center' }, 3: { cellWidth: 14, halign: 'right' }, 4: { cellWidth: 30, halign: 'right' }, 5: { cellWidth: 30, halign: 'right', fontStyle: 'bold' } },
+        margin: { left: 14, right: 14 },
+      })
+    }
     const n = doc.getNumberOfPages()
     for (let i = 1; i <= n; i++) {
       doc.setPage(i); doc.setFontSize(7); doc.setTextColor(156, 163, 175)
@@ -235,11 +378,103 @@ export default function Devis() {
       return acc
     }, {})
 
+    // Une ligne (ou un titre) éditable, partagée entre les sections "lot" et
+    // "sans lot" — même logique que ProjetDetail.jsx (mode ac/vc/av par ligne).
+    function ligneRow(l, i) {
+      const isEdited = !!lignesEditees[l.id]
+      const inputStyle = { width: '100%', padding: '3px 6px', borderRadius: 4, border: '1px solid #BFDBFE', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: '#EFF6FF' }
+      if (l.type === 'titre') return (
+        <tr key={i} style={{ background: '#F1F5F9' }}>
+          <td style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
+          <td colSpan={9} style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
+        </tr>
+      )
+      const qte = parseFloat(getLigneVal(l, 'qte')) || 0
+      const puVente = parseFloat(getLigneVal(l, 'prix_unit_ht')) || 0
+      const puAchat = parseFloat(getLigneVal(l, 'prix_achat_ht')) || 0
+      const totalVente = qte * puVente
+      const totalAchat = qte * puAchat
+      const modeLocal = modeLignes[l.id] || 'ac'
+      return (
+        <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+          <td style={{ padding: '4px 6px', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span style={{ fontSize: 11 }}>{l.numero}</span>
+              <button onClick={() => supprimerLigneDevis(l.id)}
+                style={{ background: 'none', border: 'none', color: '#FCA5A5', cursor: 'pointer', fontSize: 11, padding: '0 2px', lineHeight: 1, opacity: 0.6 }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}>✕</button>
+            </div>
+          </td>
+          <td style={{ padding: '4px 6px', color: '#374151', maxWidth: 300 }}>
+            <input value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
+              style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, background: isEdited ? '#EFF6FF' : 'transparent', boxSizing: 'border-box' }} />
+          </td>
+          <td style={{ padding: '4px 4px', textAlign: 'center' }}>
+            <input value={getLigneVal(l, 'unite')} onChange={e => editLigne(l.id, 'unite', e.target.value, l)}
+              style={{ width: 44, padding: '3px 4px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, textAlign: 'center', background: isEdited ? '#EFF6FF' : 'transparent' }} />
+          </td>
+          <td style={{ padding: '4px 4px' }}>
+            <input type="number" value={getLigneVal(l, 'qte')} onChange={e => editLigne(l.id, 'qte', e.target.value, l)}
+              style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent' }} />
+          </td>
+          <td style={{ padding: '4px 4px' }}>
+            {modeLocal === 'ac' ? (
+              <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>
+                {getLigneVal(l, 'prix_unit_ht') || '—'}
+              </div>
+            ) : (
+              <input type="number" value={getLigneVal(l, 'prix_unit_ht')} onChange={e => editLigne(l.id, 'prix_unit_ht', e.target.value, l)}
+                style={{ ...inputStyle, border: isEdited ? '1px solid #BBF7D0' : '1px solid transparent', background: isEdited ? '#F0FDF4' : 'transparent', color: '#065F46' }} />
+            )}
+          </td>
+          <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente > 0 ? '#065F46' : '#9CA3AF' }}>
+            {totalVente > 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+          </td>
+          <td style={{ padding: '4px 4px' }}>
+            {modeLocal === 'av' ? (
+              <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>
+                {getLigneVal(l, 'coeff') || '—'}
+              </div>
+            ) : (
+              <input type="number" value={getLigneVal(l, 'coeff')} onChange={e => editLigne(l.id, 'coeff', e.target.value, l)}
+                style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #E9D5FF' : '1px solid transparent', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: isEdited ? '#F5F3FF' : 'transparent', color: '#7C3AED' }} />
+            )}
+          </td>
+          <td style={{ padding: '4px 4px' }}>
+            {modeLocal === 'vc' ? (
+              <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>
+                {getLigneVal(l, 'prix_achat_ht') || '—'}
+              </div>
+            ) : (
+              <input type="number" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)}
+                style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent', color: '#2563EB' }} />
+            )}
+          </td>
+          <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? '#2563EB' : '#9CA3AF' }}>
+            {totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+          </td>
+          <td style={{ padding: '4px 4px', whiteSpace: 'nowrap' }}>
+            <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+              {[['ac', 'A×C'], ['vc', 'V÷C'], ['av', 'V÷A']].map(([mode, label]) => (
+                <button key={mode} onClick={() => setModeLignes(prev => ({ ...prev, [l.id]: mode }))}
+                  style={{ padding: '2px 5px', borderRadius: 4, border: '1px solid ' + (modeLocal === mode ? '#7C3AED' : '#E5E7EB'),
+                    background: modeLocal === mode ? '#F5F3FF' : '#fff', color: modeLocal === mode ? '#7C3AED' : '#9CA3AF',
+                    cursor: 'pointer', fontSize: 10, fontWeight: modeLocal === mode ? 600 : 400 }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </td>
+        </tr>
+      )
+    }
+
     return (
       <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-          <button onClick={() => setDevisOuvert(null)}
+          <button onClick={() => { setDevisOuvert(null); setLignesEditees({}); setModeLignes({}); setShowAddLigne(false) }}
             style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>← Retour</button>
           <div style={{ flex: 1 }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{devisOuvert.titre}</h2>
@@ -250,6 +485,10 @@ export default function Devis() {
               style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13, background: STATUS_STYLE[devisOuvert.statut]?.bg, color: STATUS_STYLE[devisOuvert.statut]?.color, fontWeight: 500, cursor: 'pointer' }}>
               {STATUTS.map(s => <option key={s}>{s}</option>)}
             </select>
+            <button onClick={() => setShowAddLigne(!showAddLigne)}
+              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+              + Ligne manuelle
+            </button>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#2563EB', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
               {importing ? '⏳' : '⬆'} Importer Excel
               <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={e => handleImport(e, devisOuvert.id)} />
@@ -272,6 +511,75 @@ export default function Devis() {
         </div>
 
         {importError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{importError}</div>}
+
+        {/* Formulaire ajout ligne manuelle */}
+        {showAddLigne && (
+          <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+            <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle ligne</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° Lot</label>
+                <select value={formLigne.lot} onChange={e => setFormLigne(p => ({ ...p, lot: e.target.value }))}
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                  <option value=''>— Sans lot —</option>
+                  {lots.map(l => <option key={l.numero} value={l.numero}>LOT {l.numero} — {l.categorie}</option>)}
+                </select>
+              </div>
+              <div style={{ gridColumn: '2 / -1' }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Désignation *</label>
+                <input value={formLigne.descriptif} onChange={e => setFormLigne(p => ({ ...p, descriptif: e.target.value }))}
+                  placeholder="Description de la prestation"
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Unité</label>
+                <input value={formLigne.unite} onChange={e => setFormLigne(p => ({ ...p, unite: e.target.value }))} placeholder="m², ens, U..."
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Quantité</label>
+                <input type="number" value={formLigne.qte} onChange={e => setFormLigne(p => ({ ...p, qte: e.target.value }))} placeholder="1"
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Prix achat HT (€)</label>
+                <input type="number" value={formLigne.prix_achat_ht} onChange={e => setFormLigne(p => ({ ...p, prix_achat_ht: e.target.value }))} placeholder="0"
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Coefficient</label>
+                <input type="number" value={formLigne.coeff} onChange={e => setFormLigne(p => ({ ...p, coeff: e.target.value }))} placeholder="1.30"
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+            </div>
+            {formLigne.prix_achat_ht && formLigne.coeff && (
+              <div style={{ fontSize: 12, color: '#059669', marginBottom: 12, fontWeight: 500 }}>
+                → Prix vente HT : {(parseFloat(formLigne.prix_achat_ht) * parseFloat(formLigne.coeff)).toFixed(2)} €
+                {formLigne.qte ? ` · Total : ${(parseFloat(formLigne.qte) * parseFloat(formLigne.prix_achat_ht) * parseFloat(formLigne.coeff)).toFixed(2)} €` : ''}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowAddLigne(false)}
+                style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={ajouterLigneDevis} disabled={savingLigne}
+                style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                {savingLigne ? '⏳...' : '+ Ajouter'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {Object.keys(lignesEditees).length > 0 && (
+          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13, color: '#92400E', fontWeight: 500 }}>⚠️ {Object.keys(lignesEditees).length} ligne(s) modifiée(s) non sauvegardée(s)</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setLignesEditees({})} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={saveLignes} disabled={savingLignes} style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                {savingLignes ? '⏳ Sauvegarde...' : '✓ Sauvegarder'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Cartes résumé */}
         <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
@@ -307,7 +615,7 @@ export default function Devis() {
           <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>📄</div>
             <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>Aucune ligne</div>
-            <div style={{ fontSize: 13 }}>Importe ton Excel pour peupler le devis</div>
+            <div style={{ fontSize: 13 }}>Ajoute une ligne manuellement ou importe ton Excel pour peupler le devis</div>
           </div>
         )}
 
@@ -320,33 +628,41 @@ export default function Devis() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                  {['N°', 'Désignation', 'Unité', 'Qté', 'P.U. HT', 'Total HT', 'Coeff.', 'Achat HT'].map(h => (
-                    <th key={h} style={{ padding: '7px 10px', textAlign: h === 'Désignation' || h === 'N°' ? 'left' : 'right', color: '#6B7280', fontWeight: 500 }}>{h}</th>
+                  {['N°', 'Désignation', 'Unité', 'Qté', 'P.U. Vente', 'Total Vente', 'Coeff.', 'P.U. Achat', 'Total Achat', 'Mode'].map(h => (
+                    <th key={h} style={{ padding: '7px 10px', textAlign: h === 'Désignation' || h === 'N°' ? 'left' : h === 'Mode' ? 'center' : 'right', color: '#6B7280', fontWeight: 500 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(lignesParLot[lot.numero] || []).map((l, i) => l.type === 'titre' ? (
-                  <tr key={i} style={{ background: '#F1F5F9' }}>
-                    <td style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
-                    <td colSpan={7} style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
-                  </tr>
-                ) : (
-                  <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                    <td style={{ padding: '7px 10px', color: '#9CA3AF', fontSize: 11 }}>{l.numero}</td>
-                    <td style={{ padding: '7px 10px', color: '#374151', maxWidth: 400, wordBreak: 'break-word' }}>{l.descriptif}</td>
-                    <td style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280' }}>{l.unite}</td>
-                    <td style={{ padding: '7px 10px', textAlign: 'right', color: '#374151' }}>{l.qte > 0 ? l.qte : '—'}</td>
-                    <td style={{ padding: '7px 10px', textAlign: 'right', color: '#374151' }}>{l.prix_unit_ht > 0 ? Number(l.prix_unit_ht).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
-                    <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: l.total_ht > 0 ? '#065F46' : '#9CA3AF' }}>{l.total_ht > 0 ? Number(l.total_ht).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
-                    <td style={{ padding: '7px 10px', textAlign: 'right', color: '#6B7280' }}>{l.coeff > 0 ? '×' + l.coeff : '—'}</td>
-                    <td style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB' }}>{l.total_achat > 0 ? Number(l.total_achat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
-                  </tr>
-                ))}
+                {(lignesParLot[lot.numero] || []).map((l, i) => ligneRow(l, i))}
               </tbody>
             </table>
           </div>
         ))}
+
+        {/* Lignes sans lot */}
+        {(lignesParLot['sans'] || []).filter(l => l.type === 'ligne' || l.type === 'titre').length > 0 && (
+          <div style={{ marginBottom: 20, borderRadius: 10, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+            <div style={{ background: '#374151', color: '#fff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>Lignes sans lot</span>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>
+                {fmt((lignesParLot['sans'] || []).reduce((s, l) => s + (l.total_ht || 0), 0))}
+              </span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+                  {['N°', 'Désignation', 'Unité', 'Qté', 'P.U. Vente', 'Total Vente', 'Coeff.', 'P.U. Achat', 'Total Achat', 'Mode'].map(h => (
+                    <th key={h} style={{ padding: '7px 10px', textAlign: h === 'Désignation' || h === 'N°' ? 'left' : h === 'Mode' ? 'center' : 'right', color: '#6B7280', fontWeight: 500 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(lignesParLot['sans'] || []).map((l, i) => ligneRow(l, i))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     )
   }
