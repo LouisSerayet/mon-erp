@@ -1,5 +1,17 @@
+import { supabase } from './supabase'
+
+// Le proxy /api/qonto exige désormais d'être connecté à l'ERP (voir
+// api/_auth.js) — on transmet le jeton de la session Supabase en cours.
+async function authHeaders() {
+  const { data } = await supabase.auth.getSession()
+  const token = data?.session?.access_token
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 export async function qontoFetch(endpoint) {
-  const res = await fetch(`/api/qonto?endpoint=${encodeURIComponent(endpoint)}`)
+  const res = await fetch(`/api/qonto?endpoint=${encodeURIComponent(endpoint)}`, {
+    headers: await authHeaders(),
+  })
   if (!res.ok) {
     const text = await res.text()
     let data = null

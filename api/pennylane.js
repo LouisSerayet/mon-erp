@@ -2,6 +2,8 @@
 // Le front envoie toujours un POST avec { endpoint, method, body } pour un
 // appel JSON classique, ou { upload: { filename, base64 } } pour joindre un
 // fichier (facture fournisseur au format PDF).
+import { requireAuth } from './_auth.js'
+
 export const config = {
   api: {
     bodyParser: {
@@ -11,16 +13,21 @@ export const config = {
 }
 
 export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Utiliser POST avec { endpoint, method, body } ou { upload }' })
+  }
+
+  // Seul un utilisateur connecté à l'ERP peut appeler ce proxy — sans ce
+  // contrôle, l'URL publique du site suffisait à créer/modifier des
+  // factures dans le vrai compte Pennylane sans jamais se connecter.
+  const user = await requireAuth(req, res)
+  if (!user) return
+
   const token = process.env.PENNYLANE_API_TOKEN
 
   if (!token) {
     return res.status(500).json({ error: "PENNYLANE_API_TOKEN manquant (à ajouter dans les variables d'environnement Vercel)" })
   }
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Utiliser POST avec { endpoint, method, body } ou { upload }' })
-  }
-
-  res.setHeader('Access-Control-Allow-Origin', '*')
 
   const { endpoint, method = 'GET', body, upload } = req.body || {}
 

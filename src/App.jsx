@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Projets from './pages/Projets'
 import ProjetDetail from './pages/ProjetDetail'
+import Devis from './pages/Devis'
 import Clients from './pages/Clients'
 import Fournisseurs from './pages/Fournisseurs'
 import Tresorerie from './pages/Tresorerie'
@@ -31,6 +32,7 @@ function Gate() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="projets" element={<Projets />} />
           <Route path="projets/:id" element={<ProjetDetail />} />
+          <Route path="devis" element={<Devis />} />
           <Route path="clients" element={<Clients />} />
           <Route path="fournisseurs" element={<Fournisseurs />} />
           <Route path="tresorerie" element={<Tresorerie />} />

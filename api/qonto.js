@@ -1,4 +1,12 @@
+import { requireAuth } from './_auth.js'
+
 export default async function handler(req, res) {
+  // Seul un utilisateur connecté à l'ERP peut appeler ce proxy — sans ce
+  // contrôle, l'URL publique du site suffisait à lire les transactions
+  // bancaires réelles sans jamais se connecter.
+  const user = await requireAuth(req, res)
+  if (!user) return
+
   const slug = process.env.VITE_QONTO_SLUG
   const key = process.env.VITE_QONTO_KEY
 
@@ -36,7 +44,6 @@ export default async function handler(req, res) {
       const text = await response.text()
 
       if (response.ok) {
-        res.setHeader('Access-Control-Allow-Origin', '*')
         try {
           return res.status(200).json(JSON.parse(text))
         } catch {

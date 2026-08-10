@@ -14,11 +14,19 @@ function pennylaneErrorMessage(data, fallback) {
   return fallback
 }
 
+// Le proxy /api/pennylane exige désormais d'être connecté à l'ERP (voir
+// api/_auth.js) — on transmet le jeton de la session Supabase en cours.
+async function authHeaders() {
+  const { data } = await supabase.auth.getSession()
+  const token = data?.session?.access_token
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 // ── Bas niveau : appels au proxy /api/pennylane ────────────────
 async function pennylaneCall(endpoint, { method = 'GET', body } = {}) {
   const res = await fetch('/api/pennylane', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ endpoint, method, body }),
   })
   const data = await res.json()
@@ -37,7 +45,7 @@ async function pennylaneUploadFile(file) {
   })
   const res = await fetch('/api/pennylane', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ upload: { filename: file.name, base64 } }),
   })
   const data = await res.json()
