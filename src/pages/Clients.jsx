@@ -43,7 +43,8 @@ export default function Clients() {
   }
 
   async function sauvegarderClient() {
-    await supabase.from('clients').update(formEdit).eq('id', clientOuvert.id)
+    const { error } = await supabase.from('clients').update(formEdit).eq('id', clientOuvert.id)
+    if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setClientOuvert(prev => ({ ...prev, ...formEdit }))
     setClients(prev => prev.map(c => c.id === clientOuvert.id ? { ...c, ...formEdit } : c))
     setEditMode(false)
@@ -51,7 +52,8 @@ export default function Clients() {
 
   async function supprimerClient(id) {
     if (!confirm('Supprimer ce client ?')) return
-    await supabase.from('clients').delete().eq('id', id)
+    const { error } = await supabase.from('clients').delete().eq('id', id)
+    if (error) { alert('Erreur lors de la suppression : ' + error.message + (error.message.includes('foreign key') ? '\n\nCe client a probablement des projets liés — supprime ou réattribue-les d\'abord.' : '')); return }
     setClientOuvert(null)
     fetchClients()
   }

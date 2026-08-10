@@ -45,7 +45,8 @@ export default function Fournisseurs() {
 
   async function supprimerFournisseur(id) {
     if (!confirm('Supprimer ce fournisseur ?')) return
-    await supabase.from('fournisseurs').delete().eq('id', id)
+    const { error } = await supabase.from('fournisseurs').delete().eq('id', id)
+    if (error) { alert('Erreur lors de la suppression : ' + error.message + (error.message.includes('foreign key') ? '\n\nCe fournisseur a probablement des commandes/factures liées — supprime-les d\'abord.' : '')); return }
     setFournisseurOuvert(null)
     fetchFournisseurs()
   }

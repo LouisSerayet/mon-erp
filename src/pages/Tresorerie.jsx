@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getBankAccounts, getTransactions } from '../lib/useQonto'
 
 export default function Tresorerie() {
@@ -8,6 +8,10 @@ export default function Tresorerie() {
   const [loadingTx, setLoadingTx] = useState(false)
   const [error, setError] = useState('')
   const [selectedAccount, setSelectedAccount] = useState(null)
+  // Miroir synchrone de selectedAccount (le state React n'est pas encore à
+  // jour au moment où une requête concurrente se résout) — permet à loadTx
+  // de savoir si sa réponse est encore d'actualité avant de l'afficher.
+  const selectedAccountRef = useRef(null)
 
   useEffect(() => { fetchData() }, [])
 
@@ -18,8 +22,12 @@ export default function Tresorerie() {
       const accs = await getBankAccounts()
       setAccounts(accs)
       if (accs.length > 0) {
-        setSelectedAccount(accs[0])
-        await loadTx(accs[0])
+        // Si le compte déjà sélectionné existe toujours après le rafraîchissement,
+        // on le garde sélectionné au lieu de revenir silencieusement au premier compte.
+        const conserve = accs.find(a => a.slug === selectedAccountRef.current?.slug) || accs[0]
+        setSelectedAccount(conserve)
+        selectedAccountRef.current = conserve
+        await loadTx(conserve)
       }
     } catch (err) {
       setError('Impossible de charger les données Qonto : ' + err.message)
@@ -29,19 +37,26 @@ export default function Tresorerie() {
 
   async function loadTx(account) {
     setLoadingTx(true)
+    setError('')
     try {
       // Passer tout l'objet compte pour avoir slug + iban disponibles
       const txs = await getTransactions(account)
+      // Si l'utilisateur a changé de compte pendant le chargement, on
+      // ignore cette réponse devenue obsolète pour ne pas afficher les
+      // transactions d'un autre compte que celui actuellement sélectionné.
+      if (account?.slug !== undefined && selectedAccountRef.current?.slug !== account.slug) return
       setTransactions(txs)
     } catch (err) {
       console.error('Transactions error:', err)
       setTransactions([])
+      setError('Impossible de charger les transactions : ' + err.message)
     }
     setLoadingTx(false)
   }
 
   async function selectAccount(account) {
     setSelectedAccount(account)
+    selectedAccountRef.current = account
     setTransactions([])
     await loadTx(account)
   }

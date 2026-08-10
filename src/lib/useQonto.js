@@ -1,8 +1,13 @@
 export async function qontoFetch(endpoint) {
   const res = await fetch(`/api/qonto?endpoint=${encodeURIComponent(endpoint)}`)
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err)
+    const text = await res.text()
+    let data = null
+    try { data = JSON.parse(text) } catch { /* réponse non-JSON, on gardera le texte brut */ }
+    const message = data?.details
+      ? (typeof data.details === 'string' ? data.details : JSON.stringify(data.details))
+      : (data?.error || text)
+    throw new Error(message)
   }
   return res.json()
 }
@@ -17,10 +22,13 @@ export async function getBankAccounts() {
   return org.bank_accounts || []
 }
 
-export async function getTransactions(account, perPage = 25) {
+// NB : per_page=100 (max habituel côté Qonto) — au-delà, il faudrait une
+// vraie pagination (page suivante) qui n'est pas encore branchée côté UI
+// (Tresorerie.jsx n'affiche que ce premier lot de transactions).
+export async function getTransactions(account, perPage = 100) {
   // Récupérer le slug depuis l'objet compte complet
   const slug = account?.slug || account
-  
+
   // Essayer tous les formats possibles de l'API Qonto
   const attempts = [
     `transactions?bank_account_slug=${slug}&per_page=${perPage}`,
@@ -28,16 +36,20 @@ export async function getTransactions(account, perPage = 25) {
     `transactions?per_page=${perPage}`,
   ]
 
+  let derniereErreur = null
   for (const endpoint of attempts) {
     try {
       const data = await qontoFetch(endpoint)
-      if (data.transactions && data.transactions.length > 0) {
-        return data.transactions
-      }
       if (data.transactions) return data.transactions
-    } catch {
-      continue
+    } catch (err) {
+      derniereErreur = err
     }
   }
+  // Si aucun des 3 formats n'a fonctionné, c'est probablement une vraie
+  // erreur (identifiants invalides, API en panne...) et pas un compte vide
+  // — on la remonte pour que l'appelant puisse l'afficher, plutôt que de
+  // rendre un tableau vide indiscernable d'un compte réellement sans
+  // transaction.
+  if (derniereErreur) throw derniereErreur
   return []
 }

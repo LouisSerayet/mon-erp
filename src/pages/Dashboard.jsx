@@ -29,7 +29,6 @@ export default function Dashboard() {
 
     const today = new Date()
     const totalCA = projetsData.reduce((s, x) => s + (x.montant_ht || 0), 0)
-    const totalCommandes = cmdData.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const totalFfrs = ffrsData.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const totalFcli = fcliData.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const ffrsEnRetard = ffrsData.filter(f => f.date_echeance && new Date(f.date_echeance) < today)

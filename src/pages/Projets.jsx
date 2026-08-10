@@ -49,18 +49,35 @@ export default function Projets() {
     }]).select().single()
     if (error) { setError('Erreur : ' + error.message); return }
     setShowForm(false)
-    setForm({ nom: '', client_id: '', statut: 'En cours', date_debut: '', date_fin_prevue: '', notes: '' })
+    // Remis à la même valeur que l'état initial ('Devis envoyé') — avant, ce
+    // reset mettait 'En cours', donc un 2e projet créé juste après le 1er
+    // démarrait silencieusement avec le mauvais statut par défaut.
+    setForm({ nom: '', client_id: '', statut: 'Devis envoyé', date_debut: '', date_fin_prevue: '', notes: '' })
     navigate('/projets/' + data.id)
   }
 
   async function supprimerProjet(e, id) {
     e.stopPropagation()
     if (!confirm('Supprimer ce projet et toutes ses données ?')) return
-    await supabase.from('projet_lignes').delete().eq('projet_id', id)
-    await supabase.from('commandes').delete().eq('projet_id', id)
-    await supabase.from('factures_frs').delete().eq('projet_id', id)
-    await supabase.from('factures_cli').delete().eq('projet_id', id)
-    await supabase.from('projets').delete().eq('id', id)
+    // Suppression en cascade, dans l'ordre enfants -> parent. On vérifie
+    // l'erreur à chaque étape et on s'arrête immédiatement en cas d'échec,
+    // pour ne jamais supprimer le projet parent alors que des données
+    // enfants n'ont pas pu être nettoyées (ou l'inverse).
+    const etapes = [
+      ['projet_lignes', 'projet_id'],
+      ['commandes', 'projet_id'],
+      ['factures_frs', 'projet_id'],
+      ['factures_cli', 'projet_id'],
+      ['projets', 'id'],
+    ]
+    for (const [table, colonne] of etapes) {
+      const { error } = await supabase.from(table).delete().eq(colonne, id)
+      if (error) {
+        alert('Erreur lors de la suppression (' + table + ') : ' + error.message + '\n\nLa suppression a été interrompue — vérifie l\'état du projet avant de réessayer.')
+        fetchAll()
+        return
+      }
+    }
     fetchAll()
   }
 

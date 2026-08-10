@@ -1,5 +1,19 @@
 import { supabase } from './supabase'
 
+// Le proxy /api/pennylane renvoie toujours { error: <message générique>,
+// details: <réponse brute de Pennylane> } en cas d'échec. Le message utile
+// (ex. "vat_rate is invalid") est dans "details", pas dans "error" — on le
+// privilégie pour que l'utilisateur voie la vraie raison du refus plutôt
+// qu'un "Erreur Pennylane" générique et inexploitable.
+function pennylaneErrorMessage(data, fallback) {
+  if (data && data.details) {
+    if (typeof data.details === 'string') return data.details
+    try { return JSON.stringify(data.details) } catch { /* ignore */ }
+  }
+  if (data && typeof data.error === 'string') return data.error
+  return fallback
+}
+
 // ── Bas niveau : appels au proxy /api/pennylane ────────────────
 async function pennylaneCall(endpoint, { method = 'GET', body } = {}) {
   const res = await fetch('/api/pennylane', {
@@ -9,7 +23,7 @@ async function pennylaneCall(endpoint, { method = 'GET', body } = {}) {
   })
   const data = await res.json()
   if (!res.ok) {
-    throw new Error(typeof data.error === 'string' ? data.error : (data.details ? JSON.stringify(data.details) : 'Erreur Pennylane'))
+    throw new Error(pennylaneErrorMessage(data, 'Erreur Pennylane'))
   }
   return data
 }
@@ -28,7 +42,7 @@ async function pennylaneUploadFile(file) {
   })
   const data = await res.json()
   if (!res.ok) {
-    throw new Error(typeof data.error === 'string' ? data.error : (data.details ? JSON.stringify(data.details) : 'Erreur Pennylane (upload)'))
+    throw new Error(pennylaneErrorMessage(data, 'Erreur Pennylane (upload)'))
   }
   return data
 }

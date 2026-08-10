@@ -17,6 +17,13 @@ export default async function handler(req, res) {
     `https://thirdparty.qonto.com/v1/${endpoint}`,
   ]
 
+  // On garde la dernière réponse en échec (statut + corps) pour pouvoir la
+  // renvoyer telle quelle si les deux versions échouent — sinon un vrai
+  // problème (identifiants Qonto expirés, quota dépassé, etc.) était
+  // masqué par un message générique "endpoint non trouvé", qui oriente
+  // à tort vers un problème d'URL plutôt que d'identifiants.
+  let derniereReponseEchec = null
+
   for (const url of urls) {
     try {
       const response = await fetch(url, {
@@ -27,7 +34,7 @@ export default async function handler(req, res) {
       })
 
       const text = await response.text()
-      
+
       if (response.ok) {
         res.setHeader('Access-Control-Allow-Origin', '*')
         try {
@@ -36,10 +43,18 @@ export default async function handler(req, res) {
           return res.status(200).send(text)
         }
       }
+      derniereReponseEchec = { status: response.status, body: text }
     } catch (err) {
-      continue
+      console.error('Qonto fetch error for', url, err)
+      derniereReponseEchec = { status: 502, body: err.message }
     }
   }
 
+  if (derniereReponseEchec) {
+    return res.status(derniereReponseEchec.status).json({
+      error: 'Erreur Qonto (' + derniereReponseEchec.status + ')',
+      details: derniereReponseEchec.body,
+    })
+  }
   return res.status(404).json({ error: 'Endpoint non trouvé sur v1 et v2' })
 }

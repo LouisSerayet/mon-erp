@@ -207,7 +207,6 @@ export default function ProjetDetail() {
       doc.setTextColor(30, 41, 59)
 
       const body = []
-      let lastTitreIdx = -1
       for (let li = 0; li < lgLot.length; li++) {
         const l = lgLot[li]
         if (l.type === 'titre') {
@@ -216,7 +215,6 @@ export default function ProjetDetail() {
             ll => ll.type !== 'titre' && (ll.total_ht > 0 || ll.prix_unit_ht > 0)
           )
           if (hasLignesAvecMontant) {
-            lastTitreIdx = body.length
             body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
               styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [71, 85, 105], fontSize: 7 } }])
           }
@@ -319,7 +317,6 @@ export default function ProjetDetail() {
       const current = { ...(prev[ligneId] || {}) }
       current[champ] = valeur
 
-      const qte = parseFloat(current.qte ?? ligne.qte) || 0
       const puA = parseFloat(champ === 'prix_achat_ht' ? valeur : (current.prix_achat_ht ?? ligne.prix_achat_ht)) || 0
       const puV = parseFloat(champ === 'prix_unit_ht' ? valeur : (current.prix_unit_ht ?? ligne.prix_unit_ht)) || 0
       const co = parseFloat(champ === 'coeff' ? valeur : (current.coeff ?? ligne.coeff)) || 0
@@ -367,16 +364,20 @@ export default function ProjetDetail() {
 
   // Recalcule le CA du projet (montant_ht) à partir des lots ET des lignes
   // sans lot, pour que l'onglet Rentabilité affiche le bon prévisionnel.
+  // NB : si lignesArr est null/undefined (échec de la requête précédente), on
+  // ne touche à rien pour ne pas écraser une valeur correcte avec du vide.
+  // Si lignesArr est un tableau valide (même vide), on resynchronise TOUJOURS,
+  // y compris à 0 — sinon supprimer toutes les lignes d'un projet laisse un
+  // montant_ht fantôme qui fausse ensuite l'onglet Rentabilité.
   async function syncMontantHtProjet(lignesArr) {
-    const totalVente = (lignesArr || []).reduce((s, l) => {
+    if (!lignesArr) return
+    const totalVente = lignesArr.reduce((s, l) => {
       if (l.type === 'lot') return s + (l.total_ht || 0)
       if (l.type === 'ligne' && !l.lot) return s + (l.total_ht || 0)
       return s
     }, 0)
-    if (totalVente > 0) {
-      await supabase.from('projets').update({ montant_ht: totalVente }).eq('id', id)
-      setProjet(prev => ({ ...prev, montant_ht: totalVente }))
-    }
+    await supabase.from('projets').update({ montant_ht: totalVente }).eq('id', id)
+    setProjet(prev => ({ ...prev, montant_ht: totalVente }))
   }
 
   async function ajouterLigne() {
@@ -415,7 +416,8 @@ export default function ProjetDetail() {
 
   async function supprimerLigne(ligneId) {
     if (!confirm('Supprimer cette ligne ?')) return
-    await supabase.from('projet_lignes').delete().eq('id', ligneId)
+    const { error } = await supabase.from('projet_lignes').delete().eq('id', ligneId)
+    if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
     setLignes(lg || [])
     await syncMontantHtProjet(lg || [])
@@ -424,6 +426,8 @@ export default function ProjetDetail() {
   async function saveLignes() {
     setSavingLignes(true)
     const updates = Object.entries(lignesEditees)
+    const echecs = []
+    const reussies = []
     for (const [ligneId, changes] of updates) {
       // Recalculer total_ht et total_achat si qte ou prix changent
       const ligne = lignes.find(l => l.id === ligneId)
@@ -441,10 +445,18 @@ export default function ProjetDetail() {
           total_achat: qte * prixAchat,
           coeff,
         }
-        await supabase.from('projet_lignes').update(payload).eq('id', ligneId)
+        const { error } = await supabase.from('projet_lignes').update(payload).eq('id', ligneId)
+        if (error) echecs.push(ligne.descriptif || ligneId); else reussies.push(ligneId)
       }
     }
-    setLignesEditees({})
+    // On ne retire du mode "édition" que les lignes réellement sauvegardées,
+    // pour ne pas faire croire qu'un enregistrement en échec a réussi.
+    setLignesEditees(prev => {
+      const n = { ...prev }
+      for (const lId of reussies) delete n[lId]
+      return n
+    })
+    if (echecs.length) alert('Erreur : certaines lignes n\'ont pas pu être enregistrées (' + echecs.join(', ') + ').')
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).order('ordre')
     const lgData = lg || []
     setLignes(lgData)
@@ -624,8 +636,12 @@ export default function ProjetDetail() {
     const changes = cmdEditees[cmdId]
     if (!changes) return
     const payload = { ...changes }
-    if (changes.montant_ht) payload.montant_ht = parseFloat(changes.montant_ht) || 0
-    await supabase.from('commandes').update(payload).eq('id', cmdId)
+    // NB : "!== undefined" et pas "if (changes.montant_ht)" — sinon vider le
+    // champ (chaîne vide) est ignoré silencieusement au lieu d'être remis à 0,
+    // et l'ancienne valeur brute ('' ) part telle quelle vers une colonne numérique.
+    if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
+    const { error } = await supabase.from('commandes').update(payload).eq('id', cmdId)
+    if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setCmdEditees(prev => { const n = { ...prev }; delete n[cmdId]; return n })
     const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).order('created_at', { ascending: false })
     setCommandes(data || [])
@@ -804,7 +820,8 @@ export default function ProjetDetail() {
     if (!changes) return
     const payload = { ...changes }
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
-    await supabase.from('factures_cli').update(payload).eq('id', facture.id)
+    const { error } = await supabase.from('factures_cli').update(payload).eq('id', facture.id)
+    if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setFacCliEditees(prev => { const n = { ...prev }; delete n[facture.id]; return n })
     const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false })
     setFacturesCli(data || [])
@@ -834,7 +851,8 @@ export default function ProjetDetail() {
     if (!changes) return
     const payload = { ...changes }
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
-    await supabase.from('factures_frs').update(payload).eq('id', facture.id)
+    const { error } = await supabase.from('factures_frs').update(payload).eq('id', facture.id)
+    if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setFacFrsEditees(prev => { const n = { ...prev }; delete n[facture.id]; return n })
     const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false })
     setFacturesFrs(data || [])
@@ -854,7 +872,8 @@ export default function ProjetDetail() {
 
   async function supprimer(table, itemId) {
     if (!confirm('Supprimer ?')) return
-    await supabase.from(table).delete().eq('id', itemId)
+    const { error } = await supabase.from(table).delete().eq('id', itemId)
+    if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
     if (table === 'commandes') { const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).order('created_at', { ascending: false }); setCommandes(data || []) }
     if (table === 'factures_frs') { const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).order('created_at', { ascending: false }); setFacturesFrs(data || []) }
     if (table === 'factures_cli') { const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).order('created_at', { ascending: false }); setFacturesCli(data || []) }
@@ -865,7 +884,6 @@ export default function ProjetDetail() {
   const totalCommandes = commandes.reduce((s, c) => s + (c.montant_ht || 0), 0)
   const totalFfrs = facturesFrs.reduce((s, f) => s + (f.montant_ht || 0), 0)
   const totalFcli = facturesCli.reduce((s, f) => s + (f.montant_ht || 0), 0)
-  const marge = (projet?.montant_ht || 0) - totalCommandes
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Chargement...</div>
   if (!projet) return <div style={{ padding: 40, textAlign: 'center', color: '#DC2626' }}>Projet introuvable</div>
@@ -1366,7 +1384,6 @@ export default function ProjetDetail() {
                         const qte = parseFloat(getLigneVal(l, 'qte')) || 0
                         const puVente = parseFloat(getLigneVal(l, 'prix_unit_ht')) || 0
                         const puAchat = parseFloat(getLigneVal(l, 'prix_achat_ht')) || 0
-                        const coeff = parseFloat(getLigneVal(l, 'coeff')) || 0
                         const totalVente = qte * puVente
                         const totalAchat = qte * puAchat
                         const modeLocal = modeLignes[l.id] || 'ac'
@@ -1534,7 +1551,7 @@ export default function ProjetDetail() {
                             </td>
                             <td style={{ padding: '4px 4px', whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', gap: 2 }}>
-                                {[['ac', 'C×A'], ['vc', 'C×V'], ['av', 'V/A']].map(([mode, label]) => (
+                                {[['ac', 'A×C'], ['vc', 'V÷C'], ['av', 'V÷A']].map(([mode, label]) => (
                                   <button key={mode} onClick={() => setModeLignes(prev => ({ ...prev, [l.id]: mode }))}
                                     style={{ padding: '2px 5px', borderRadius: 4, border: '1px solid ' + (modeLocal === mode ? '#7C3AED' : '#E5E7EB'), background: modeLocal === mode ? '#F5F3FF' : '#fff', color: modeLocal === mode ? '#7C3AED' : '#9CA3AF', cursor: 'pointer', fontSize: 10, fontWeight: modeLocal === mode ? 600 : 400 }}>
                                     {label}
