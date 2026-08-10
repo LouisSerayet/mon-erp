@@ -9,6 +9,7 @@ export default function Dashboard() {
   const [cmdEnAttente, setCmdEnAttente] = useState([])
   const [facturesFrsAPayer, setFacturesFrsAPayer] = useState([])
   const [facturesCliAEncaisser, setFacturesCliAEncaisser] = useState([])
+  const [relances, setRelances] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
@@ -20,7 +21,7 @@ export default function Dashboard() {
       supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('commandes').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).in('statut', ['En attente', 'Envoyée']).order('created_at', { ascending: false }),
       supabase.from('factures_frs').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
-      supabase.from('factures_cli').select('*, projets(nom)').is('deleted_at', null).in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
+      supabase.from('factures_cli').select('*, projets(nom), clients(nom, email, telephone)').is('deleted_at', null).in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
     ])
 
     const projetsData = p || []
@@ -74,7 +75,21 @@ export default function Dashboard() {
     setCmdEnAttente(cmdData.slice(0, 5))
     setFacturesFrsAPayer(ffrsData.slice(0, 5))
     setFacturesCliAEncaisser(fcliData.slice(0, 5))
+    // Liste complète (pas limitée à 5) pour la section "Relances à faire" —
+    // c'est celle-là qu'on veut pouvoir suivre jusqu'au bout, pas un aperçu.
+    setRelances(fcliEnRetard)
     setLoading(false)
+  }
+
+  function lienRelance(f) {
+    const joursRetard = f.date_echeance ? Math.floor((new Date() - new Date(f.date_echeance)) / 86400000) : null
+    const sujet = 'Relance facture ' + (f.numero || '') + ' — ' + (f.projets?.nom || '')
+    const corps = 'Bonjour,\n\nSauf erreur de notre part, la facture ' + (f.numero || '') +
+      (f.projets?.nom ? ' (' + f.projets.nom + ')' : '') +
+      ' d\'un montant de ' + Number(f.montant_ht || 0).toLocaleString('fr-FR') + ' € HT' +
+      (joursRetard !== null ? ', échue depuis ' + joursRetard + ' jour(s),' : '') +
+      ' ne semble pas encore réglée.\n\nPourriez-vous nous indiquer où en est son règlement ?\n\nMerci d\'avance,\nCordialement'
+    return 'mailto:' + (f.clients?.email || '') + '?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps)
   }
 
   const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
@@ -99,11 +114,44 @@ export default function Dashboard() {
       </div>
 
       {/* Alertes */}
-      {(stats.nbFfrsEnRetard > 0 || stats.nbFcliEnRetard > 0) && (
+      {stats.nbFfrsEnRetard > 0 && (
         <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 20, alignItems: 'center' }}>
           <span style={{ fontSize: 16 }}>⚠️</span>
-          {stats.nbFfrsEnRetard > 0 && <span style={{ fontSize: 13, color: '#DC2626', fontWeight: 500 }}>{stats.nbFfrsEnRetard} facture(s) fournisseur en retard</span>}
-          {stats.nbFcliEnRetard > 0 && <span style={{ fontSize: 13, color: '#DC2626', fontWeight: 500 }}>{stats.nbFcliEnRetard} facture(s) client en retard</span>}
+          <span style={{ fontSize: 13, color: '#DC2626', fontWeight: 500 }}>{stats.nbFfrsEnRetard} facture(s) fournisseur en retard — voir "Factures frs à payer" ci-dessous</span>
+        </div>
+      )}
+
+      {/* Relances à faire — factures clients en retard, avec un lien mail
+          prérempli pour relancer directement sans ressaisir le message. */}
+      {relances.length > 0 && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #FCA5A5', overflow: 'hidden', marginBottom: 24 }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #FEE2E2', background: '#FEF2F2', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#991B1B' }}>⚠️ Relances à faire · {relances.length} facture(s) client en retard</span>
+          </div>
+          <div>
+            {relances.map((f, i) => {
+              const joursRetard = f.date_echeance ? Math.floor((new Date() - new Date(f.date_echeance)) / 86400000) : null
+              return (
+                <div key={f.id} style={{ padding: '12px 18px', borderBottom: i < relances.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate('/projets/' + f.projet_id)}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#111827' }}>{f.clients?.nom || 'Client inconnu'} · {f.numero}</div>
+                    <div style={{ fontSize: 11, color: '#DC2626' }}>
+                      {f.projets?.nom ? f.projets.nom + ' · ' : ''}Échue depuis {joursRetard} jour(s) ({fmtDate(f.date_echeance)})
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#DC2626', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
+                  {f.clients?.email ? (
+                    <a href={lienRelance(f)}
+                      style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0, textDecoration: 'none' }}>
+                      ✉️ Relancer
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: 11, color: '#9CA3AF', flexShrink: 0 }} title="Aucun email renseigné pour ce client">— pas d'email</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 

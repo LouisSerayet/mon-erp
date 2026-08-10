@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useLocation } from 'react-router-dom'
 
 const METIERS = ['Électricité', 'Plomberie', 'CVC', 'Menuiserie', 'Cloisons', 'Sols', 'Peinture', 'Serrurerie', 'Informatique', 'Autre']
 
 export default function Fournisseurs() {
+  const location = useLocation()
   const [fournisseurs, setFournisseurs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
+  // Pré-rempli quand on arrive depuis la recherche globale (Layout.jsx).
+  const [search, setSearch] = useState(location.state?.q || '')
   const [filtreMetier, setFiltreMetier] = useState('Tous')
   const [showForm, setShowForm] = useState(false)
   const [fournisseurOuvert, setFournisseurOuvert] = useState(null)

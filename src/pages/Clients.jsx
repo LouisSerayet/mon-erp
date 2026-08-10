@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 export default function Clients() {
+  const location = useLocation()
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
+  // Pré-rempli quand on arrive depuis la recherche globale (Layout.jsx) —
+  // faute de route dédiée par fiche client, c'est notre équivalent d'un
+  // lien direct vers le bon résultat.
+  const [search, setSearch] = useState(location.state?.q || '')
   const [showForm, setShowForm] = useState(false)
   const [clientOuvert, setClientOuvert] = useState(null)
   const [projets, setProjets] = useState([])
