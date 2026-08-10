@@ -11,7 +11,7 @@ export default function Fournisseurs() {
   const [showForm, setShowForm] = useState(false)
   const [fournisseurOuvert, setFournisseurOuvert] = useState(null)
   const [commandes, setCommandes] = useState([])
-  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', metier: '' })
+  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
   const [error, setError] = useState('')
 
   useEffect(() => { fetchFournisseurs() }, [])
@@ -39,7 +39,7 @@ export default function Fournisseurs() {
     const { error } = await supabase.from('fournisseurs').insert([{ ...form }])
     if (error) { setError('Erreur : ' + error.message); return }
     setShowForm(false)
-    setForm({ nom: '', contact: '', email: '', telephone: '', metier: '' })
+    setForm({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
     fetchFournisseurs()
   }
 
@@ -94,6 +94,9 @@ export default function Fournisseurs() {
                 ['✉️ Email', fournisseurOuvert.email],
                 ['📞 Téléphone', fournisseurOuvert.telephone],
                 ['🔧 Métier', fournisseurOuvert.metier],
+                ['🏠 Rue', fournisseurOuvert.rue],
+                ['📮 Code postal', fournisseurOuvert.code_postal],
+                ['🏙️ Ville', fournisseurOuvert.ville],
               ].map(([label, val]) => val ? (
                 <div key={label} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <span style={{ fontSize: 13, color: '#6B7280', minWidth: 100 }}>{label}</span>
@@ -202,7 +205,7 @@ export default function Fournisseurs() {
           <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
             <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Nouveau fournisseur</h3>
             {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
-            {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone']].map(([key, label]) => (
+            {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, label]) => (
               <div key={key} style={{ marginBottom: 14 }}>
                 <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>{label}</label>
                 <input value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
