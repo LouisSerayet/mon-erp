@@ -182,7 +182,7 @@ export default function Layout() {
                     fontSize: 15, color: isActive ? '#185FA5' : '#1a1a1a', textDecoration: 'none',
                     fontWeight: isActive ? 600 : 400,
                   })}>
-                  <span style={{ fontSize: 18 }}>{n.icon}</span>{n.label}
+                  {n.label}
                 </NavLink>
               ))}
               <div style={{ borderTop: '1px solid #F3F4F6', margin: '8px 0' }} />
@@ -203,7 +203,7 @@ export default function Layout() {
         }}>
           {NAV_MOBILE_PRINCIPALE.map(n => (
             <NavLink key={n.to} to={n.to} style={linkStyle}>
-              <span style={{ fontSize: 20 }}>{n.icon}</span>{n.label}
+              {n.label}
             </NavLink>
           ))}
           <button onClick={() => setPlusOuvert(true)}
@@ -256,7 +256,7 @@ export default function Layout() {
                 background: isActive ? '#E6F1FB' : 'transparent',
                 fontWeight: isActive ? 500 : 400, textDecoration: 'none'
               })}>
-              <span style={{ fontSize: 14 }}>{n.icon}</span>{n.label}
+              {n.label}
             </NavLink>
           ))}
         </nav>
