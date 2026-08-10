@@ -10,7 +10,7 @@ export default function Clients() {
   const [clientOuvert, setClientOuvert] = useState(null)
   const [projets, setProjets] = useState([])
   const [editMode, setEditMode] = useState(false)
-  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', adresse: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
+  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', adresse: '' })
   const [formEdit, setFormEdit] = useState({})
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -37,7 +37,7 @@ export default function Clients() {
     const { data, error } = await supabase.from('clients').insert([{ ...form }]).select().single()
     if (error) { setError('Erreur : ' + error.message); return }
     setShowForm(false)
-    setForm({ nom: '', contact: '', email: '', telephone: '', adresse: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
+    setForm({ nom: '', contact: '', email: '', telephone: '', adresse: '' })
     await fetchClients()
     ouvrirClient(data)
   }
@@ -84,7 +84,7 @@ export default function Clients() {
             {clientOuvert.adresse && <div style={{ fontSize: 12, color: '#9CA3AF' }}>📍 {clientOuvert.adresse}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => { setEditMode(true); setFormEdit({ nom: clientOuvert.nom, contact: clientOuvert.contact || '', email: clientOuvert.email || '', telephone: clientOuvert.telephone || '', adresse: clientOuvert.adresse || '', rue: clientOuvert.rue || '', code_postal: clientOuvert.code_postal || '', ville: clientOuvert.ville || '', pays: clientOuvert.pays || 'FR' }) }}
+            <button onClick={() => { setEditMode(true); setFormEdit({ nom: clientOuvert.nom, contact: clientOuvert.contact || '', email: clientOuvert.email || '', telephone: clientOuvert.telephone || '', adresse: clientOuvert.adresse || '' }) }}
               style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>✏️ Modifier</button>
             <button onClick={() => supprimerClient(clientOuvert.id)}
               style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 13 }}>Supprimer</button>
@@ -100,7 +100,7 @@ export default function Clients() {
               <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', fontSize: 14, fontWeight: 600 }}>Contact</div>
               {editMode ? (
                 <div style={{ padding: 16 }}>
-                  {[['nom', 'Nom'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['adresse', 'Adresse'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, label]) => (
+                  {[['nom', 'Nom'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['adresse', 'Adresse']].map(([key, label]) => (
                     <div key={key} style={{ marginBottom: 12 }}>
                       <label style={{ display: 'block', fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{label}</label>
                       <input value={formEdit[key] || ''} onChange={e => setFormEdit(p => ({ ...p, [key]: e.target.value }))}
@@ -119,9 +119,6 @@ export default function Clients() {
                     ['✉️ Email', clientOuvert.email],
                     ['📞 Téléphone', clientOuvert.telephone],
                     ['📍 Adresse', clientOuvert.adresse],
-                    ['🏠 Rue', clientOuvert.rue],
-                    ['📮 Code postal', clientOuvert.code_postal],
-                    ['🏙️ Ville', clientOuvert.ville],
                   ].map(([label, val]) => val ? (
                     <div key={label} style={{ marginBottom: 10 }}>
                       <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{label.split(' ')[0]}</div>
@@ -219,7 +216,7 @@ export default function Clients() {
           <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
             <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Nouveau client</h3>
             {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
-            {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['adresse', 'Adresse'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, label]) => (
+            {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['adresse', 'Adresse']].map(([key, label]) => (
               <div key={key} style={{ marginBottom: 14 }}>
                 <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>{label}</label>
                 <input value={form[key]} onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))}
