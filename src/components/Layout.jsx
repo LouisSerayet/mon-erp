@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
+import { useIsMobile } from '../lib/useIsMobile'
 
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: '◻' },
@@ -12,12 +14,79 @@ const nav = [
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },
 ]
 
+// Sur mobile, seuls les 3 usages "coup d'œil rapide" ont leur propre onglet
+// dans la barre du bas — le reste (Devis, Clients, Fournisseurs) est
+// regroupé derrière "Plus" pour ne pas surcharger une barre pensée pour un
+// pouce, pas pour une souris.
+const NAV_MOBILE_PRINCIPALE = nav.filter(n => n.to && ['/dashboard', '/projets', '/tresorerie'].includes(n.to))
+const NAV_MOBILE_PLUS = nav.filter(n => n.to && !['/dashboard', '/projets', '/tresorerie'].includes(n.to))
+
 export default function Layout() {
   const navigate = useNavigate()
   const { session } = useAuth()
+  const isMobile = useIsMobile()
+  const [plusOuvert, setPlusOuvert] = useState(false)
 
   async function logout() {
     await supabase.auth.signOut()
+  }
+
+  if (isMobile) {
+    const linkStyle = ({ isActive }) => ({
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+      flex: 1, padding: '6px 4px', color: isActive ? '#185FA5' : '#8A8A8A',
+      textDecoration: 'none', fontSize: 10, fontWeight: isActive ? 600 : 400,
+    })
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+        <main style={{ flex: 1, overflow: 'auto', background: '#f5f5f0', WebkitOverflowScrolling: 'touch' }}>
+          <Outlet />
+        </main>
+
+        {plusOuvert && (
+          <div onClick={() => setPlusOuvert(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 20, display: 'flex', alignItems: 'flex-end' }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: '#fff', width: '100%', borderRadius: '16px 16px 0 0', padding: '10px 0 calc(10px + env(safe-area-inset-bottom))', boxShadow: '0 -4px 24px rgba(0,0,0,0.15)' }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: '#E5E7EB', margin: '4px auto 12px' }} />
+              {NAV_MOBILE_PLUS.map(n => (
+                <NavLink key={n.to} to={n.to} onClick={() => setPlusOuvert(false)}
+                  style={({ isActive }) => ({
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px',
+                    fontSize: 15, color: isActive ? '#185FA5' : '#1a1a1a', textDecoration: 'none',
+                    fontWeight: isActive ? 600 : 400,
+                  })}>
+                  <span style={{ fontSize: 18 }}>{n.icon}</span>{n.label}
+                </NavLink>
+              ))}
+              <div style={{ borderTop: '1px solid #F3F4F6', margin: '8px 0' }} />
+              {session?.user?.email && (
+                <div style={{ padding: '6px 20px', fontSize: 12, color: '#9CA3AF' }}>{session.user.email}</div>
+              )}
+              <button onClick={logout}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '13px 20px', fontSize: 15, color: '#DC2626', background: 'none', border: 'none' }}>
+                <span style={{ fontSize: 18 }}>↩</span>Se déconnecter
+              </button>
+            </div>
+          </div>
+        )}
+
+        <nav style={{
+          display: 'flex', background: '#fff', borderTop: '1px solid #e5e5e5',
+          paddingBottom: 'env(safe-area-inset-bottom)', flexShrink: 0,
+        }}>
+          {NAV_MOBILE_PRINCIPALE.map(n => (
+            <NavLink key={n.to} to={n.to} style={linkStyle}>
+              <span style={{ fontSize: 20 }}>{n.icon}</span>{n.label}
+            </NavLink>
+          ))}
+          <button onClick={() => setPlusOuvert(true)}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flex: 1, padding: '6px 4px', background: 'none', border: 'none', color: plusOuvert ? '#185FA5' : '#8A8A8A', fontSize: 10, fontWeight: plusOuvert ? 600 : 400 }}>
+            <span style={{ fontSize: 20 }}>⋯</span>Plus
+          </button>
+        </nav>
+      </div>
+    )
   }
 
   return (

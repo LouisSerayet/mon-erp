@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { getBankAccounts, getTransactions } from '../lib/useQonto'
+import { useIsMobile } from '../lib/useIsMobile'
 
 export default function Tresorerie() {
+  const isMobile = useIsMobile()
   const [accounts, setAccounts] = useState([])
   const [transactions, setTransactions] = useState([])
   const [loading, setLoading] = useState(true)
@@ -76,8 +78,8 @@ export default function Tresorerie() {
   )
 
   return (
-    <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 10, flexWrap: 'wrap' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Trésorerie</h2>
           <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>Données en temps réel via Qonto</div>
@@ -125,6 +127,33 @@ export default function Tresorerie() {
         ) : transactions.length === 0 ? (
           <div style={{ padding: '30px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
             Aucune transaction trouvée
+          </div>
+        ) : isMobile ? (
+          // Sur mobile, un tableau à 4 colonnes ne tient pas sur un écran
+          // d'iPhone (soit ça déborde, soit le texte devient illisible) —
+          // on affiche plutôt une liste de cartes empilées, une transaction
+          // par bloc, plus adaptée à la consultation au pouce.
+          <div>
+            {transactions.map((tx, i) => {
+              const montant = (tx.amount_cents || 0) / 100
+              const isCredit = tx.side === 'credit'
+              return (
+                <div key={tx.transaction_id || i}
+                  style={{ padding: '12px 16px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ color: '#374151', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {tx.label || tx.reference || '—'}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {fmtDate(tx.settled_at || tx.emitted_at)}{tx.counterparty_name ? ' · ' + tx.counterparty_name : ''}
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 600, color: isCredit ? '#059669' : '#DC2626', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    {isCredit ? '+' : '-'}{Math.abs(montant).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                  </div>
+                </div>
+              )
+            })}
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>

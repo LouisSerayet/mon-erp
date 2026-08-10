@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
+import { useIsMobile } from '../lib/useIsMobile'
 
 const STATUTS = ['Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']
 const STATUT_STYLE = {
@@ -21,6 +22,7 @@ export default function Projets() {
   const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Devis envoyé', date_debut: '', date_fin_prevue: '', notes: '' })
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
 
   useEffect(() => { fetchAll() }, [])
 
@@ -89,8 +91,8 @@ export default function Projets() {
   const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
 
   return (
-    <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 10, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Projets</h2>
         <button onClick={() => { setShowForm(true); setError('') }}
           style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
@@ -98,9 +100,9 @@ export default function Projets() {
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10, marginBottom: 20 }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un projet..."
-          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
+          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
         <select value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)}
           style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
           <option>Tous</option>
@@ -109,8 +111,8 @@ export default function Projets() {
       </div>
 
       {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 500, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 500, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
             <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Nouveau projet</h3>
             {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
 
@@ -168,7 +170,7 @@ export default function Projets() {
               const st = STATUT_STYLE[p.statut] || {}
               return (
                 <div key={p.id} onClick={() => navigate('/projets/' + p.id)}
-                  style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}
+                  style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: isMobile ? '14px 16px' : '16px 20px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 16, cursor: 'pointer' }}
                   onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'}
                   onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
                   <div style={{ flex: 1 }}>
@@ -179,7 +181,7 @@ export default function Projets() {
                       {p.date_fin_prevue ? ' → ' + new Date(p.date_fin_prevue).toLocaleDateString('fr-FR') : ''}
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ textAlign: isMobile ? 'left' : 'right', display: 'flex', flexDirection: isMobile ? 'row-reverse' : 'row', justifyContent: isMobile ? 'space-between' : 'flex-start', alignItems: 'center', gap: 12 }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 4 }}>{fmt(p.montant_ht)}</div>
                       <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: st.bg, color: st.color, fontWeight: 500 }}>{st.icon} {p.statut}</span>

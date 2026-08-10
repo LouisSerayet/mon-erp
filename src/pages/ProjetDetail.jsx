@@ -6,6 +6,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
 import { LOGO_PP_BASE64, LOGO_PP_RATIO } from '../lib/logo'
+import { useIsMobile } from '../lib/useIsMobile'
 
 const TABS = [
   { id: 'infos', label: '📋 Infos' },
@@ -39,6 +40,7 @@ const STATUT_ICON = {
 export default function ProjetDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [tab, setTab] = useState('infos')
   const [projet, setProjet] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -908,17 +910,19 @@ export default function ProjetDetail() {
       `}</style>
 
       {/* Header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #E5E7EB', padding: '14px 24px', display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
-        <button onClick={() => navigate('/projets')}
-          style={{ background: 'none', border: '1px solid #E5E7EB', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, color: '#374151', flexShrink: 0 }}>← Projets</button>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{projet.nom}</h1>
-          <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 1 }}>
-            {projet.clients?.nom ? '👤 ' + projet.clients.nom : ''}
-            {projet.date_debut ? ' · 📅 ' + fmtDate(projet.date_debut) + (projet.date_fin_prevue ? ' → ' + fmtDate(projet.date_fin_prevue) : '') : ''}
+      <div style={{ background: '#fff', borderBottom: '1px solid #E5E7EB', padding: isMobile ? '10px 14px' : '14px 24px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 8 : 16, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 16 }}>
+          <button onClick={() => navigate('/projets')}
+            style={{ background: 'none', border: '1px solid #E5E7EB', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, color: '#374151', flexShrink: 0 }}>← Projets</button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{projet.nom}</h1>
+            <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {projet.clients?.nom ? '👤 ' + projet.clients.nom : ''}
+              {projet.date_debut ? ' · 📅 ' + fmtDate(projet.date_debut) + (projet.date_fin_prevue ? ' → ' + fmtDate(projet.date_fin_prevue) : '') : ''}
+            </div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, justifyContent: isMobile ? 'space-between' : 'flex-start' }}>
           <div style={{ fontWeight: 700, fontSize: 17, color: '#111827' }}>{fmt(projet.montant_ht)}</div>
           <span style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, background: (STATUT_COLOR[projet.statut] || '#2563EB') + '18', color: STATUT_COLOR[projet.statut] || '#2563EB', fontWeight: 600 }}>
             {STATUT_ICON[projet.statut]} {projet.statut}
@@ -943,7 +947,7 @@ export default function ProjetDetail() {
       </div>
 
       {/* Contenu */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+      <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? 14 : 24 }}>
 
         {/* ── INFOS ── */}
         {tab === 'infos' && (
@@ -1017,8 +1021,8 @@ export default function ProjetDetail() {
                 <>
                 {/* Modale de validation */}
                 {showValidation && nextStatut && (
-                  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+                  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
+                    <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 460, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
                       <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>Passer à : {icons[currentIdx + 1]} {nextStatut}</h3>
                       <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
                         Pour valider ce changement d'étape, merci de fournir la preuve requise.
@@ -1109,8 +1113,8 @@ export default function ProjetDetail() {
             })()}
 
             {editInfos ? (
-                <div style={{ padding: 20 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div style={{ padding: isMobile ? 14 : 20 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14, marginBottom: 14 }}>
                     <div style={{ gridColumn: '1 / -1' }}>
                       <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Nom du projet</label>
                       <input value={formInfos.nom || ''} onChange={e => setFormInfos(p => ({ ...p, nom: e.target.value }))}
@@ -1160,8 +1164,8 @@ export default function ProjetDetail() {
                   </div>
                 </div>
               ) : (
-                <div style={{ padding: 20 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 32px' }}>
+                <div style={{ padding: isMobile ? 14 : 20 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px 32px' }}>
                     {[
                       ['Client', projet.clients?.nom],
                       ['Statut', projet.statut],
@@ -2063,7 +2067,8 @@ export default function ProjetDetail() {
               <h3 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 600 }}>Rentabilité</h3>
 
               {/* Tableau comparatif */}
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden', marginBottom: 20 }}>
+              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: isMobile ? 'auto' : 'hidden', marginBottom: 20 }}>
+                <div style={{ minWidth: isMobile ? 480 : 'auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', background: '#1E293B', color: '#fff' }}>
                   <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}></div>
                   <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textAlign: 'right', color: '#93C5FD' }}>📐 Prévisionnel</div>
@@ -2097,10 +2102,11 @@ export default function ProjetDetail() {
                     </div>
                   )
                 })}
+                </div>
               </div>
 
               {/* Cartes résumé */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12, marginBottom: 16 }}>
                 <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 12, padding: '16px 20px' }}>
                   <div style={{ fontSize: 11, color: '#2563EB', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📐 Marge prévisionnelle</div>
                   <div style={{ fontSize: 24, fontWeight: 800, color: margePrevu >= 0 ? '#1E40AF' : '#DC2626', marginBottom: 4 }}>{fmt(margePrevu)}</div>
