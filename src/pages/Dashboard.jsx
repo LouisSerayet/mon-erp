@@ -28,16 +28,30 @@ export default function Dashboard() {
     const fcliData = fcli || []
 
     const today = new Date()
-    const totalCA = projetsData.reduce((s, x) => s + (x.montant_ht || 0), 0)
+    // CA total / Marge brute : uniquement les projets réellement "En cours"
+    // (pas les devis envoyés/signés, pas les projets finalisés/clôturés) —
+    // choix confirmé par l'utilisateur.
+    const projetsEnCours = projetsData.filter(x => x.statut === 'En cours')
+    const totalCA = projetsEnCours.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const totalFfrs = ffrsData.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const totalFcli = fcliData.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const ffrsEnRetard = ffrsData.filter(f => f.date_echeance && new Date(f.date_echeance) < today)
     const fcliEnRetard = fcliData.filter(f => f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < today)
 
-    // Calcul marge globale sur tous les projets
-    const { data: allCmd } = await supabase.from('commandes').select('montant_ht')
-    const totalTousCmd = (allCmd || []).reduce((s, c) => s + (c.montant_ht || 0), 0)
-    const margeGlobale = totalCA - totalTousCmd
+    // Coût pour la marge : commandes des projets "En cours" uniquement (même
+    // périmètre que le CA ci-dessus), en excluant les commandes annulées —
+    // sinon une commande annulée puis remplacée était comptée deux fois.
+    const idsProjetsEnCours = new Set(projetsEnCours.map(p => p.id))
+    const { data: allCmd } = await supabase.from('commandes').select('montant_ht, statut, projet_id')
+    const totalCmdEnCours = (allCmd || [])
+      .filter(c => c.statut !== 'Annulée' && idsProjetsEnCours.has(c.projet_id))
+      .reduce((s, c) => s + (c.montant_ht || 0), 0)
+    const margeGlobale = totalCA - totalCmdEnCours
+
+    // "Commandes en attente" (carte + total affiché) : même périmètre que la
+    // liste réellement montrée juste en dessous (statuts En attente/Envoyée),
+    // pas le total de toutes les commandes jamais passées.
+    const totalCmdEnAttente = cmdData.reduce((s, x) => s + (x.montant_ht || 0), 0)
 
     setStats({
       nbProjets: projetsData.length,
@@ -45,7 +59,7 @@ export default function Dashboard() {
       nbFinalisation: projetsData.filter(x => x.statut === 'Finalisation').length,
       nbClotures: projetsData.filter(x => x.statut === 'Clôturé').length,
       totalCA,
-      totalCommandes: totalTousCmd,
+      totalCommandes: totalCmdEnAttente,
       totalFfrsAPayer: totalFfrs,
       totalFcliAEncaisser: totalFcli,
       nbFfrsEnRetard: ffrsEnRetard.length,
