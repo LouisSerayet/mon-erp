@@ -26,8 +26,8 @@ export default function Layout() {
         <div onClick={() => navigate('/dashboard')} style={{ padding: '18px 16px', borderBottom: '1px solid #e5e5e5', cursor: 'pointer' }}
           onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
           onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-          <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: -1, color: '#1a1a1a' }}>PP</div>
-          <div style={{ fontSize: 10, color: '#aaa', letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: 1 }}>Partenaires Particuliers</div>
+          <img src="/logo-pp.png" alt="Partenaires Particuliers" style={{ height: 30, width: 'auto', display: 'block' }} />
+          <div style={{ fontSize: 10, color: '#aaa', letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: 4 }}>Partenaires Particuliers</div>
         </div>
         <nav style={{ padding: '8px', flex: 1, overflow: 'auto' }}>
           {nav.map((n, i) => n.section ? (

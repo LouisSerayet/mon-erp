@@ -20,7 +20,7 @@ export default function Login() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F5F5F0', fontFamily: 'Inter, sans-serif' }}>
       <form onSubmit={handleSubmit} style={{ background: '#fff', borderRadius: 16, padding: 36, width: 360, boxShadow: '0 10px 40px rgba(0,0,0,0.08)', border: '1px solid #E5E7EB', boxSizing: 'border-box' }}>
-        <div style={{ fontWeight: 800, fontSize: 24, letterSpacing: -1, color: '#1a1a1a', marginBottom: 2 }}>PP</div>
+        <img src="/logo-pp.png" alt="Partenaires Particuliers" style={{ height: 40, width: 'auto', display: 'block', marginBottom: 6 }} />
         <div style={{ fontSize: 11, color: '#9CA3AF', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 24 }}>Partenaires Particuliers — ERP</div>
 
         {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}

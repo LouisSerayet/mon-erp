@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
+import { LOGO_PP_BASE64, LOGO_PP_RATIO } from '../lib/logo'
 
 const TABS = [
   { id: 'infos', label: '📋 Infos' },
@@ -100,10 +101,14 @@ export default function ProjetDetail() {
     doc.setFillColor(30, 41, 59)
     doc.rect(0, 0, 210, 60, 'F')
 
-    // Logo / Société
+    // Logo / Société — logo réel sur un encart blanc arrondi (le logo est en
+    // encre noire, donc illisible posé directement sur le bandeau bleu foncé)
+    doc.setFillColor(255, 255, 255)
+    doc.roundedRect(12, 7, 24, 17, 2, 2, 'F')
+    const logoH = 13
+    const logoW = logoH * LOGO_PP_RATIO
+    doc.addImage(LOGO_PP_BASE64, 'PNG', 12 + (24 - logoW) / 2, 7 + (17 - logoH) / 2, logoW, logoH)
     doc.setTextColor(255, 255, 255)
-    doc.setFontSize(26); doc.setFont('helvetica', 'bold')
-    doc.text('PP', 14, 24)
     doc.setFontSize(8); doc.setFont('helvetica', 'normal')
     doc.text('PARTENAIRES PARTICULIERS', 14, 31)
 
