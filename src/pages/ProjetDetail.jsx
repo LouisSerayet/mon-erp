@@ -9,6 +9,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { calculerLigne } from '../lib/calculs'
 import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
+import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
 
 const TABS = [
   { id: 'infos', label: '📋 Infos' },
@@ -77,34 +78,31 @@ export default function ProjetDetail() {
   const [formLigne, setFormLigne] = useState({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne' })
   const [savingLigne, setSavingLigne] = useState(false)
   const [modeLignes, setModeLignes] = useState({}) // { [ligneId]: 'ac' | 'vc' | 'av' }
-  function generateDevisPDF() {
+  function generateDevisPDF(lang = 'fr') {
+    const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const lotsData = lignes.filter(l => l.type === 'lot')
     const lignesParLot = lignes.reduce((acc, l) => {
       if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
       return acc
     }, {})
-    // Formatage sans séparateur de milliers problématique — espace insécable
-    const fmtN = n => {
-      if (!n || n <= 0) return '—'
-      const parts = Number(n).toFixed(2).split('.')
-      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
-      return parts.join(',') + ' EUR'
-    }
+    // Formatage sans séparateur de milliers problématique — voir fmtMontant
+    // (lib/pdfI18n.js) pour la raison (caractère parasite affiché par jsPDF).
+    const fmtN = n => (n > 0 ? fmtMontant(n, lang) + ' EUR' : '—')
     const totalHT = lotsData.reduce((s, l) => s + (l.total_ht || 0), 0)
     const totalTVA = totalHT * 0.20
     const totalTTC = totalHT + totalTVA
     const numero = 'DEV-' + projet.nom.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase() + '-' + new Date().getFullYear()
 
     // ── PAGE 1 : PRÉSENTATION ─────────────────────────────────
-    let y = enTeteDocument(doc, { titre: 'DEVIS' })
+    let y = enTeteDocument(doc, { titre: t.titreDevis, lang })
     y = blocMetaEtDestinataire(doc, y, {
       metaGauche: [
-        ['N° devis :', numero],
-        ['Date :', new Date().toLocaleDateString('fr-FR')],
-        ['Validité :', '30 jours'],
+        [t.numeroDevis, numero],
+        [t.date, fmtDatePdf(new Date(), lang)],
+        [t.validite, t.jours30],
       ],
-      destinataire: { titre: 'Client', lignes: [projet.clients?.nom, ...lignesAdresse(projet.clients)] },
+      destinataire: { titre: t.client, lignes: [projet.clients?.nom, ...lignesAdresse(projet.clients, lang)] },
     })
 
     // Nom du projet
@@ -119,18 +117,18 @@ export default function ProjetDetail() {
     // Infos projet
     if (projet.date_debut || projet.date_fin_prevue) {
       doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...NAVY)
-      if (projet.date_debut) doc.text('Début des travaux : ' + new Date(projet.date_debut).toLocaleDateString('fr-FR'), 14, y)
-      if (projet.date_fin_prevue) doc.text('Fin prévisionnelle : ' + new Date(projet.date_fin_prevue).toLocaleDateString('fr-FR'), 111, y)
+      if (projet.date_debut) doc.text(t.debutTravaux + fmtDatePdf(projet.date_debut, lang), 14, y)
+      if (projet.date_fin_prevue) doc.text(t.finPrevue + fmtDatePdf(projet.date_fin_prevue, lang), 111, y)
       y += 6
     }
     if (projet.surface) {
       doc.setFontSize(8)
-      doc.text('Surface : ' + projet.surface + ' m²', 14, y)
+      doc.text(t.surface + projet.surface + ' m²', 14, y)
       y += 6
     }
     if (projet.acces_livraison) {
       doc.setFontSize(8)
-      doc.text('Accès/Livraison : ' + projet.acces_livraison, 14, y)
+      doc.text(t.accesLivraison + projet.acces_livraison, 14, y)
       y += 6
     }
     if (projet.notes) {
@@ -144,15 +142,9 @@ export default function ProjetDetail() {
     y += 4
 
     if (y > 220) { doc.addPage(); y = 20 }
-    y = blocTotaux(doc, y, { totalHt: totalHT, totalTva: totalTVA, totalTtc: totalTTC })
+    y = blocTotaux(doc, y, { totalHt: totalHT, totalTva: totalTVA, totalTtc: totalTTC, lang })
     if (y > 250) { doc.addPage(); y = 20 }
-    blocConditionsEtSignature(doc, y, {
-      bullets: [
-        'Devis valable 30 jours à compter de sa date d’émission.',
-        'Montants exprimés en euros HT, TVA au taux de 20 % en sus.',
-        'Le détail par lot figure en annexe ; les conditions générales de vente sont jointes en fin de document.',
-      ],
-    })
+    blocConditionsEtSignature(doc, y, { bullets: t.bulletsDevisDetaille, lang })
 
     // ── PAGES DÉTAIL PAR LOT ─────────────────────────────────
     for (const lot of lotsData) {
@@ -163,7 +155,7 @@ export default function ProjetDetail() {
       // Header lot
       doc.setFillColor(30, 41, 59); doc.rect(0, 0, 210, 16, 'F')
       doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
-      doc.text('LOT ' + lot.numero + ' — ' + (lot.categorie || ''), 14, 10)
+      doc.text(t.lot(lot.numero) + ' — ' + (lot.categorie || ''), 14, 10)
       if (lot.descriptif) { doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.text(lot.descriptif, 14, 15) }
       doc.setFontSize(9); doc.setFont('helvetica', 'bold')
       doc.text(fmtN(lot.total_ht), 196, 10, { align: 'right' })
@@ -189,17 +181,17 @@ export default function ProjetDetail() {
             l.descriptif || '',
             l.unite || '',
             l.qte > 0 ? String(l.qte) : '',
-            l.prix_unit_ht > 0 ? (Number(l.prix_unit_ht).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ' ')) : '',
-            l.total_ht > 0 ? (Number(l.total_ht).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ' ')) : '',
+            l.prix_unit_ht > 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
+            l.total_ht > 0 ? fmtMontant(l.total_ht, lang) : '',
           ])
         }
       }
 
       autoTable(doc, {
         startY: 20,
-        head: [['N°', 'Désignation', 'Unité', 'Qté', 'P.U. HT (€)', 'Total HT (€)']],
+        head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
         body,
-        foot: [['', '', '', '', 'TOTAL LOT ' + lot.numero, lot.total_ht > 0 ? (Number(lot.total_ht).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ' ')) : '']],
+        foot: [['', '', '', '', t.totalLot(lot.numero), lot.total_ht > 0 ? fmtMontant(lot.total_ht, lang) : '']],
         styles: { fontSize: 7.5, cellPadding: 2, overflow: 'linebreak' },
         headStyles: { fillColor: [248, 250, 252], textColor: [107, 114, 128], fontStyle: 'bold', lineWidth: 0.1, lineColor: [229, 231, 235] },
         footStyles: { fillColor: [240, 253, 244], textColor: [6, 95, 70], fontStyle: 'bold' },
@@ -217,9 +209,9 @@ export default function ProjetDetail() {
     }
 
     // ── CONDITIONS GÉNÉRALES DE VENTE (annexe) ────────────────
-    ajouterPagesCGV(doc)
-    piedDePage(doc, projet.nom)
-    doc.save(projet.nom.replace(/[^a-z0-9]/gi, '_') + '_devis.pdf')
+    ajouterPagesCGV(doc, lang)
+    piedDePage(doc, projet.nom, lang)
+    doc.save(projet.nom.replace(/[^a-z0-9]/gi, '_') + t.devisSuffix)
   }
 
     const [modeCalc, setModeCalc] = useState('achat_coeff') // 'achat_coeff' | 'vente_coeff' | 'achat_vente'
@@ -551,25 +543,26 @@ export default function ProjetDetail() {
     setCmdEditees(prev => ({ ...prev, [cmdId]: { ...(prev[cmdId] || {}), [champ]: valeur } }))
   }
 
-  function generateCmdPDF(cmd) {
+  function generateCmdPDF(cmd, lang = 'fr') {
+    const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
 
-    let y = enTeteDocument(doc, { titre: 'BON DE COMMANDE' })
+    let y = enTeteDocument(doc, { titre: t.titreCommande, lang })
     y = blocMetaEtDestinataire(doc, y, {
       metaGauche: [
-        ['N° :', cmd.numero || '—'],
-        ['Date :', cmd.date_commande ? new Date(cmd.date_commande).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR')],
-        ['Projet :', projet?.nom || '—'],
+        [t.numeroCommande, cmd.numero || '—'],
+        [t.date, cmd.date_commande ? fmtDatePdf(cmd.date_commande, lang) : fmtDatePdf(new Date(), lang)],
+        [t.projetLabel, projet?.nom || '—'],
       ],
-      destinataire: { titre: 'Fournisseur', lignes: [cmd.fournisseurs?.nom, ...lignesAdresse(cmd.fournisseurs)] },
+      destinataire: { titre: t.fournisseur, lignes: [cmd.fournisseurs?.nom, ...lignesAdresse(cmd.fournisseurs, lang)] },
     })
     if (projet?.adresse_chantier) {
       doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
-      doc.text('Adresse chantier : ' + projet.adresse_chantier, 14, y); y += 8
+      doc.text(t.adresseChantier + projet.adresse_chantier, 14, y); y += 8
     }
 
     doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
-    doc.text('Objet de la commande', 14, y); y += 6
+    doc.text(t.objetCommande, 14, y); y += 6
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
     const descLines = doc.splitTextToSize(cmd.description || '', 182)
     doc.text(descLines, 14, y)
@@ -577,9 +570,9 @@ export default function ProjetDetail() {
 
     autoTable(doc, {
       startY: y,
-      head: [['Description', 'Montant HT']],
-      body: [[cmd.description || '', fmtEUR(cmd.montant_ht)]],
-      foot: [['TOTAL HT', fmtEUR(cmd.montant_ht)]],
+      head: [[t.colDescription, t.colMontantHt]],
+      body: [[cmd.description || '', fmtEUR(cmd.montant_ht, lang)]],
+      foot: [[t.totalHtFoot, fmtEUR(cmd.montant_ht, lang)]],
       styles: { fontSize: 9 },
       headStyles: { fillColor: NAVY, textColor: 255 },
       footStyles: { fillColor: [240, 253, 244], textColor: [6, 95, 70], fontStyle: 'bold' },
@@ -589,35 +582,36 @@ export default function ProjetDetail() {
 
     y = doc.lastAutoTable.finalY + 12
     doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
-    doc.text('Statut : ' + (cmd.statut || ''), 14, y)
+    doc.text(t.statutLabel + (cmd.statut || ''), 14, y)
 
-    piedDePage(doc, cmd.numero || projet?.nom || '')
+    piedDePage(doc, cmd.numero || projet?.nom || '', lang)
     return doc
   }
 
   // ── Facture client : même charte graphique que le devis, avec CGV
   // jointes (document de vente adressé au client) et sans bloc signature.
-  function generateFactureCliPDF(f) {
+  function generateFactureCliPDF(f, lang = 'fr') {
+    const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const totalHt = f.montant_ht || 0
     const totalTva = totalHt * 0.20
     const totalTtc = totalHt + totalTva
-    const description = 'Prestations — ' + (projet?.nom || '')
+    const description = t.prestations + (projet?.nom || '')
 
-    let y = enTeteDocument(doc, { titre: 'FACTURE' })
+    let y = enTeteDocument(doc, { titre: t.titreFacture, lang })
     y = blocMetaEtDestinataire(doc, y, {
       metaGauche: [
-        ['N° facture :', f.numero || '—'],
-        ['Date :', f.date_facture ? new Date(f.date_facture).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR')],
-        ['Échéance :', f.date_echeance ? new Date(f.date_echeance).toLocaleDateString('fr-FR') : '—'],
+        [t.numeroFacture, f.numero || '—'],
+        [t.date, f.date_facture ? fmtDatePdf(f.date_facture, lang) : fmtDatePdf(new Date(), lang)],
+        [t.echeance, f.date_echeance ? fmtDatePdf(f.date_echeance, lang) : '—'],
       ],
-      destinataire: { titre: 'Client', lignes: [projet?.clients?.nom, ...lignesAdresse(projet?.clients)] },
+      destinataire: { titre: t.client, lignes: [projet?.clients?.nom, ...lignesAdresse(projet?.clients, lang)] },
     })
 
     autoTable(doc, {
       startY: y,
-      head: [['Désignation', 'Montant HT']],
-      body: [[description, fmtEUR(totalHt)]],
+      head: [[t.colDesignation, t.colMontantHt]],
+      body: [[description, fmtEUR(totalHt, lang)]],
       styles: { fontSize: 9 },
       headStyles: { fillColor: NAVY, textColor: 255 },
       columnStyles: { 1: { halign: 'right', cellWidth: 40 } },
@@ -626,20 +620,12 @@ export default function ProjetDetail() {
 
     y = doc.lastAutoTable.finalY + 10
     if (y > 220) { doc.addPage(); y = 20 }
-    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc })
+    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, lang })
     if (y > 250) { doc.addPage(); y = 20 }
-    blocConditionsEtSignature(doc, y, {
-      bullets: [
-        'Facture payable à réception, dans un délai de 30 jours date de facture (voir échéance ci-dessus), par virement bancaire.',
-        'Montants exprimés en euros HT, TVA au taux de 20 % en sus.',
-        'Tout retard de paiement entraîne l’application d’intérêts de retard et d’une indemnité forfaitaire de 40 € pour frais de recouvrement (art. L441-10 et D441-5 du Code de commerce). Aucun escompte pour paiement anticipé.',
-        'Les conditions générales de vente sont jointes en fin de document.',
-      ],
-      avecSignature: false,
-    })
+    blocConditionsEtSignature(doc, y, { bullets: t.bulletsFacture, avecSignature: false, lang })
 
-    ajouterPagesCGV(doc)
-    piedDePage(doc, f.numero || projet?.nom || '')
+    ajouterPagesCGV(doc, lang)
+    piedDePage(doc, f.numero || projet?.nom || '', lang)
     return doc
   }
 
@@ -850,10 +836,16 @@ export default function ProjetDetail() {
           <span style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, background: (STATUT_COLOR[projet.statut] || '#2563EB') + '18', color: STATUT_COLOR[projet.statut] || '#2563EB', fontWeight: 600 }}>
             {STATUT_ICON[projet.statut]} {projet.statut}
           </span>
-          <button onClick={generateDevisPDF}
-            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
-            ⬇ Devis PDF
-          </button>
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            <button onClick={() => generateDevisPDF('fr')} title="Devis PDF en français"
+              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+              ⬇ Devis FR
+            </button>
+            <button onClick={() => generateDevisPDF('en')} title="Devis PDF in English"
+              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+              ⬇ Devis EN
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1523,9 +1515,13 @@ export default function ProjetDetail() {
                   </div>
                   <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                     <button onClick={() => setShowPdfPreview(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Fermer</button>
-                    <button onClick={() => { generateCmdPDF(showPdfPreview).save((showPdfPreview.numero || 'commande') + '.pdf'); setShowPdfPreview(null) }}
-                      style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                      ⬇ Télécharger PDF
+                    <button onClick={() => { generateCmdPDF(showPdfPreview, 'fr').save((showPdfPreview.numero || 'commande') + '.pdf'); setShowPdfPreview(null) }}
+                      style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                      ⬇ PDF FR
+                    </button>
+                    <button onClick={() => { generateCmdPDF(showPdfPreview, 'en').save((showPdfPreview.numero || 'commande') + '_EN.pdf'); setShowPdfPreview(null) }}
+                      style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                      ⬇ PDF EN
                     </button>
                   </div>
                 </div>
@@ -1942,8 +1938,10 @@ export default function ProjetDetail() {
                             <button onClick={() => saveFacCli(f)} disabled={pennylaneBusy === f.id}
                               style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>✓</button>
                           )}
-                          <button onClick={() => generateFactureCliPDF(f).save((f.numero || 'facture') + '.pdf')}
-                            title="Générer le PDF" style={{ background: 'none', border: 'none', color: '#2563EB', cursor: 'pointer', fontSize: 14 }}>📄</button>
+                          <button onClick={() => generateFactureCliPDF(f, 'fr').save((f.numero || 'facture') + '.pdf')}
+                            title="PDF en français" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #E5E7EB', background: '#fff', color: '#059669', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>FR</button>
+                          <button onClick={() => generateFactureCliPDF(f, 'en').save((f.numero || 'facture') + '_EN.pdf')}
+                            title="PDF in English" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #E5E7EB', background: '#fff', color: '#2563EB', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>EN</button>
                           <button onClick={() => supprimer('factures_cli', f.id)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}>✕</button>
                         </div>
                       </td>

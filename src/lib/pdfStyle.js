@@ -2,9 +2,11 @@
 // clients, bons de commande) — un même style simple, épuré et classique
 // (bandeau bleu marine, tableaux clairs) pour que tous les documents envoyés
 // à un tiers soient cohérents. Voir aussi pdfCgv.js pour les conditions
-// générales de vente rattachées aux devis/factures.
+// générales de vente rattachées aux devis/factures, et pdfI18n.js pour les
+// libellés traduits (chaque document peut être généré en FR ou en EN).
 import { LOGO_PP_BASE64, LOGO_PP_RATIO } from './logo'
 import { ENTREPRISE } from './entreprise'
+import { L, fmtMontant } from './pdfI18n'
 
 export const NAVY = [30, 41, 59]
 export const GRAY = [107, 114, 128]
@@ -14,23 +16,21 @@ export const PAGE_W = 210
 export const MARGIN_L = 14
 export const MARGIN_R = 196 // = 210 - 14, bord droit du contenu
 
-// NB : on n'utilise pas toLocaleString('fr-FR') ici — il insère une espace
-// fine insécable (U+202F) comme séparateur de milliers que la police
+// NB : on n'utilise pas toLocaleString() ici — en français il insère une
+// espace fine insécable (U+202F) comme séparateur de milliers que la police
 // standard de jsPDF ne sait pas afficher correctement. On regroupe donc les
-// milliers nous-mêmes avec une espace normale (même pattern que les autres
-// générateurs PDF de l'app, voir ProjetDetail.jsx).
-export function fmt(n) {
-  if (n === null || n === undefined || isNaN(n)) return '—'
-  const parts = Number(n).toFixed(2).split('.')
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
-  return parts.join(',') + ' €'
+// milliers nous-mêmes avec une espace normale (voir fmtMontant, pdfI18n.js).
+export function fmt(n, lang = 'fr') {
+  const m = fmtMontant(n, lang)
+  return m === '—' ? m : m + ' €'
 }
 
 // En-tête commun : logo en haut à droite, bloc société en haut à gauche
 // (nom, adresse, SIRET, contact), puis le titre du document (DEVIS,
 // FACTURE, BON DE COMMANDE...) souligné d'un filet fin bleu marine.
 // Retourne le Y où démarrer le contenu suivant.
-export function enTeteDocument(doc, { titre }) {
+export function enTeteDocument(doc, { titre, lang = 'fr' }) {
+  const t = L[lang]
   const logoH = 16
   const logoW = logoH * LOGO_PP_RATIO
   doc.addImage(LOGO_PP_BASE64, 'PNG', MARGIN_R - logoW, 12, logoW, logoH)
@@ -41,8 +41,8 @@ export function enTeteDocument(doc, { titre }) {
   doc.setTextColor(...GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
   doc.text(ENTREPRISE.adresse, MARGIN_L, y); y += 4.5
   doc.text(ENTREPRISE.codePostal + ' ' + ENTREPRISE.ville, MARGIN_L, y); y += 4.5
-  doc.text('SIRET : ' + ENTREPRISE.siret, MARGIN_L, y); y += 6
-  doc.text('Contact : ' + ENTREPRISE.contact.nom + ' — ' + ENTREPRISE.contact.tel, MARGIN_L, y); y += 4.5
+  doc.text(t.siret + ENTREPRISE.siret, MARGIN_L, y); y += 6
+  doc.text(t.contact + ENTREPRISE.contact.nom + ' — ' + ENTREPRISE.contact.tel, MARGIN_L, y); y += 4.5
   doc.text(ENTREPRISE.contact.email, MARGIN_L, y); y += 8
 
   doc.setTextColor(...NAVY); doc.setFont('helvetica', 'bold'); doc.setFontSize(26)
@@ -89,7 +89,8 @@ export function blocMetaEtDestinataire(doc, y, { metaGauche = [], destinataire }
 
 // Bloc de totaux (Total HT / TVA / Total TTC), aligné à droite façon devis
 // modèle — la ligne Total TTC est mise en avant en bleu marine plein.
-export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true }) {
+export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true, lang = 'fr' }) {
+  const t = L[lang]
   const xLabel = MARGIN_L, wLabel = 120
   const xVal = MARGIN_L + wLabel, wVal = MARGIN_R - xVal
   const rowH = 9
@@ -114,13 +115,13 @@ export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true
     // Montant — blanc si la ligne est pleine (Total TTC), bleu marine sur
     // fond blanc sinon.
     doc.setTextColor(...(pleine ? [255, 255, 255] : NAVY))
-    doc.text(fmt(valeur), MARGIN_R - 4, yy + rowH / 2 + 3, { align: 'right' })
+    doc.text(fmt(valeur, lang), MARGIN_R - 4, yy + rowH / 2 + 3, { align: 'right' })
     yy += rowH
   }
 
-  ligne('Total HT', totalHt, false)
-  if (showTva) ligne('Total TVA (' + ENTREPRISE.tvaTauxDefaut + '%)', totalTva, false)
-  ligne('Total TTC', totalTtc, true)
+  ligne(t.totalHt, totalHt, false)
+  if (showTva) ligne(t.totalTva(ENTREPRISE.tvaTauxDefaut), totalTva, false)
+  ligne(t.totalTtc, totalTtc, true)
 
   doc.setTextColor(...NAVY)
   return yy + 8
@@ -128,10 +129,11 @@ export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true
 
 // Section "Conditions" (courtes, renvoi vers les CGV jointes) + bloc de
 // signature "Bon pour accord" — utilisé sur les devis.
-export function blocConditionsEtSignature(doc, y, { bullets, avecSignature = true }) {
+export function blocConditionsEtSignature(doc, y, { bullets, avecSignature = true, lang = 'fr' }) {
+  const t = L[lang]
   let yy = y
   doc.setTextColor(...NAVY); doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
-  doc.text('Conditions', MARGIN_L, yy); yy += 6
+  doc.text(t.conditions, MARGIN_L, yy); yy += 6
   doc.setTextColor(...GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
   for (const b of bullets) {
     const wrapped = doc.splitTextToSize('• ' + b, MARGIN_R - MARGIN_L)
@@ -142,30 +144,32 @@ export function blocConditionsEtSignature(doc, y, { bullets, avecSignature = tru
 
   if (avecSignature) {
     doc.setTextColor(...NAVY); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-    doc.text('Bon pour accord', MARGIN_L, yy); yy += 5
+    doc.text(t.bonPourAccord, MARGIN_L, yy); yy += 5
     doc.setTextColor(...GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
-    doc.text('Date, signature et cachet du client :', MARGIN_L, yy)
+    doc.text(t.dateSignature, MARGIN_L, yy)
     yy += 4
   }
   return yy
 }
 
 // Pied de page (numéro de page + libellé) sur toutes les pages du document.
-export function piedDePage(doc, docLabel) {
+export function piedDePage(doc, docLabel, lang = 'fr') {
+  const t = L[lang]
   const pageCount = doc.getNumberOfPages()
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i)
     doc.setFontSize(7); doc.setTextColor(...GRAY); doc.setFont('helvetica', 'normal')
     doc.text('Partenaires Particuliers — ' + docLabel, MARGIN_L, 291)
-    doc.text('Page ' + i + ' / ' + pageCount, MARGIN_R, 291, { align: 'right' })
+    doc.text(t.page(i, pageCount), MARGIN_R, 291, { align: 'right' })
   }
 }
 
 // Formatte l'adresse d'un client/fournisseur en tenant compte du fait que
 // certaines fiches n'ont qu'un champ "adresse" libre, d'autres des champs
 // structurés (rue/code_postal/ville) saisis pour la synchro Pennylane.
-export function lignesAdresse(entite) {
+export function lignesAdresse(entite, lang = 'fr') {
   if (!entite) return []
+  const t = L[lang]
   const lignes = []
   if (entite.rue || entite.code_postal || entite.ville) {
     if (entite.rue) lignes.push(entite.rue)
@@ -174,7 +178,7 @@ export function lignesAdresse(entite) {
   } else if (entite.adresse) {
     lignes.push(entite.adresse)
   }
-  if (entite.telephone) lignes.push('Tél : ' + entite.telephone)
+  if (entite.telephone) lignes.push(t.tel + entite.telephone)
   if (entite.email) lignes.push(entite.email)
   return lignes
 }

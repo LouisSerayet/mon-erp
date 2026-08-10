@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { calculerLigne } from '../lib/calculs'
 import { enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
+import { L, fmtMontant, fmtDate } from '../lib/pdfI18n'
 
 const STATUTS = ['Brouillon', 'Envoyé', 'Accepté', 'Refusé']
 const STATUS_STYLE = {
@@ -283,36 +284,29 @@ export default function Devis() {
     navigate('/projets/' + projet.id)
   }
 
-  function generatePDF(d) {
+  function generatePDF(d, lang = 'fr') {
+    const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const lots = (d.lignes || []).filter(l => l.type === 'lot')
     const lignesParLot = (d.lignes || []).reduce((acc, l) => {
       if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
       return acc
     }, {})
-    // On n'utilise pas toLocaleString('fr-FR') ici — il insère une espace fine
-    // insécable (U+202F) comme séparateur de milliers que la police standard
-    // de jsPDF affiche comme un caractère parasite (ex. « 4 /716,00 » au lieu
-    // de « 4 716,00 »). On regroupe donc les milliers nous-mêmes avec une
-    // espace normale (voir lib/pdfStyle.js).
-    const fmtN = (n) => {
-      if (!(n > 0)) return ''
-      const parts = Number(n).toFixed(2).split('.')
-      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
-      return parts.join(',')
-    }
+    // On n'utilise pas toLocaleString() ici — voir fmtMontant (lib/pdfI18n.js)
+    // pour la raison (caractère parasite affiché par la police jsPDF).
+    const fmtN = (n) => (n > 0 ? fmtMontant(n, lang) : '')
     const totalHt = d.montant_ht || 0
     const totalTva = totalHt * 0.20
     const totalTtc = totalHt + totalTva
 
-    let y = enTeteDocument(doc, { titre: 'DEVIS' })
+    let y = enTeteDocument(doc, { titre: t.titreDevis, lang })
     y = blocMetaEtDestinataire(doc, y, {
       metaGauche: [
-        ['N° devis :', d.titre],
-        ['Date :', new Date(d.created_at).toLocaleDateString('fr-FR')],
-        ['Validité :', '30 jours'],
+        [t.numeroDevis, d.titre],
+        [t.date, fmtDate(d.created_at, lang)],
+        [t.validite, t.jours30],
       ],
-      destinataire: d.clients ? { titre: 'Client', lignes: [d.clients.nom, ...lignesAdresse(d.clients)] } : null,
+      destinataire: d.clients ? { titre: t.client, lignes: [d.clients.nom, ...lignesAdresse(d.clients, lang)] } : null,
     })
 
     for (const lot of lots) {
@@ -321,11 +315,11 @@ export default function Devis() {
       if (y > 250) { doc.addPage(); y = 20 }
       doc.setFillColor(30, 41, 59); doc.rect(14, y - 5, 182, 8, 'F')
       doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont('helvetica', 'bold')
-      doc.text('LOT ' + lot.numero + ' — ' + (lot.categorie || '') + '   ' + fmtN(lot.total_ht) + ' €', 16, y)
+      doc.text(t.lot(lot.numero) + ' — ' + (lot.categorie || '') + '   ' + fmtN(lot.total_ht) + ' €', 16, y)
       doc.setTextColor(30, 41, 59); y += 4
       autoTable(doc, {
         startY: y,
-        head: [['N°', 'Désignation', 'Unité', 'Qté', 'P.U. HT', 'Total HT']],
+        head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHt, t.colTotalHt]],
         body: lignes.map(l => l.type === 'titre'
           ? [{ content: l.descriptif || '', colSpan: 6, styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [71, 85, 105] } }]
           : [l.numero || '', l.descriptif || '', l.unite || '', l.qte > 0 ? l.qte : '', fmtN(l.prix_unit_ht), fmtN(l.total_ht)]
@@ -344,11 +338,11 @@ export default function Devis() {
       if (y > 250) { doc.addPage(); y = 20 }
       doc.setFillColor(55, 65, 81); doc.rect(14, y - 5, 182, 8, 'F')
       doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont('helvetica', 'bold')
-      doc.text('LIGNES SANS LOT', 16, y)
+      doc.text(t.lignesSansLot, 16, y)
       doc.setTextColor(30, 41, 59); y += 4
       autoTable(doc, {
         startY: y,
-        head: [['N°', 'Désignation', 'Unité', 'Qté', 'P.U. HT', 'Total HT']],
+        head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHt, t.colTotalHt]],
         body: lignesSansLot.map(l => l.type === 'titre'
           ? [{ content: l.descriptif || '', colSpan: 6, styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [71, 85, 105] } }]
           : [l.numero || '', l.descriptif || '', l.unite || '', l.qte > 0 ? l.qte : '', fmtN(l.prix_unit_ht), fmtN(l.total_ht)]
@@ -362,19 +356,13 @@ export default function Devis() {
     }
 
     if (y > 240) { doc.addPage(); y = 20 }
-    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc })
+    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, lang })
     if (y > 250) { doc.addPage(); y = 20 }
-    blocConditionsEtSignature(doc, y, {
-      bullets: [
-        'Devis valable 30 jours à compter de sa date d’émission.',
-        'Montants exprimés en euros HT, TVA au taux de 20 % en sus.',
-        'Conditions générales de vente jointes en annexe du présent devis.',
-      ],
-    })
+    blocConditionsEtSignature(doc, y, { bullets: t.bulletsDevisSimple, lang })
 
-    ajouterPagesCGV(doc)
-    piedDePage(doc, d.titre)
-    doc.save(d.titre.replace(/[^a-z0-9]/gi, '_') + '_devis.pdf')
+    ajouterPagesCGV(doc, lang)
+    piedDePage(doc, d.titre, lang)
+    doc.save(d.titre.replace(/[^a-z0-9]/gi, '_') + t.devisSuffix)
   }
 
   const fmt = (n) => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
@@ -506,9 +494,13 @@ export default function Devis() {
               {importing ? '⏳' : '⬆'} Importer Excel
               <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={e => handleImport(e, devisOuvert.id)} />
             </label>
-            <button onClick={() => generatePDF(devisOuvert)}
-              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
-              ⬇ PDF
+            <button onClick={() => generatePDF(devisOuvert, 'fr')}
+              style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+              ⬇ PDF FR
+            </button>
+            <button onClick={() => generatePDF(devisOuvert, 'en')}
+              style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+              ⬇ PDF EN
             </button>
             {devisOuvert.statut === 'Accepté' && (
               <button onClick={creerProjetDepuisDevis} disabled={creatingProjet}
