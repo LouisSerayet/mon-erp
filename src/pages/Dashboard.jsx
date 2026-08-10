@@ -86,13 +86,13 @@ export default function Dashboard() {
     const sujet = 'Relance facture ' + (f.numero || '') + ' — ' + (f.projets?.nom || '')
     const corps = 'Bonjour,\n\nSauf erreur de notre part, la facture ' + (f.numero || '') +
       (f.projets?.nom ? ' (' + f.projets.nom + ')' : '') +
-      ' d\'un montant de ' + Number(f.montant_ht || 0).toLocaleString('fr-FR') + ' € HT' +
+      ' d\'un montant de ' + Number(f.montant_ht || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' € HT' +
       (joursRetard !== null ? ', échue depuis ' + joursRetard + ' jour(s),' : '') +
       ' ne semble pas encore réglée.\n\nPourriez-vous nous indiquer où en est son règlement ?\n\nMerci d\'avance,\nCordialement'
     return 'mailto:' + (f.clients?.email || '') + '?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps)
   }
 
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
+  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
   const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Chargement...</div>

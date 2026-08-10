@@ -69,7 +69,7 @@ export default function Clients() {
     c.contact?.toLowerCase().includes(search.toLowerCase())
   )
 
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
+  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
   const STATUT_STYLE = {
     'En cours':    { bg: '#EFF6FF', color: '#2563EB' },
     'Finalisation':{ bg: '#FFF7ED', color: '#EA580C' },

@@ -809,7 +809,7 @@ export default function ProjetDetail() {
     if (table === 'factures_cli') { const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }); setFacturesCli(data || []) }
   }
 
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
+  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
   const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
   const totalCommandes = commandes.reduce((s, c) => s + (c.montant_ht || 0), 0)
   const totalFfrs = facturesFrs.reduce((s, f) => s + (f.montant_ht || 0), 0)
@@ -1262,7 +1262,7 @@ export default function ProjetDetail() {
                     ].map(({ label, value, color, bg, border, isText }) => (
                       <div key={label} style={{ background: bg, border: '1px solid ' + border, borderRadius: 10, padding: '12px 16px' }}>
                         <div style={{ fontSize: 11, color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>{label}</div>
-                        <div style={{ fontSize: 18, fontWeight: 700, color }}>{isText ? value : Number(value).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €'}</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color }}>{isText ? value : Number(value).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}</div>
                       </div>
                     ))}
                   </div>
@@ -1283,9 +1283,9 @@ export default function ProjetDetail() {
                       <span style={{ fontWeight: 600, fontSize: 13 }}>LOT {lot.numero} — {lot.categorie}{lot.descriptif ? ' · ' + lot.descriptif : ''}</span>
                     </div>
                     <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, color: '#86EFAC' }}>Vente : {Number(totalVenteLot).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</span>
-                      <span style={{ fontSize: 12, color: '#93C5FD' }}>Achat : {Number(totalAchatLot).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</span>
-                      <span style={{ fontSize: 12, color: margeLot >= 0 ? '#86EFAC' : '#FCA5A5', fontWeight: 600 }}>Marge : {Number(margeLot).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</span>
+                      <span style={{ fontSize: 12, color: '#86EFAC' }}>Vente : {Number(totalVenteLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      <span style={{ fontSize: 12, color: '#93C5FD' }}>Achat : {Number(totalAchatLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      <span style={{ fontSize: 12, color: margeLot >= 0 ? '#86EFAC' : '#FCA5A5', fontWeight: 600 }}>Marge : {Number(margeLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                     </div>
                   </div>
                   {!estReduit && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -1407,7 +1407,7 @@ export default function ProjetDetail() {
                   <div style={{ background: '#374151', color: '#fff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>Lignes sans lot</span>
                     <span style={{ fontSize: 12, color: '#D1FAE5' }}>
-                      Vente : {Number((lignesParLot['sans'] || []).reduce((s, l) => s + (l.total_ht || 0), 0)).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €
+                      Vente : {Number((lignesParLot['sans'] || []).reduce((s, l) => s + (l.total_ht || 0), 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </span>
                   </div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -1576,7 +1576,7 @@ export default function ProjetDetail() {
                               style={{ padding: '5px 8px', cursor: 'pointer', borderRadius: 4, fontWeight: 600, fontSize: 12, color: '#1E293B', background: '#E2E8F0', marginBottom: 2 }}
                               onMouseEnter={e => e.currentTarget.style.background = '#CBD5E1'}
                               onMouseLeave={e => e.currentTarget.style.background = '#E2E8F0'}>
-                              LOT {lot.numero} — {lot.categorie} · {lot.total_achat > 0 ? Number(lot.total_achat).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €' : ''}
+                              LOT {lot.numero} — {lot.categorie} · {lot.total_achat > 0 ? Number(lot.total_achat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : ''}
                             </div>
                           </div>
                         ))}

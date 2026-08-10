@@ -90,7 +90,7 @@ export default function Projets() {
     return matchSearch && (filtreStatut === 'Tous' || p.statut === filtreStatut)
   })
 
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
+  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
 
   return (
     <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>

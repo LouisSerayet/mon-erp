@@ -290,7 +290,17 @@ export default function Devis() {
       if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
       return acc
     }, {})
-    const fmtN = (n) => n > 0 ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+    // On n'utilise pas toLocaleString('fr-FR') ici — il insère une espace fine
+    // insécable (U+202F) comme séparateur de milliers que la police standard
+    // de jsPDF affiche comme un caractère parasite (ex. « 4 /716,00 » au lieu
+    // de « 4 716,00 »). On regroupe donc les milliers nous-mêmes avec une
+    // espace normale (voir lib/pdfStyle.js).
+    const fmtN = (n) => {
+      if (!(n > 0)) return ''
+      const parts = Number(n).toFixed(2).split('.')
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+      return parts.join(',')
+    }
     const totalHt = d.montant_ht || 0
     const totalTva = totalHt * 0.20
     const totalTtc = totalHt + totalTva
@@ -367,7 +377,7 @@ export default function Devis() {
     doc.save(d.titre.replace(/[^a-z0-9]/gi, '_') + '_devis.pdf')
   }
 
-  const fmt = (n) => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
+  const fmt = (n) => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
   const devisFiltres = devis.filter(d => {
     const matchSearch = d.titre?.toLowerCase().includes(search.toLowerCase()) || d.clients?.nom?.toLowerCase().includes(search.toLowerCase())
     return matchSearch && (filtreStatut === 'Tous' || d.statut === filtreStatut)

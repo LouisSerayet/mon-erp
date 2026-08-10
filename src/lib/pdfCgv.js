@@ -13,11 +13,16 @@ import { NAVY, MARGIN_L, MARGIN_R } from './pdfStyle'
 
 const E = ENTREPRISE
 
+// Comme dans pdfStyle.js : pas de toLocaleString('fr-FR') dans un PDF — sa
+// espace fine insécable (U+202F) s'affiche comme un caractère parasite
+// (« 30 /000 » au lieu de « 30 000 ») avec la police standard de jsPDF.
+const capitalSocialFmt = String(E.capitalSocial).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+
 export const CGV_ARTICLES = [
   {
     titre: 'Article 1 : Préambule',
     paragraphes: [
-      `Les présentes conditions générales de vente ont pour objet de régir les relations entre, d'une part, la société ${E.nom}, ${E.formeJuridique} (${E.formeJuridiqueLongue}) au capital de ${E.capitalSocial.toLocaleString('fr-FR')} euros, immatriculée au Registre du Commerce et des Sociétés de ${E.rcsVille} sous le numéro ${E.siren}, dont le siège social est situé ${E.adresse}, ${E.codePostal} ${E.ville} (ci-après « ${E.nom} » ou « le Prestataire »), et d'autre part le client (ci-après le « Client ») qui confie au Prestataire tout ou partie d'une mission de conseil, d'assistance à maîtrise d'ouvrage, d'ordonnancement, de pilotage et coordination (OPC) ou de gestion de projet d'aménagement.`,
+      `Les présentes conditions générales de vente ont pour objet de régir les relations entre, d'une part, la société ${E.nom}, ${E.formeJuridique} (${E.formeJuridiqueLongue}) au capital de ${capitalSocialFmt} euros, immatriculée au Registre du Commerce et des Sociétés de ${E.rcsVille} sous le numéro ${E.siren}, dont le siège social est situé ${E.adresse}, ${E.codePostal} ${E.ville} (ci-après « ${E.nom} » ou « le Prestataire »), et d'autre part le client (ci-après le « Client ») qui confie au Prestataire tout ou partie d'une mission de conseil, d'assistance à maîtrise d'ouvrage, d'ordonnancement, de pilotage et coordination (OPC) ou de gestion de projet d'aménagement.`,
       `Toute acceptation d'un devis ou toute commande passée auprès du Prestataire implique l'acceptation sans réserve des présentes conditions générales de vente. Toute réserve du Client ne lui sera opposable que si elle a fait l'objet d'une acceptation écrite et préalable du Prestataire. La relation contractuelle (ci-après « le Marché ») est constituée, par ordre hiérarchique décroissant, du devis ou de la commande accepté(e), puis des présentes conditions générales de vente.`,
     ],
   },

@@ -65,7 +65,7 @@ export default function Fournisseurs() {
     return matchSearch && (filtreMetier === 'Tous' || f.metier === filtreMetier)
   })
 
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €' : '—'
+  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
   const totalCommandes = commandes.reduce((s, c) => s + (c.montant_ht || 0), 0)
 
   // ── Vue détail fournisseur ────────────────────────────────────
