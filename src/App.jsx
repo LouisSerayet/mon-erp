@@ -17,6 +17,7 @@ const Devis = lazy(() => import('./pages/Devis'))
 const Clients = lazy(() => import('./pages/Clients'))
 const Fournisseurs = lazy(() => import('./pages/Fournisseurs'))
 const Depenses = lazy(() => import('./pages/Depenses'))
+const Resultat = lazy(() => import('./pages/Resultat'))
 const Tresorerie = lazy(() => import('./pages/Tresorerie'))
 const Rapprochement = lazy(() => import('./pages/Rapprochement'))
 const Corbeille = lazy(() => import('./pages/Corbeille'))
@@ -57,6 +58,7 @@ function Gate() {
             <Route path="clients" element={<Clients />} />
             <Route path="fournisseurs" element={<Fournisseurs />} />
             <Route path="depenses" element={<Depenses />} />
+            <Route path="resultat" element={<Resultat />} />
             <Route path="tresorerie" element={<Tresorerie />} />
             <Route path="rapprochement" element={<Rapprochement />} />
             <Route path="corbeille" element={<Corbeille />} />

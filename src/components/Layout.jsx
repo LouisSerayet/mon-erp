@@ -8,6 +8,7 @@ const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: '◻' },
   { to: '/projets', label: 'Projets', icon: '📋' },
   { to: '/devis', label: 'Devis', icon: '📝' },
+  { to: '/resultat', label: 'Compte de résultat', icon: '🧾' },
   { to: '/tresorerie', label: 'Trésorerie', icon: '🏦' },
   { to: '/rapprochement', label: 'Rapprochement', icon: '🔗' },
   { to: '/depenses', label: 'Dépenses', icon: '💸' },
