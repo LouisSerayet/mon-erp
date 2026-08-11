@@ -125,10 +125,13 @@ export default function Depenses() {
       const lots = await Promise.all(comptes.map(c => getTransactionsPourRapprochement(c)))
       const transactions = lots.flat()
 
+      // Important : on ignore les lignes supprimées (deleted_at) — sinon une
+      // facture envoyée à la Corbeille garde sa transaction "réservée" pour
+      // toujours et bloque tout rapprochement futur sur cette transaction.
       const [{ data: liensCli }, { data: liensFrs }, { data: liensDep }] = await Promise.all([
-        supabase.from('factures_cli').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
-        supabase.from('factures_frs').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
-        supabase.from('depenses_generales').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
+        supabase.from('factures_cli').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
+        supabase.from('factures_frs').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
+        supabase.from('depenses_generales').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
       ])
       const exclues = new Set([
         ...(liensCli || []).map(l => l.qonto_transaction_id),

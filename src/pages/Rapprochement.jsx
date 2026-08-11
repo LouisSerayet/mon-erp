@@ -83,10 +83,13 @@ export default function Rapprochement() {
 
       // 3. Transactions déjà liées à une facture (payée précédemment) — à ne
       // jamais reproposer sur une autre facture.
+      // Important : on ignore les lignes supprimées (deleted_at) — sinon une
+      // facture envoyée à la Corbeille garde sa transaction "réservée" pour
+      // toujours et bloque tout rapprochement futur sur cette transaction.
       const [{ data: liensCli }, { data: liensFrs }, { data: liensDep }] = await Promise.all([
-        supabase.from('factures_cli').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
-        supabase.from('factures_frs').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
-        supabase.from('depenses_generales').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
+        supabase.from('factures_cli').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
+        supabase.from('factures_frs').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
+        supabase.from('depenses_generales').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
       ])
       const exclues = new Set([
         ...(liensCli || []).map(l => l.qonto_transaction_id),
