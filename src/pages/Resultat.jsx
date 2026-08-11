@@ -40,6 +40,24 @@ export default function Resultat() {
 
   useEffect(() => { charger() }, [annee, periodePerso, debutPerso, finPerso])
 
+  // "En live" doit vraiment vouloir dire à jour, même si l'onglet/la
+  // fenêtre était déjà ouverte avant qu'une dépense/facture soit ajoutée
+  // ailleurs (autre onglet, autre fenêtre) — sans ce recalcul, la page
+  // reste figée sur les chiffres du moment où elle a été chargée, ce qui
+  // donne l'impression que des lignes manquent. On recharge donc aussi
+  // dès que l'onglet redevient visible/actif.
+  useEffect(() => {
+    function surRetourFocus() { charger() }
+    function surChangementVisibilite() { if (document.visibilityState === 'visible') charger() }
+    window.addEventListener('focus', surRetourFocus)
+    document.addEventListener('visibilitychange', surChangementVisibilite)
+    return () => {
+      window.removeEventListener('focus', surRetourFocus)
+      document.removeEventListener('visibilitychange', surChangementVisibilite)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function charger() {
     setLoading(true)
     setError('')
@@ -143,6 +161,10 @@ export default function Resultat() {
           <button onClick={() => setPeriodePerso(p => !p)}
             style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: periodePerso ? '#EFF6FF' : '#fff', color: periodePerso ? '#2563EB' : '#374151', cursor: 'pointer', fontSize: 12 }}>
             {periodePerso ? '✕ Période perso' : '📅 Période perso'}
+          </button>
+          <button onClick={charger} disabled={loading} title="Recalculer avec les dernières données"
+            style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 12 }}>
+            {loading ? '⏳' : '🔄 Actualiser'}
           </button>
         </div>
       </div>
