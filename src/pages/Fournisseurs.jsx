@@ -235,8 +235,8 @@ export default function Fournisseurs() {
                     <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600 }}>{fmt(c.montant_ht)}</td>
                     <td style={{ padding: '10px 14px' }}>
                       <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6,
-                        background: c.statut === 'Reçue' ? '#ECFDF5' : c.statut === 'Annulée' ? '#FEF2F2' : '#EFF6FF',
-                        color: c.statut === 'Reçue' ? '#059669' : c.statut === 'Annulée' ? '#DC2626' : '#2563EB',
+                        background: c.statut === 'Validée' ? '#ECFDF5' : c.statut === 'Annulée' ? '#FEF2F2' : '#F3F4F6',
+                        color: c.statut === 'Validée' ? '#059669' : c.statut === 'Annulée' ? '#DC2626' : '#6B7280',
                         fontWeight: 500 }}>{c.statut}</span>
                     </td>
                   </tr>

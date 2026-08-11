@@ -20,7 +20,7 @@ export default function Dashboard() {
     setLoading(true)
     const [{ data: p }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: dep }] = await Promise.all([
       supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
-      supabase.from('commandes').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).in('statut', ['En attente', 'Envoyée']).order('created_at', { ascending: false }),
+      supabase.from('commandes').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'Brouillon').order('created_at', { ascending: false }),
       supabase.from('factures_frs').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
       supabase.from('factures_cli').select('*, projets(nom), clients(nom, email, telephone)').is('deleted_at', null).in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
       // Dépenses générales (loyer, compta, assurance...) — non liées à un

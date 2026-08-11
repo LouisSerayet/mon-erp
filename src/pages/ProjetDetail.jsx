@@ -24,7 +24,7 @@ const TABS = [
 ]
 
 const STATUTS_PROJET = ['Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']
-const STATUTS_CMD = ['En attente', 'Envoyée', 'Reçue', 'Annulée']
+const STATUTS_CMD = ['Brouillon', 'Validée', 'Annulée']
 const STATUTS_FFRS = ['À payer', 'Payée']
 const STATUTS_FCLI = ['À envoyer', 'Envoyée', 'Payée']
 const STATUT_COLOR = {
@@ -60,7 +60,7 @@ export default function ProjetDetail() {
   const [error, setError] = useState('')
   const [editInfos, setEditInfos] = useState(false)
   const [formInfos, setFormInfos] = useState({})
-  const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'En attente', date_commande: '' })
+  const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '' })
   const [formFfrs, setFormFfrs] = useState({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' })
   const [formFcli, setFormFcli] = useState({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' })
   const [fileFfrs, setFileFfrs] = useState(null) // PDF sélectionné pour la nouvelle facture fournisseur
@@ -226,6 +226,10 @@ export default function ProjetDetail() {
 
     const [modeCalc, setModeCalc] = useState('achat_coeff') // 'achat_coeff' | 'vente_coeff' | 'achat_vente'
   const [cmdEditees, setCmdEditees] = useState({}) // édition inline commandes
+  // Ids de commandes "Validée" dont on a déjà confirmé la remodification (le
+  // temps de la session) — une commande Validée est normalement figée, la
+  // reprendre doit être une action volontaire et confirmée. Voir editCmd().
+  const [cmdDeverrouillees, setCmdDeverrouillees] = useState(new Set())
   const [showPdfPreview, setShowPdfPreview] = useState(null) // commande en preview PDF
   const [showLignesSelector, setShowLignesSelector] = useState(false) // sélecteur lignes projet
   const [documents, setDocuments] = useState({ projet: [], officiels: [] }) // documents du projet
@@ -576,7 +580,7 @@ export default function ProjetDetail() {
     }])
     if (error) { setError(error.message); return }
     setShowForm(false)
-    setFormCmd({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'En attente', date_commande: '' })
+    setFormCmd({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '' })
     const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setCommandes(data || [])
   }
@@ -592,6 +596,9 @@ export default function ProjetDetail() {
     const { error } = await supabase.from('commandes').update(payload).eq('id', cmdId)
     if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setCmdEditees(prev => { const n = { ...prev }; delete n[cmdId]; return n })
+    // Reverrouille : une prochaine modification (même dans la même session)
+    // redemandera confirmation si la commande est (re)passée Validée.
+    setCmdDeverrouillees(prev => { const n = new Set(prev); n.delete(cmdId); return n })
     const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setCommandes(data || [])
   }
@@ -602,6 +609,17 @@ export default function ProjetDetail() {
   }
 
   function editCmd(cmdId, champ, valeur) {
+    // Une commande Validée est censée être figée — avant d'accepter la
+    // toute première modification de cette commande dans cette session, on
+    // demande confirmation. Une fois confirmée, les modifications suivantes
+    // (ex. plusieurs frappes dans un champ texte) passent sans re-demander,
+    // jusqu'à l'enregistrement (voir saveCmd) qui reverrouille.
+    const cmd = commandes.find(c => c.id === cmdId)
+    if (cmd && cmd.statut === 'Validée' && !cmdDeverrouillees.has(cmdId)) {
+      const ok = confirm('Cette commande est validée. Voulez-vous vraiment la modifier ?')
+      if (!ok) return
+      setCmdDeverrouillees(prev => new Set(prev).add(cmdId))
+    }
     setCmdEditees(prev => ({ ...prev, [cmdId]: { ...(prev[cmdId] || {}), [champ]: valeur } }))
   }
 
@@ -1035,7 +1053,7 @@ export default function ProjetDetail() {
               const preuves = {
                 'Devis signé': { label: 'Uploader le devis signé', type: 'upload' },
                 'En cours': { label: 'Renseigner la date de début de chantier', type: 'date' },
-                'Finalisation': { label: 'Toutes les commandes doivent être en statut "Reçue"', type: 'auto' },
+                'Finalisation': { label: 'Toutes les commandes doivent être en statut "Validée"', type: 'auto' },
                 'Clôturé': { label: 'Toutes les factures clients doivent être "Payées"', type: 'auto' },
               }
 
@@ -1061,8 +1079,8 @@ export default function ProjetDetail() {
                 }
 
                 if (preuve?.type === 'auto' && nextStatut === 'Finalisation') {
-                  const cmdNonRecues = commandes.filter(c => c.statut !== 'Reçue' && c.statut !== 'Annulée')
-                  if (cmdNonRecues.length > 0) { setValidationError(cmdNonRecues.length + ' commande(s) ne sont pas encore en statut "Reçue".'); setValidating(false); return }
+                  const cmdNonValidees = commandes.filter(c => c.statut !== 'Validée' && c.statut !== 'Annulée')
+                  if (cmdNonValidees.length > 0) { setValidationError(cmdNonValidees.length + ' commande(s) ne sont pas encore en statut "Validée".'); setValidating(false); return }
                 }
 
                 if (preuve?.type === 'auto' && nextStatut === 'Clôturé') {
@@ -1717,7 +1735,7 @@ export default function ProjetDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Commandes fournisseurs · <span style={{ color: '#2563EB' }}>{fmt(totalCommandes)}</span></div>
               <button onClick={() => { setShowForm(true); setError('');
-                setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', statut: 'En attente', date_commande: new Date().toISOString().split('T')[0] }) }}
+                setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', statut: 'Brouillon', date_commande: new Date().toISOString().split('T')[0] }) }}
                 style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
                 + Nouvelle commande
               </button>
@@ -1820,8 +1838,9 @@ export default function ProjetDetail() {
                           <td style={{ padding: '8px 14px' }}>
                             <select value={getCmdVal(c, 'statut')} onChange={e => { editCmd(c.id, 'statut', e.target.value) }}
                               style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer',
-                                background: c.statut === 'Reçue' ? '#ECFDF5' : c.statut === 'Annulée' ? '#FEF2F2' : c.statut === 'Envoyée' ? '#F0FDF4' : '#EFF6FF',
-                                color: c.statut === 'Reçue' ? '#059669' : c.statut === 'Annulée' ? '#DC2626' : c.statut === 'Envoyée' ? '#059669' : '#2563EB' }}>
+                                background: c.statut === 'Validée' ? '#ECFDF5' : c.statut === 'Annulée' ? '#FEF2F2' : '#F3F4F6',
+                                color: c.statut === 'Validée' ? '#059669' : c.statut === 'Annulée' ? '#DC2626' : '#6B7280' }}
+                              title={c.statut === 'Validée' ? 'Commande validée — une confirmation sera demandée avant modification' : ''}>
                               {STATUTS_CMD.map(s => <option key={s}>{s}</option>)}
                             </select>
                           </td>
