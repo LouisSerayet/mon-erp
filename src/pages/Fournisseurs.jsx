@@ -17,6 +17,9 @@ export default function Fournisseurs() {
   const [commandes, setCommandes] = useState([])
   const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
   const [error, setError] = useState('')
+  // true = le champ Métier est en saisie libre (nouveau métier hors liste),
+  // false = choix dans la liste déroulante existante.
+  const [metierLibre, setMetierLibre] = useState(false)
 
   const FORM_VIDE = { nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' }
 
@@ -62,6 +65,8 @@ export default function Fournisseurs() {
     setForm({ nom: f.nom || '', contact: f.contact || '', email: f.email || '', telephone: f.telephone || '', metier: f.metier || '', rue: f.rue || '', code_postal: f.code_postal || '', ville: f.ville || '', pays: f.pays || 'FR' })
     setEditingId(f.id)
     setError('')
+    // Si son métier actuel n'est pas dans la liste connue, on ouvre directement en saisie libre.
+    setMetierLibre(!!f.metier && !metiersConnus.includes(f.metier))
     setShowForm(true)
   }
 
@@ -75,6 +80,9 @@ export default function Fournisseurs() {
     fetchFournisseurs()
   }
 
+  // Union de la liste de base et des métiers déjà utilisés (permet de proposer
+  // dans le menu déroulant les métiers ajoutés en saisie libre par le passé).
+  const metiersConnus = [...new Set([...METIERS, ...fournisseurs.map(f => f.metier).filter(Boolean)])].sort((a, b) => a.localeCompare(b, 'fr'))
   const metiersDispos = ['Tous', ...new Set(fournisseurs.map(f => f.metier).filter(Boolean))]
   const filtered = fournisseurs.filter(f => {
     const matchSearch = f.nom?.toLowerCase().includes(search.toLowerCase()) ||
@@ -104,13 +112,27 @@ export default function Fournisseurs() {
           </div>
         ))}
         <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Métier</label>
-        <select value={form.metier} onChange={e => setForm(p => ({ ...p, metier: e.target.value }))}
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 20, cursor: 'pointer' }}>
-          <option value=''>— Sélectionner —</option>
-          {METIERS.map(m => <option key={m}>{m}</option>)}
-        </select>
+        {metierLibre ? (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            <input value={form.metier} onChange={e => setForm(p => ({ ...p, metier: e.target.value }))} placeholder="Nouveau métier..." autoFocus
+              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+            <button type="button" onClick={() => { setMetierLibre(false); setForm(p => ({ ...p, metier: '' })) }}
+              style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 12, color: '#6B7280', whiteSpace: 'nowrap' }}>
+              ↩ Liste
+            </button>
+          </div>
+        ) : (
+          <select value={form.metier} onChange={e => {
+            if (e.target.value === '__NOUVEAU__') { setMetierLibre(true); setForm(p => ({ ...p, metier: '' })) }
+            else setForm(p => ({ ...p, metier: e.target.value }))
+          }} style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 20, cursor: 'pointer' }}>
+            <option value=''>— Sélectionner —</option>
+            {metiersConnus.map(m => <option key={m}>{m}</option>)}
+            <option value='__NOUVEAU__'>+ Ajouter un nouveau métier...</option>
+          </select>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={() => { setShowForm(false); setEditingId(null); setError(''); setForm(FORM_VIDE) }}
+          <button onClick={() => { setShowForm(false); setEditingId(null); setError(''); setForm(FORM_VIDE); setMetierLibre(false) }}
             style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
           <button onClick={sauvegarderFournisseur}
             style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>{editingId ? 'Enregistrer' : 'Créer'}</button>
@@ -232,7 +254,7 @@ export default function Fournisseurs() {
     <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Fournisseurs</h2>
-        <button onClick={() => { setForm(FORM_VIDE); setEditingId(null); setShowForm(true); setError('') }}
+        <button onClick={() => { setForm(FORM_VIDE); setEditingId(null); setMetierLibre(false); setShowForm(true); setError('') }}
           style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
           + Nouveau fournisseur
         </button>
