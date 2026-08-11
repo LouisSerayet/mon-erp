@@ -34,34 +34,56 @@ export async function getBankAccounts() {
   return org.bank_accounts || []
 }
 
-// NB : per_page=100 (max habituel côté Qonto) — au-delà, il faudrait une
-// vraie pagination (page suivante) qui n'est pas encore branchée côté UI
-// (Tresorerie.jsx n'affiche que ce premier lot de transactions).
-export async function getTransactions(account, perPage = 100) {
-  // Récupérer le slug depuis l'objet compte complet
+// Essaie les différents formats d'endpoint connus de l'API Qonto (le compte
+// peut être identifié par slug ou par IBAN selon les organisations) et
+// renvoie la réponse brute (pas seulement .transactions) pour que l'appelant
+// puisse aussi lire .meta (pagination). additionalParams : query string
+// supplémentaire, ex. "&current_page=2".
+async function fetchTransactionsPage(account, perPage, additionalParams = '') {
   const slug = account?.slug || account
-
-  // Essayer tous les formats possibles de l'API Qonto
   const attempts = [
-    `transactions?bank_account_slug=${slug}&per_page=${perPage}`,
-    `transactions?iban=${account?.iban}&per_page=${perPage}`,
-    `transactions?per_page=${perPage}`,
+    `transactions?bank_account_slug=${slug}&per_page=${perPage}${additionalParams}`,
+    `transactions?iban=${account?.iban}&per_page=${perPage}${additionalParams}`,
+    `transactions?per_page=${perPage}${additionalParams}`,
   ]
 
   let derniereErreur = null
   for (const endpoint of attempts) {
     try {
       const data = await qontoFetch(endpoint)
-      if (data.transactions) return data.transactions
+      if (data.transactions) return data
     } catch (err) {
       derniereErreur = err
     }
   }
-  // Si aucun des 3 formats n'a fonctionné, c'est probablement une vraie
-  // erreur (identifiants invalides, API en panne...) et pas un compte vide
-  // — on la remonte pour que l'appelant puisse l'afficher, plutôt que de
-  // rendre un tableau vide indiscernable d'un compte réellement sans
-  // transaction.
   if (derniereErreur) throw derniereErreur
-  return []
+  return { transactions: [] }
+}
+
+// NB : per_page=100 (max habituel côté Qonto), une seule page — au-delà, il
+// faudrait une vraie pagination (page suivante) qui n'est pas branchée côté
+// UI (Tresorerie.jsx n'affiche que ce premier lot de transactions). Pour un
+// historique plus large, voir getTransactionsPourRapprochement ci-dessous.
+export async function getTransactions(account, perPage = 100) {
+  const data = await fetchTransactionsPage(account, perPage)
+  return data.transactions || []
+}
+
+// Utilisé par le rapprochement Qonto <-> factures : une facture peut être
+// réglée plusieurs semaines après son émission, un seul lot de 100
+// transactions récentes ne suffit pas toujours. On enchaîne quelques pages
+// supplémentaires (via meta.next_page, convention Qonto) jusqu'à maxPages,
+// pour couvrir un historique plus large sans requêtes illimitées.
+export async function getTransactionsPourRapprochement(account, { maxPages = 5, perPage = 100 } = {}) {
+  const toutes = []
+  let page = 1
+  while (page <= maxPages) {
+    const data = await fetchTransactionsPage(account, perPage, `&current_page=${page}`)
+    const lot = data.transactions || []
+    toutes.push(...lot)
+    const suivante = data.meta?.next_page
+    if (!suivante || lot.length < perPage) break
+    page = suivante
+  }
+  return toutes
 }

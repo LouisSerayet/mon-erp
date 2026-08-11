@@ -10,6 +10,8 @@ import { calculerLigne } from '../lib/calculs'
 import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
+import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
+import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
 
 const TABS = [
   { id: 'infos', label: '📋 Infos' },
@@ -64,6 +66,10 @@ export default function ProjetDetail() {
   const [fileFfrs, setFileFfrs] = useState(null) // PDF sélectionné pour la nouvelle facture fournisseur
   const [pennylaneBusy, setPennylaneBusy] = useState(null) // id de la facture en cours de synchro
   const [pennylaneError, setPennylaneError] = useState('')
+  const [rapprochementBusy, setRapprochementBusy] = useState(null) // 'cli' | 'frs' | 'confirm:<id>' en cours
+  const [rapprochementError, setRapprochementError] = useState('')
+  const [suggestionsQontoCli, setSuggestionsQontoCli] = useState([])
+  const [suggestionsQontoFrs, setSuggestionsQontoFrs] = useState([])
   const [facCliEditees, setFacCliEditees] = useState({}) // édition inline factures clients
   const [facFrsEditees, setFacFrsEditees] = useState({}) // édition inline factures fournisseurs
   const [lignesEditees, setLignesEditees] = useState({}) // { [id]: {champ: valeur} }
@@ -704,6 +710,85 @@ export default function ProjetDetail() {
       setPennylaneError(err.message)
     }
     setPennylaneBusy(null)
+  }
+
+  // ── Rapprochement Qonto (limité aux factures de ce projet) ────
+  // Même logique que la page globale "Rapprochement" (lib/rapprochement.js),
+  // mais restreinte aux factures ouvertes de ce projet — pratique pour une
+  // vérification rapide sans quitter la fiche projet.
+  async function recupererToutesLesTransactionsQonto() {
+    const comptes = await getBankAccounts()
+    const lots = await Promise.all(comptes.map(c => getTransactionsPourRapprochement(c)))
+    return lots.flat()
+  }
+
+  async function recupererTransactionsDejaLiees() {
+    const [{ data: liensCli }, { data: liensFrs }] = await Promise.all([
+      supabase.from('factures_cli').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
+      supabase.from('factures_frs').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
+    ])
+    return new Set([
+      ...(liensCli || []).map(l => l.qonto_transaction_id),
+      ...(liensFrs || []).map(l => l.qonto_transaction_id),
+    ])
+  }
+
+  async function verifierQontoCli() {
+    setRapprochementError(''); setRapprochementBusy('cli')
+    try {
+      const [transactions, exclues] = await Promise.all([recupererToutesLesTransactionsQonto(), recupererTransactionsDejaLiees()])
+      const ouvertes = facturesCli.filter(f => f.statut !== 'Payée')
+      const resultats = rapprocherFactures(ouvertes, transactions, 'credit', exclues)
+      const exactes = resultats.filter(r => r.confiance === 'exact')
+      for (const match of exactes) await appliquerRapprochement(supabase, 'factures_cli', match)
+      const idsAppliques = new Set(exactes.map(r => r.facture.id))
+      setSuggestionsQontoCli(resultats.filter(r => r.confiance === 'montant' && !idsAppliques.has(r.facture.id)))
+      if (exactes.length > 0) {
+        const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
+        setFacturesCli(data || [])
+      }
+    } catch (err) {
+      setRapprochementError(err.message)
+    }
+    setRapprochementBusy(null)
+  }
+
+  async function verifierQontoFrs() {
+    setRapprochementError(''); setRapprochementBusy('frs')
+    try {
+      const [transactions, exclues] = await Promise.all([recupererToutesLesTransactionsQonto(), recupererTransactionsDejaLiees()])
+      const ouvertes = facturesFrs.filter(f => f.statut !== 'Payée')
+      const resultats = rapprocherFactures(ouvertes, transactions, 'debit', exclues)
+      const exactes = resultats.filter(r => r.confiance === 'exact')
+      for (const match of exactes) await appliquerRapprochement(supabase, 'factures_frs', match)
+      const idsAppliques = new Set(exactes.map(r => r.facture.id))
+      setSuggestionsQontoFrs(resultats.filter(r => r.confiance === 'montant' && !idsAppliques.has(r.facture.id)))
+      if (exactes.length > 0) {
+        const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
+        setFacturesFrs(data || [])
+      }
+    } catch (err) {
+      setRapprochementError(err.message)
+    }
+    setRapprochementBusy(null)
+  }
+
+  async function confirmerSuggestionQonto(table, match) {
+    const cle = 'confirm:' + match.facture.id
+    setRapprochementBusy(cle)
+    const { error: err } = await appliquerRapprochement(supabase, table, match)
+    if (err) {
+      setRapprochementError(err.message)
+    } else if (table === 'factures_cli') {
+      setSuggestionsQontoCli(prev => prev.filter(r => r.facture.id !== match.facture.id))
+      const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
+      setFacturesCli(data || [])
+    } else {
+      setSuggestionsQontoFrs(prev => prev.filter(r => r.facture.id !== match.facture.id))
+      const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
+      setFacturesFrs(data || [])
+    }
+    setRapprochementBusy(null)
   }
 
   async function ajouterFactureCli() {
@@ -1728,8 +1813,31 @@ export default function ProjetDetail() {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Factures fournisseurs · <span style={{ color: '#EA580C' }}>{fmt(totalFfrs)}</span></div>
-              <button onClick={() => { setShowForm(true); setError('') }} style={{ background: '#EA580C', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={verifierQontoFrs} disabled={rapprochementBusy === 'frs'}
+                  style={{ background: '#fff', color: '#EA580C', border: '1px solid #FED7AA', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                  {rapprochementBusy === 'frs' ? '⏳ Vérification...' : '🔗 Vérifier sur Qonto'}
+                </button>
+                <button onClick={() => { setShowForm(true); setError('') }} style={{ background: '#EA580C', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
+              </div>
             </div>
+            {rapprochementError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ {rapprochementError}</div>}
+            {suggestionsQontoFrs.length > 0 && (
+              <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#9A3412', marginBottom: 8 }}>Correspondances Qonto à valider ({suggestionsQontoFrs.length})</div>
+                {suggestionsQontoFrs.map(r => (
+                  <div key={r.facture.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid #FED7AA' }}>
+                    <div style={{ fontSize: 12 }}>
+                      <strong>{r.facture.numero}</strong> ({fmt(r.facture.montant_ht)} HT) ↔ {r.transaction.label || r.transaction.reference || 'Transaction Qonto'} — {(Number(r.transaction.amount_cents || 0) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € ({r.base})
+                    </div>
+                    <button onClick={() => confirmerSuggestionQonto('factures_frs', r)} disabled={rapprochementBusy === 'confirm:' + r.facture.id}
+                      style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#EA580C', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
+                      {rapprochementBusy === 'confirm:' + r.facture.id ? '⏳' : '✓ Marquer payée'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {showForm && (
               <div style={{ background: '#fff', borderRadius: 12, padding: 20, border: '1px solid #E5E7EB', marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle facture fournisseur</h4>
@@ -1849,8 +1957,31 @@ export default function ProjetDetail() {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Factures clients · <span style={{ color: '#059669' }}>{fmt(totalFcli)}</span></div>
-              <button onClick={() => { setShowForm(true); setError('') }} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={verifierQontoCli} disabled={rapprochementBusy === 'cli'}
+                  style={{ background: '#fff', color: '#059669', border: '1px solid #BBF7D0', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                  {rapprochementBusy === 'cli' ? '⏳ Vérification...' : '🔗 Vérifier sur Qonto'}
+                </button>
+                <button onClick={() => { setShowForm(true); setError('') }} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
+              </div>
             </div>
+            {rapprochementError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ {rapprochementError}</div>}
+            {suggestionsQontoCli.length > 0 && (
+              <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#065F46', marginBottom: 8 }}>Correspondances Qonto à valider ({suggestionsQontoCli.length})</div>
+                {suggestionsQontoCli.map(r => (
+                  <div key={r.facture.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid #BBF7D0' }}>
+                    <div style={{ fontSize: 12 }}>
+                      <strong>{r.facture.numero}</strong> ({fmt(r.facture.montant_ht)} HT) ↔ {r.transaction.label || r.transaction.reference || 'Transaction Qonto'} — {(Number(r.transaction.amount_cents || 0) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € ({r.base})
+                    </div>
+                    <button onClick={() => confirmerSuggestionQonto('factures_cli', r)} disabled={rapprochementBusy === 'confirm:' + r.facture.id}
+                      style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#059669', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
+                      {rapprochementBusy === 'confirm:' + r.facture.id ? '⏳' : '✓ Marquer payée'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {showForm && (
               <div style={{ background: '#fff', borderRadius: 12, padding: 20, border: '1px solid #E5E7EB', marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle facture client</h4>

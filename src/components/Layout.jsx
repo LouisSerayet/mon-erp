@@ -9,6 +9,7 @@ const nav = [
   { to: '/projets', label: 'Projets', icon: '📋' },
   { to: '/devis', label: 'Devis', icon: '📝' },
   { to: '/tresorerie', label: 'Trésorerie', icon: '🏦' },
+  { to: '/rapprochement', label: 'Rapprochement', icon: '🔗' },
   { section: 'Infos & Données' },
   { to: '/clients', label: 'Clients', icon: '👤' },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },
