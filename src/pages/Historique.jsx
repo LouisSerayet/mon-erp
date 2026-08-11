@@ -15,6 +15,7 @@ const TABLE_LABELS = {
   factures_cli: 'Facture client',
   clients: 'Client',
   fournisseurs: 'Fournisseur',
+  depenses_generales: 'Dépense',
 }
 
 const ACTION_STYLE = {
@@ -27,7 +28,7 @@ const ACTION_STYLE = {
 
 // Champs utilisés pour identifier une ligne dans l'historique (le premier
 // trouvé dans la ligne gagne) — génériques car communs à plusieurs tables.
-const CHAMPS_IDENTIFIANTS = ['nom', 'numero', 'descriptif', 'description']
+const CHAMPS_IDENTIFIANTS = ['nom', 'numero', 'libelle', 'descriptif', 'description']
 // Champs techniques à ignorer dans le résumé des changements — trop
 // bruyants pour être utiles à l'utilisateur.
 const CHAMPS_IGNORES = new Set(['id', 'created_at', 'updated_at', 'projet_id', 'client_id', 'fournisseur_id', 'commande_id'])

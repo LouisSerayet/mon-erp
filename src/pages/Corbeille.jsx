@@ -10,6 +10,7 @@ const SECTIONS = [
   { table: 'projets', label: 'Projets', icon: '📋', nomChamp: p => p.nom, sousTitre: p => p.clients?.nom },
   { table: 'clients', label: 'Clients', icon: '👤', nomChamp: c => c.nom, sousTitre: c => c.email },
   { table: 'fournisseurs', label: 'Fournisseurs', icon: '🏢', nomChamp: f => f.nom, sousTitre: f => f.metier },
+  { table: 'depenses_generales', label: 'Dépenses', icon: '💸', nomChamp: d => d.libelle || '(sans libellé)', sousTitre: d => d.categorie },
 ]
 
 // Les 4 tables "enfants" d'un projet — leur restauration/suppression suit
@@ -32,11 +33,12 @@ export default function Corbeille() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: projets }, { data: clients }, { data: fournisseurs },
+    const [{ data: projets }, { data: clients }, { data: fournisseurs }, { data: depenses },
       { data: lignes }, { data: commandes }, { data: ffrs }, { data: fcli }] = await Promise.all([
       supabase.from('projets').select('id, nom, deleted_at, clients(nom)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       supabase.from('clients').select('id, nom, email, deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       supabase.from('fournisseurs').select('id, nom, metier, deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+      supabase.from('depenses_generales').select('id, libelle, categorie, deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       supabase.from('projet_lignes').select('id, descriptif, deleted_at, projet_id, projets(nom)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       supabase.from('commandes').select('id, description, numero, deleted_at, projet_id, projets(nom)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       supabase.from('factures_frs').select('id, numero, deleted_at, projet_id, projets(nom)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
@@ -53,6 +55,7 @@ export default function Corbeille() {
       projets: projets || [],
       clients: clients || [],
       fournisseurs: fournisseurs || [],
+      depenses_generales: depenses || [],
       projet_lignes: filtreEnfant(lignes),
       commandes: filtreEnfant(commandes),
       factures_frs: filtreEnfant(ffrs),

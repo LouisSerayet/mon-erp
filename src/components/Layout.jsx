@@ -10,6 +10,7 @@ const nav = [
   { to: '/devis', label: 'Devis', icon: '📝' },
   { to: '/tresorerie', label: 'Trésorerie', icon: '🏦' },
   { to: '/rapprochement', label: 'Rapprochement', icon: '🔗' },
+  { to: '/depenses', label: 'Dépenses', icon: '💸' },
   { section: 'Infos & Données' },
   { to: '/clients', label: 'Clients', icon: '👤' },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },

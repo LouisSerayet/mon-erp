@@ -19,6 +19,7 @@ export default function Rapprochement() {
   const [dernierRapport, setDernierRapport] = useState(null) // { appliques, echecs }
   const [suggestionsCli, setSuggestionsCli] = useState([])
   const [suggestionsFrs, setSuggestionsFrs] = useState([])
+  const [suggestionsDep, setSuggestionsDep] = useState([])
   const [historique, setHistorique] = useState([])
   const [busy, setBusy] = useState(null) // clé "table:factureId:transactionId" en cours de confirmation
 
@@ -29,17 +30,23 @@ export default function Rapprochement() {
   // qu'une facture soit passée "Payée" et ait donc disparu des sections
   // "à confirmer" ci-dessus.
   async function chargerHistorique() {
-    const [{ data: hCli }, { data: hFrs }] = await Promise.all([
+    const [{ data: hCli }, { data: hFrs }, { data: hDep }] = await Promise.all([
       supabase.from('factures_cli')
         .select('id, numero, montant_ht, qonto_transaction_id, qonto_matched_at, qonto_match_confiance, projets(nom, clients(nom))')
         .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
       supabase.from('factures_frs')
         .select('id, numero, montant_ht, qonto_transaction_id, qonto_matched_at, qonto_match_confiance, projets(nom), fournisseurs(nom)')
         .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
+      // Dépenses générales — peut échouer si sql/depenses_generales_migration.sql
+      // n'a pas encore été exécuté, `hDep` reste alors undefined (géré par `|| []`).
+      supabase.from('depenses_generales')
+        .select('id, libelle, categorie, montant_ht, qonto_transaction_id, qonto_matched_at, qonto_match_confiance, fournisseurs(nom)')
+        .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
     ])
     const combine = [
       ...(hCli || []).map(f => ({ table: 'factures_cli', facture: f, tiers: f.projets?.clients?.nom, couleur: '#059669' })),
       ...(hFrs || []).map(f => ({ table: 'factures_frs', facture: f, tiers: f.fournisseurs?.nom, couleur: '#EA580C' })),
+      ...(hDep || []).map(d => ({ table: 'depenses_generales', facture: d, tiers: d.fournisseurs?.nom || d.categorie, couleur: '#7C3AED' })),
     ].sort((a, b) => new Date(b.facture.qonto_matched_at || 0) - new Date(a.facture.qonto_matched_at || 0))
     setHistorique(combine)
   }
@@ -56,13 +63,19 @@ export default function Rapprochement() {
       const lots = await Promise.all(comptes.map(c => getTransactionsPourRapprochement(c)))
       const transactions = lots.flat()
 
-      // 2. Factures ouvertes (pas encore payées), avec contexte projet/tiers
-      const [{ data: fcli, error: fcliErr }, { data: ffrs, error: ffrsErr }] = await Promise.all([
+      // 2. Factures/dépenses ouvertes (pas encore payées), avec contexte
+      // projet/tiers. La requête depenses_generales peut échouer si
+      // sql/depenses_generales_migration.sql n'a pas encore été exécuté —
+      // dans ce cas `dep` reste undefined, géré par le `|| []` plus bas.
+      const [{ data: fcli, error: fcliErr }, { data: ffrs, error: ffrsErr }, { data: dep }] = await Promise.all([
         supabase.from('factures_cli')
           .select('id, numero, montant_ht, statut, date_facture, projet_id, projets(nom, clients(nom))')
           .neq('statut', 'Payée').is('deleted_at', null),
         supabase.from('factures_frs')
           .select('id, numero, montant_ht, statut, date_facture, projet_id, fournisseur_id, projets(nom), fournisseurs(nom)')
+          .neq('statut', 'Payée').is('deleted_at', null),
+        supabase.from('depenses_generales')
+          .select('id, libelle, categorie, numero, montant_ht, statut, date_facture, fournisseurs(nom)')
           .neq('statut', 'Payée').is('deleted_at', null),
       ])
       if (fcliErr) throw fcliErr
@@ -70,23 +83,27 @@ export default function Rapprochement() {
 
       // 3. Transactions déjà liées à une facture (payée précédemment) — à ne
       // jamais reproposer sur une autre facture.
-      const [{ data: liensCli }, { data: liensFrs }] = await Promise.all([
+      const [{ data: liensCli }, { data: liensFrs }, { data: liensDep }] = await Promise.all([
         supabase.from('factures_cli').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
         supabase.from('factures_frs').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
+        supabase.from('depenses_generales').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null),
       ])
       const exclues = new Set([
         ...(liensCli || []).map(l => l.qonto_transaction_id),
         ...(liensFrs || []).map(l => l.qonto_transaction_id),
+        ...(liensDep || []).map(l => l.qonto_transaction_id),
       ])
 
-      // 4. Rapprochement — clients (encaissements, side "credit") et
-      // fournisseurs (paiements sortants, side "debit")
+      // 4. Rapprochement — clients (encaissements, side "credit"),
+      // fournisseurs et dépenses générales (paiements sortants, side "debit")
       const resultatsCli = rapprocherFactures(fcli || [], transactions, 'credit', exclues)
       const resultatsFrs = rapprocherFactures(ffrs || [], transactions, 'debit', exclues)
+      const resultatsDep = rapprocherFactures(dep || [], transactions, 'debit', exclues)
 
       // 5. Application automatique des correspondances exactes
       const exactesCli = resultatsCli.filter(r => r.confiance === 'exact')
       const exactesFrs = resultatsFrs.filter(r => r.confiance === 'exact')
+      const exactesDep = resultatsDep.filter(r => r.confiance === 'exact')
       let appliques = 0
       let echecs = 0
       for (const match of exactesCli) {
@@ -97,14 +114,20 @@ export default function Rapprochement() {
         const { error: err } = await appliquerRapprochement(supabase, 'factures_frs', match)
         err ? echecs++ : appliques++
       }
+      for (const match of exactesDep) {
+        const { error: err } = await appliquerRapprochement(supabase, 'depenses_generales', match)
+        err ? echecs++ : appliques++
+      }
       setDernierRapport({ appliques, echecs })
 
       // 6. Suggestions à valider (montant seul, sans numéro trouvé) — on
       // exclut les factures déjà réglées automatiquement à l'étape 5.
       const idsAppliquesCli = new Set(exactesCli.map(r => r.facture.id))
       const idsAppliquesFrs = new Set(exactesFrs.map(r => r.facture.id))
+      const idsAppliquesDep = new Set(exactesDep.map(r => r.facture.id))
       setSuggestionsCli(resultatsCli.filter(r => r.confiance === 'montant' && !idsAppliquesCli.has(r.facture.id)))
       setSuggestionsFrs(resultatsFrs.filter(r => r.confiance === 'montant' && !idsAppliquesFrs.has(r.facture.id)))
+      setSuggestionsDep(resultatsDep.filter(r => r.confiance === 'montant' && !idsAppliquesDep.has(r.facture.id)))
       if (appliques > 0) chargerHistorique()
     } catch (err) {
       setError('Impossible de lancer le rapprochement : ' + err.message)
@@ -121,8 +144,11 @@ export default function Rapprochement() {
     } else if (table === 'factures_cli') {
       setSuggestionsCli(prev => prev.filter(r => r.facture.id !== match.facture.id))
       chargerHistorique()
-    } else {
+    } else if (table === 'factures_frs') {
       setSuggestionsFrs(prev => prev.filter(r => r.facture.id !== match.facture.id))
+      chargerHistorique()
+    } else {
+      setSuggestionsDep(prev => prev.filter(r => r.facture.id !== match.facture.id))
       chargerHistorique()
     }
     setBusy(null)
@@ -130,11 +156,13 @@ export default function Rapprochement() {
 
   function CarteSuggestion({ r, table, couleur }) {
     const cle = table + ':' + r.facture.id + ':' + r.transaction.transaction_id
-    const tiers = table === 'factures_cli' ? r.facture.projets?.clients?.nom : r.facture.fournisseurs?.nom
+    const tiers = table === 'factures_cli' ? r.facture.projets?.clients?.nom
+      : table === 'depenses_generales' ? (r.facture.fournisseurs?.nom || r.facture.categorie)
+      : r.facture.fournisseurs?.nom
     return (
       <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 16px', marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ minWidth: 220 }}>
-          <div style={{ fontWeight: 600, fontSize: 13 }}>{r.facture.numero}</div>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>{r.facture.numero || r.facture.libelle}</div>
           <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
             {tiers || '—'}{r.facture.projets?.nom ? ' · ' + r.facture.projets.nom : ''}
           </div>
@@ -206,6 +234,17 @@ export default function Rapprochement() {
             ) : suggestionsFrs.map(r => <CarteSuggestion key={r.facture.id + r.transaction.transaction_id} r={r} table="factures_frs" couleur="#EA580C" />)}
           </div>
 
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
+              Dépenses générales à confirmer <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({suggestionsDep.length})</span>
+            </div>
+            {suggestionsDep.length === 0 ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 10, border: '1px dashed #E5E7EB', fontSize: 13 }}>
+                Aucune suggestion en attente.
+              </div>
+            ) : suggestionsDep.map(r => <CarteSuggestion key={r.facture.id + r.transaction.transaction_id} r={r} table="depenses_generales" couleur="#7C3AED" />)}
+          </div>
+
           <div style={{ marginTop: 32 }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
               Historique des rapprochements <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({historique.length})</span>
@@ -225,7 +264,7 @@ export default function Rapprochement() {
                   <tbody>
                     {historique.map((h, i) => (
                       <tr key={h.table + h.facture.id} style={{ borderBottom: i === historique.length - 1 ? 'none' : '1px solid #F3F4F6' }}>
-                        <td style={{ padding: '9px 14px', fontWeight: 600 }}>{h.facture.numero}</td>
+                        <td style={{ padding: '9px 14px', fontWeight: 600 }}>{h.facture.numero || h.facture.libelle}</td>
                         <td style={{ padding: '9px 14px', color: '#6B7280' }}>
                           {h.tiers || '—'}{h.facture.projets?.nom ? ' · ' + h.facture.projets.nom : ''}
                         </td>

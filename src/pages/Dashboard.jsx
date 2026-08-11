@@ -9,6 +9,7 @@ export default function Dashboard() {
   const [cmdEnAttente, setCmdEnAttente] = useState([])
   const [facturesFrsAPayer, setFacturesFrsAPayer] = useState([])
   const [facturesCliAEncaisser, setFacturesCliAEncaisser] = useState([])
+  const [depensesAPayer, setDepensesAPayer] = useState([])
   const [relances, setRelances] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
@@ -17,17 +18,24 @@ export default function Dashboard() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: p }, { data: cmd }, { data: ffrs }, { data: fcli }] = await Promise.all([
+    const [{ data: p }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: dep }] = await Promise.all([
       supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('commandes').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).in('statut', ['En attente', 'Envoyée']).order('created_at', { ascending: false }),
       supabase.from('factures_frs').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
       supabase.from('factures_cli').select('*, projets(nom), clients(nom, email, telephone)').is('deleted_at', null).in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
+      // Dépenses générales (loyer, compta, assurance...) — non liées à un
+      // projet, voir src/pages/Depenses.jsx. La table peut ne pas encore
+      // exister si sql/depenses_generales_migration.sql n'a pas été
+      // exécuté — dans ce cas Supabase renvoie une erreur et `dep` reste
+      // undefined, géré par le `|| []` ci-dessous, sans planter le dashboard.
+      supabase.from('depenses_generales').select('*, fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
     ])
 
     const projetsData = p || []
     const cmdData = cmd || []
     const ffrsData = ffrs || []
     const fcliData = fcli || []
+    const depData = dep || []
 
     const today = new Date()
     // CA total / Marge brute : uniquement les projets réellement "En cours"
@@ -37,8 +45,10 @@ export default function Dashboard() {
     const totalCA = projetsEnCours.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const totalFfrs = ffrsData.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const totalFcli = fcliData.reduce((s, x) => s + (x.montant_ht || 0), 0)
+    const totalDepenses = depData.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const ffrsEnRetard = ffrsData.filter(f => f.date_echeance && new Date(f.date_echeance) < today)
     const fcliEnRetard = fcliData.filter(f => f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < today)
+    const depEnRetard = depData.filter(d => d.date_echeance && new Date(d.date_echeance) < today)
 
     // Coût pour la marge : commandes des projets "En cours" uniquement (même
     // périmètre que le CA ci-dessus), en excluant les commandes annulées —
@@ -66,8 +76,10 @@ export default function Dashboard() {
       totalCommandes: totalCmdEnAttente,
       totalFfrsAPayer: totalFfrs,
       totalFcliAEncaisser: totalFcli,
+      totalDepensesAPayer: totalDepenses,
       nbFfrsEnRetard: ffrsEnRetard.length,
       nbFcliEnRetard: fcliEnRetard.length,
+      nbDepEnRetard: depEnRetard.length,
       margeGlobale,
       tauxMarge: tauxMargeGlobale,
     })
@@ -75,6 +87,7 @@ export default function Dashboard() {
     setCmdEnAttente(cmdData.slice(0, 5))
     setFacturesFrsAPayer(ffrsData.slice(0, 5))
     setFacturesCliAEncaisser(fcliData.slice(0, 5))
+    setDepensesAPayer(depData.slice(0, 5))
     // Liste complète (pas limitée à 5) pour la section "Relances à faire" —
     // c'est celle-là qu'on veut pouvoir suivre jusqu'au bout, pas un aperçu.
     setRelances(fcliEnRetard)
@@ -118,6 +131,13 @@ export default function Dashboard() {
         <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 20, alignItems: 'center' }}>
           <span style={{ fontSize: 16 }}>⚠️</span>
           <span style={{ fontSize: 13, color: '#DC2626', fontWeight: 500 }}>{stats.nbFfrsEnRetard} facture(s) fournisseur en retard — voir "Factures frs à payer" ci-dessous</span>
+        </div>
+      )}
+
+      {stats.nbDepEnRetard > 0 && (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 20, alignItems: 'center' }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <span style={{ fontSize: 13, color: '#DC2626', fontWeight: 500 }}>{stats.nbDepEnRetard} dépense(s) générale(s) en retard — voir "Dépenses à payer" ci-dessous</span>
         </div>
       )}
 
@@ -235,7 +255,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
 
         {/* Factures frs à payer */}
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
@@ -292,6 +312,37 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div style={{ fontWeight: 600, fontSize: 13, color: '#059669', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Dépenses générales à payer */}
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>💸 Dépenses à payer</span>
+            <span style={{ fontSize: 12, color: '#EA580C', fontWeight: 600 }}>{fmt(stats.totalDepensesAPayer)}</span>
+          </div>
+          {depensesAPayer.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune dépense à payer ✓</div>
+          ) : (
+            <div>
+              {depensesAPayer.map((d, i) => {
+                const enRetard = d.date_echeance && new Date(d.date_echeance) < new Date()
+                return (
+                  <div key={d.id} onClick={() => navigate('/depenses')}
+                    style={{ padding: '12px 18px', borderBottom: i < depensesAPayer.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
+                    onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
+                    onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.libelle}</div>
+                      <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
+                        {enRetard ? '⚠️ En retard · ' : ''}{d.categorie}
+                      </div>
+                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#EA580C', flexShrink: 0 }}>{fmt(d.montant_ht)}</div>
                   </div>
                 )
               })}
