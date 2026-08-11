@@ -12,10 +12,13 @@ export default function Fournisseurs() {
   const [search, setSearch] = useState(location.state?.q || '')
   const [filtreMetier, setFiltreMetier] = useState('Tous')
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState(null) // id du fournisseur en cours de modification, null = création
   const [fournisseurOuvert, setFournisseurOuvert] = useState(null)
   const [commandes, setCommandes] = useState([])
   const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
   const [error, setError] = useState('')
+
+  const FORM_VIDE = { nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' }
 
   useEffect(() => { fetchFournisseurs() }, [])
 
@@ -37,14 +40,29 @@ export default function Fournisseurs() {
     setFournisseurOuvert(f)
   }
 
-  async function creerFournisseur() {
+  async function sauvegarderFournisseur() {
     setError('')
     if (!form.nom.trim()) { setError('Le nom est obligatoire.'); return }
-    const { error } = await supabase.from('fournisseurs').insert([{ ...form }])
-    if (error) { setError('Erreur : ' + error.message); return }
-    setShowForm(false)
-    setForm({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
-    fetchFournisseurs()
+    if (editingId) {
+      const { data, error } = await supabase.from('fournisseurs').update({ ...form }).eq('id', editingId).select().single()
+      if (error) { setError('Erreur : ' + error.message); return }
+      setShowForm(false); setEditingId(null); setForm(FORM_VIDE)
+      setFournisseurOuvert(data) // rafraîchit la vue détail sans repasser par la liste
+      fetchFournisseurs()
+    } else {
+      const { error } = await supabase.from('fournisseurs').insert([{ ...form }])
+      if (error) { setError('Erreur : ' + error.message); return }
+      setShowForm(false)
+      setForm(FORM_VIDE)
+      fetchFournisseurs()
+    }
+  }
+
+  function ouvrirEdition(f) {
+    setForm({ nom: f.nom || '', contact: f.contact || '', email: f.email || '', telephone: f.telephone || '', metier: f.metier || '', rue: f.rue || '', code_postal: f.code_postal || '', ville: f.ville || '', pays: f.pays || 'FR' })
+    setEditingId(f.id)
+    setError('')
+    setShowForm(true)
   }
 
   async function supprimerFournisseur(id) {
@@ -68,10 +86,44 @@ export default function Fournisseurs() {
   const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
   const totalCommandes = commandes.reduce((s, c) => s + (c.montant_ht || 0), 0)
 
+  // Modale de création/modification — partagée entre la vue liste et la vue
+  // détail (toutes deux peuvent l'ouvrir : "+ Nouveau fournisseur" côté
+  // liste, "✎ Modifier" côté détail). Un simple élément JSX (pas un
+  // composant déclaré dans le rendu) pour éviter que React ne le
+  // recrée/réinitialise à chaque re-rendu (react-hooks/static-components).
+  const modalFournisseur = showForm && (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+        <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>{editingId ? 'Modifier le fournisseur' : 'Nouveau fournisseur'}</h3>
+        {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
+        {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, label]) => (
+          <div key={key} style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>{label}</label>
+            <input value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+          </div>
+        ))}
+        <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Métier</label>
+        <select value={form.metier} onChange={e => setForm(p => ({ ...p, metier: e.target.value }))}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 20, cursor: 'pointer' }}>
+          <option value=''>— Sélectionner —</option>
+          {METIERS.map(m => <option key={m}>{m}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={() => { setShowForm(false); setEditingId(null); setError(''); setForm(FORM_VIDE) }}
+            style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+          <button onClick={sauvegarderFournisseur}
+            style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>{editingId ? 'Enregistrer' : 'Créer'}</button>
+        </div>
+      </div>
+    </div>
+  )
+
   // ── Vue détail fournisseur ────────────────────────────────────
   if (fournisseurOuvert) {
     return (
       <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
+        {modalFournisseur}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
           <button onClick={() => setFournisseurOuvert(null)}
             style={{ background: 'none', border: '1px solid #E5E7EB', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
@@ -85,6 +137,10 @@ export default function Fournisseurs() {
               </span>
             )}
           </div>
+          <button onClick={() => ouvrirEdition(fournisseurOuvert)}
+            style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13 }}>
+            ✎ Modifier
+          </button>
           <button onClick={() => supprimerFournisseur(fournisseurOuvert.id)}
             style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 13 }}>
             Supprimer
@@ -176,7 +232,7 @@ export default function Fournisseurs() {
     <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Fournisseurs</h2>
-        <button onClick={() => { setShowForm(true); setError('') }}
+        <button onClick={() => { setForm(FORM_VIDE); setEditingId(null); setShowForm(true); setError('') }}
           style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
           + Nouveau fournisseur
         </button>
@@ -207,33 +263,7 @@ export default function Fournisseurs() {
       </div>
 
       {/* Modal nouveau fournisseur */}
-      {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Nouveau fournisseur</h3>
-            {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
-            {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, label]) => (
-              <div key={key} style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>{label}</label>
-                <input value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
-              </div>
-            ))}
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Métier</label>
-            <select value={form.metier} onChange={e => setForm(p => ({ ...p, metier: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 20, cursor: 'pointer' }}>
-              <option value=''>— Sélectionner —</option>
-              {METIERS.map(m => <option key={m}>{m}</option>)}
-            </select>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowForm(false); setError('') }}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-              <button onClick={creerFournisseur}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Créer</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {modalFournisseur}
 
       {/* Liste */}
       {loading ? <div style={{ textAlign: 'center', padding: 40, color: '#9CA3AF' }}>Chargement...</div>
