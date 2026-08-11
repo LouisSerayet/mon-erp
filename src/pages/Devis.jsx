@@ -289,9 +289,14 @@ export default function Devis() {
     // éventuelle contrainte de clé étrangère bloquer cette suppression.
     await supabase.from('projets').update({ devis_id: null }).eq('id', projet.id)
     await supabase.from('devis_lignes').delete().eq('devis_id', devisOuvert.id)
-    const { error: deleteDevisError } = await supabase.from('devis').delete().eq('id', devisOuvert.id)
+    const { data: devisSupprime, error: deleteDevisError } = await supabase
+      .from('devis').delete().eq('id', devisOuvert.id).select()
     if (deleteDevisError) {
-      console.error('Suppression du devis échouée :', deleteDevisError.message)
+      alert("Projet créé, mais le devis n'a pas pu être supprimé : " + deleteDevisError.message)
+    } else if (!devisSupprime || devisSupprime.length === 0) {
+      // Supabase peut renvoyer un succès "silencieux" (0 ligne affectée) si
+      // une policy RLS bloque la suppression sans lever d'erreur explicite.
+      alert("Projet créé, mais le devis n'a pas pu être supprimé (probablement une policy de sécurité Supabase qui bloque la suppression sur la table devis).")
     }
 
     setCreatingProjet(false)
