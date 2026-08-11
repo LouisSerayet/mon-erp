@@ -1917,6 +1917,14 @@ export default function ProjetDetail() {
                           style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer', background: f.statut === 'Payée' ? '#ECFDF5' : '#FFF7ED', color: f.statut === 'Payée' ? '#059669' : '#EA580C' }}>
                           {STATUTS_FFRS.map(s => <option key={s}>{s}</option>)}
                         </select>
+                        {f.qonto_transaction_id ? (
+                          <div title={'Rapproché avec une transaction Qonto (' + (f.qonto_match_confiance === 'exact' ? 'numéro + montant' : 'montant seul') + '), le ' + (f.qonto_matched_at ? new Date(f.qonto_matched_at).toLocaleDateString('fr-FR') : '?')}
+                            style={{ fontSize: 10, marginTop: 4, color: '#2563EB', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            🔗 Qonto{f.qonto_match_confiance === 'montant' ? ' (manuel)' : ''}
+                          </div>
+                        ) : f.statut === 'Payée' ? (
+                          <div style={{ fontSize: 10, marginTop: 4, color: '#9CA3AF' }}>saisi manuellement</div>
+                        ) : null}
                       </td>
                       <td style={{ padding: '10px 14px' }}>
                         {f.pennylane_invoice_id ? (
@@ -2046,6 +2054,14 @@ export default function ProjetDetail() {
                           style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer', background: f.statut === 'Payée' ? '#ECFDF5' : f.statut === 'Envoyée' ? '#EFF6FF' : '#F9FAFB', color: f.statut === 'Payée' ? '#059669' : f.statut === 'Envoyée' ? '#2563EB' : '#6B7280' }}>
                           {STATUTS_FCLI.map(s => <option key={s}>{s}</option>)}
                         </select>
+                        {f.qonto_transaction_id ? (
+                          <div title={'Rapproché avec une transaction Qonto (' + (f.qonto_match_confiance === 'exact' ? 'numéro + montant' : 'montant seul') + '), le ' + (f.qonto_matched_at ? new Date(f.qonto_matched_at).toLocaleDateString('fr-FR') : '?')}
+                            style={{ fontSize: 10, marginTop: 4, color: '#2563EB', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            🔗 Qonto{f.qonto_match_confiance === 'montant' ? ' (manuel)' : ''}
+                          </div>
+                        ) : f.statut === 'Payée' ? (
+                          <div style={{ fontSize: 10, marginTop: 4, color: '#9CA3AF' }}>saisi manuellement</div>
+                        ) : null}
                       </td>
                       <td style={{ padding: '10px 14px' }}>
                         {f.pennylane_invoice_id ? (
