@@ -279,11 +279,20 @@ export default function Devis() {
       }
     }
 
-    await supabase.from('devis').update({ statut: 'Accepté' }).eq('id', devisOuvert.id)
-
     // Le devis accepté sort automatiquement en PDF au moment du passage en
     // projet, pour garder une trace signée/datée de ce qui a été accepté.
     generatePDF(devisOuvert, 'fr')
+
+    // Une fois transformé en projet, le devis n'a plus sa place dans la
+    // liste des devis : on le supprime (lignes puis devis). On détache
+    // d'abord le projet du devis (devis_id) pour ne jamais laisser une
+    // éventuelle contrainte de clé étrangère bloquer cette suppression.
+    await supabase.from('projets').update({ devis_id: null }).eq('id', projet.id)
+    await supabase.from('devis_lignes').delete().eq('devis_id', devisOuvert.id)
+    const { error: deleteDevisError } = await supabase.from('devis').delete().eq('id', devisOuvert.id)
+    if (deleteDevisError) {
+      console.error('Suppression du devis échouée :', deleteDevisError.message)
+    }
 
     setCreatingProjet(false)
     navigate('/projets/' + projet.id)
