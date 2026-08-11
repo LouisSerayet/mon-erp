@@ -76,6 +76,10 @@ export default function ProjetDetail() {
   const [savingLignes, setSavingLignes] = useState(false)
   const [lotsReduits, setLotsReduits] = useState({}) // { [lotNumero]: true/false }
   const [showAddLigne, setShowAddLigne] = useState(false)
+  const [showAddLot, setShowAddLot] = useState(false)
+  const [formLot, setFormLot] = useState({ numero: '', categorie: '', descriptif: '' })
+  const [savingLot, setSavingLot] = useState(false)
+  const [lotError, setLotError] = useState('')
   const [showValidation, setShowValidation] = useState(false) // modale de validation étape
   const [validationDoc, setValidationDoc] = useState(null) // fichier uploadé
   const [validationDate, setValidationDate] = useState('') // date de début
@@ -273,6 +277,25 @@ export default function ProjetDetail() {
     setProjet(prev => ({ ...prev, montant_ht: totalVente }))
   }
 
+  // Recalcule et enregistre le total (vente + achat) d'un lot à partir de
+  // ses lignes actuelles — nécessaire car le total d'un lot est un champ
+  // stocké sur sa propre ligne "en-tête" (pas recalculé à la volée à
+  // l'affichage), pour rester cohérent avec l'import Excel qui fonctionne
+  // pareil. Sans cet appel après ajout/suppression d'une ligne, le total du
+  // lot resterait figé sur son ancienne valeur. `lignesArr` doit être un
+  // jeu de lignes déjà à jour (post-mutation) ; retourne ce même tableau
+  // avec le lot concerné patché, prêt pour setLignes.
+  async function resynchroniserLot(lignesArr, numeroLot) {
+    if (!numeroLot) return lignesArr
+    const lot = lignesArr.find(l => l.type === 'lot' && l.numero === numeroLot)
+    if (!lot) return lignesArr
+    const enfants = lignesArr.filter(l => l.type === 'ligne' && l.lot === numeroLot)
+    const totalHt = enfants.reduce((s, l) => s + (l.total_ht || 0), 0)
+    const totalAchat = enfants.reduce((s, l) => s + (l.total_achat || 0), 0)
+    await supabase.from('projet_lignes').update({ total_ht: totalHt, total_achat: totalAchat }).eq('id', lot.id)
+    return lignesArr.map(l => l.id === lot.id ? { ...l, total_ht: totalHt, total_achat: totalAchat } : l)
+  }
+
   async function ajouterLigne() {
     if (!formLigne.descriptif.trim()) return
     setSavingLigne(true)
@@ -298,22 +321,55 @@ export default function ProjetDetail() {
       ordre: maxOrdre + 1,
     }])
     if (!error) {
-      const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
-      setLignes(lg || [])
-      await syncMontantHtProjet(lg || [])
+      let { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+      lg = await resynchroniserLot(lg || [], formLigne.lot || null)
+      setLignes(lg)
+      await syncMontantHtProjet(lg)
       setShowAddLigne(false)
       setFormLigne({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne' })
     }
     setSavingLigne(false)
   }
 
-  async function supprimerLigne(ligneId) {
-    if (!confirm('Supprimer cette ligne ? (récupérable depuis la Corbeille)')) return
-    const { error } = await supabase.from('projet_lignes').update({ deleted_at: new Date().toISOString() }).eq('id', ligneId)
-    if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
+  async function ajouterLot() {
+    setLotError('')
+    const numero = formLot.numero.trim()
+    const categorie = formLot.categorie.trim()
+    if (!numero) { setLotError('Le numéro de lot est obligatoire.'); return }
+    if (!categorie) { setLotError('La catégorie est obligatoire.'); return }
+    if (lots.some(l => l.numero.toLowerCase() === numero.toLowerCase())) {
+      setLotError('Un lot avec ce numéro existe déjà.')
+      return
+    }
+    setSavingLot(true)
+    const maxOrdre = Math.max(...lignes.map(l => l.ordre || 0), 0)
+    const { error } = await supabase.from('projet_lignes').insert([{
+      projet_id: id,
+      type: 'lot',
+      numero,
+      categorie,
+      descriptif: formLot.descriptif.trim(),
+      total_ht: 0,
+      total_achat: 0,
+      ordre: maxOrdre + 1,
+    }])
+    if (error) { setLotError(error.message); setSavingLot(false); return }
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
     setLignes(lg || [])
-    await syncMontantHtProjet(lg || [])
+    setShowAddLot(false)
+    setFormLot({ numero: '', categorie: '', descriptif: '' })
+    setSavingLot(false)
+  }
+
+  async function supprimerLigne(ligneId) {
+    if (!confirm('Supprimer cette ligne ? (récupérable depuis la Corbeille)')) return
+    const ligneSupprimee = lignes.find(l => l.id === ligneId)
+    const { error } = await supabase.from('projet_lignes').update({ deleted_at: new Date().toISOString() }).eq('id', ligneId)
+    if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
+    let { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+    lg = await resynchroniserLot(lg || [], ligneSupprimee?.lot || null)
+    setLignes(lg)
+    await syncMontantHtProjet(lg)
   }
 
   async function saveLignes() {
@@ -1215,6 +1271,10 @@ export default function ProjetDetail() {
                 {lignes.length > 0 && <span style={{ marginLeft: 8, fontSize: 13, color: '#6B7280', fontWeight: 400 }}>{lots.length} lots · {lignes.filter(l => l.type === 'ligne').length} lignes</span>}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setShowAddLot(!showAddLot)}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+                  + Nouveau lot
+                </button>
                 <button onClick={() => setShowAddLigne(!showAddLigne)}
                   style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
                   + Ligne manuelle
@@ -1227,6 +1287,42 @@ export default function ProjetDetail() {
             </div>
 
             {importError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{importError}</div>}
+
+            {/* Formulaire nouveau lot — saisie libre (numéro + catégorie),
+                utile quand le projet n'a pas encore de lots (ex. pas
+                d'import Excel) et qu'il n'y a donc rien à choisir dans le
+                menu déroulant "N° Lot" du formulaire de ligne. */}
+            {showAddLot && (
+              <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouveau lot</h4>
+                {lotError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{lotError}</div>}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° Lot *</label>
+                    <input value={formLot.numero} onChange={e => setFormLot(p => ({ ...p, numero: e.target.value }))} placeholder="Ex. 01"
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Catégorie *</label>
+                    <input value={formLot.categorie} onChange={e => setFormLot(p => ({ ...p, categorie: e.target.value }))} placeholder="Ex. Électricité"
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Descriptif</label>
+                    <input value={formLot.descriptif} onChange={e => setFormLot(p => ({ ...p, descriptif: e.target.value }))} placeholder="Optionnel"
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={() => { setShowAddLot(false); setLotError(''); setFormLot({ numero: '', categorie: '', descriptif: '' }) }}
+                    style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                  <button onClick={ajouterLot} disabled={savingLot}
+                    style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                    {savingLot ? 'Création...' : 'Créer le lot'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Formulaire ajout ligne manuelle */}
             {showAddLigne && (
