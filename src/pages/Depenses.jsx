@@ -350,7 +350,12 @@ export default function Depenses() {
                           {CATEGORIES.map(c => <option key={c}>{c}</option>)}
                         </select>
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#6B7280' }}>{d.fournisseurs?.nom || '—'}</td>
+                      <td style={{ padding: '8px 14px', minWidth: 140 }}>
+                        <select value={getVal(d, 'fournisseur_id') || ''} onChange={e => editer(d.id, 'fournisseur_id', e.target.value)} style={inStyle}>
+                          <option value=''>— Aucun —</option>
+                          {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                        </select>
+                      </td>
                       <td style={{ padding: '8px 14px', minWidth: 90 }}>
                         <input value={getVal(d, 'numero')} onChange={e => editer(d.id, 'numero', e.target.value)} style={{ ...inStyle, width: 90 }} />
                       </td>
