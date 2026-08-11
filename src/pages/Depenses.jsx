@@ -58,6 +58,11 @@ export default function Depenses() {
   async function creerDepense() {
     setError('')
     if (!form.libelle.trim()) { setError('Le libellé est obligatoire.'); return }
+    // Sans date de facture, la dépense n'apparaît dans aucune période du
+    // Compte de résultat (qui filtre sur date_facture) — elle resterait
+    // silencieusement invisible dans les totaux même si elle est bien là
+    // dans cette liste.
+    if (!form.date_facture) { setError('La date de facture est obligatoire (sinon la dépense n\'apparaît pas dans le Compte de résultat).'); return }
     const { data: inserted, error: err } = await supabase.from('depenses_generales').insert([{
       ...form,
       montant_ht: parseFloat(form.montant_ht) || 0,
@@ -287,7 +292,7 @@ export default function Depenses() {
 
             <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture</label>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture *</label>
                 <input type="date" value={form.date_facture} onChange={e => setForm(p => ({ ...p, date_facture: e.target.value }))}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
               </div>

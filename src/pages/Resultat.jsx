@@ -33,6 +33,7 @@ export default function Resultat() {
   const [debutPerso, setDebutPerso] = useState('')
   const [finPerso, setFinPerso] = useState('')
   const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois }
+  const [sansDate, setSansDate] = useState([]) // lignes sans date_facture, donc invisibles dans le calcul ci-dessus quelle que soit la période
 
   const { debut, fin } = periodePerso && debutPerso && finPerso
     ? { debut: debutPerso, fin: finPerso }
@@ -62,10 +63,19 @@ export default function Resultat() {
     setLoading(true)
     setError('')
     try {
-      const [{ data: fcli, error: fcliErr }, { data: ffrs, error: ffrsErr }, { data: dep, error: depErr }] = await Promise.all([
+      const [{ data: fcli, error: fcliErr }, { data: ffrs, error: ffrsErr }, { data: dep, error: depErr },
+        { data: fcliSansDate }, { data: ffrsSansDate }, { data: depSansDate }] = await Promise.all([
         supabase.from('factures_cli').select('montant_ht, date_facture').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
         supabase.from('factures_frs').select('montant_ht, date_facture').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
         supabase.from('depenses_generales').select('montant_ht, date_facture, categorie').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+        // Une ligne sans date de facture ne peut matcher aucun filtre
+        // gte/lte ci-dessus (comparaison avec null) : elle est donc invisible
+        // dans le compte de résultat quelle que soit la période choisie, sans
+        // aucune erreur — d'où le signalement explicite ci-dessous plutôt que
+        // de laisser croire à un problème de rafraîchissement.
+        supabase.from('factures_cli').select('id, numero, montant_ht').is('deleted_at', null).is('date_facture', null),
+        supabase.from('factures_frs').select('id, numero, montant_ht').is('deleted_at', null).is('date_facture', null),
+        supabase.from('depenses_generales').select('id, libelle, montant_ht').is('deleted_at', null).is('date_facture', null),
       ])
       if (fcliErr) throw fcliErr
       if (ffrsErr) throw ffrsErr
@@ -74,6 +84,12 @@ export default function Resultat() {
       // faire planter toute la page, le reste du compte de résultat reste
       // utilisable.
       const depData = depErr ? [] : (dep || [])
+
+      setSansDate([
+        ...(fcliSansDate || []).map(f => ({ label: f.numero || 'Facture client sans numéro', montant: f.montant_ht, type: 'Facture client' })),
+        ...(ffrsSansDate || []).map(f => ({ label: f.numero || 'Facture fournisseur sans numéro', montant: f.montant_ht, type: 'Facture fournisseur' })),
+        ...(depSansDate || []).map(d => ({ label: d.libelle || 'Dépense sans nom', montant: d.montant_ht, type: 'Dépense générale' })),
+      ])
 
       const totalCA = (fcli || []).reduce((s, f) => s + (f.montant_ht || 0), 0)
       const totalAchats = (ffrs || []).reduce((s, f) => s + (f.montant_ht || 0), 0)
@@ -172,6 +188,20 @@ export default function Resultat() {
       {error && (
         <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
           ⚠️ {error}
+        </div>
+      )}
+
+      {sansDate.length > 0 && (
+        <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E', padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>
+            ⚠️ {sansDate.length} ligne{sansDate.length > 1 ? 's' : ''} sans date de facture — exclue{sansDate.length > 1 ? 's' : ''} du calcul ci-dessous, quelle que soit la période choisie
+          </div>
+          <div style={{ marginBottom: 6 }}>Renseigne une date de facture sur chacune pour qu'elle soit comptée :</div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {sansDate.map((s, i) => (
+              <li key={i}>{s.type} — {s.label} ({fmt(s.montant)})</li>
+            ))}
+          </ul>
         </div>
       )}
 
