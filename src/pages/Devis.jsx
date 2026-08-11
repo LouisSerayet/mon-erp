@@ -280,6 +280,11 @@ export default function Devis() {
     }
 
     await supabase.from('devis').update({ statut: 'Accepté' }).eq('id', devisOuvert.id)
+
+    // Le devis accepté sort automatiquement en PDF au moment du passage en
+    // projet, pour garder une trace signée/datée de ce qui a été accepté.
+    generatePDF(devisOuvert, 'fr')
+
     setCreatingProjet(false)
     navigate('/projets/' + projet.id)
   }
