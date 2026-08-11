@@ -19,9 +19,30 @@ export default function Rapprochement() {
   const [dernierRapport, setDernierRapport] = useState(null) // { appliques, echecs }
   const [suggestionsCli, setSuggestionsCli] = useState([])
   const [suggestionsFrs, setSuggestionsFrs] = useState([])
+  const [historique, setHistorique] = useState([])
   const [busy, setBusy] = useState(null) // clé "table:factureId:transactionId" en cours de confirmation
 
-  useEffect(() => { lancerRapprochement() }, [])
+  useEffect(() => { lancerRapprochement(); chargerHistorique() }, [])
+
+  // Historique de tout ce qui a déjà été rapproché avec Qonto (auto ou
+  // confirmé manuellement), tous statuts confondus — sert de trace après
+  // qu'une facture soit passée "Payée" et ait donc disparu des sections
+  // "à confirmer" ci-dessus.
+  async function chargerHistorique() {
+    const [{ data: hCli }, { data: hFrs }] = await Promise.all([
+      supabase.from('factures_cli')
+        .select('id, numero, montant_ht, qonto_transaction_id, qonto_matched_at, qonto_match_confiance, projets(nom, clients(nom))')
+        .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
+      supabase.from('factures_frs')
+        .select('id, numero, montant_ht, qonto_transaction_id, qonto_matched_at, qonto_match_confiance, projets(nom), fournisseurs(nom)')
+        .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
+    ])
+    const combine = [
+      ...(hCli || []).map(f => ({ table: 'factures_cli', facture: f, tiers: f.projets?.clients?.nom, couleur: '#059669' })),
+      ...(hFrs || []).map(f => ({ table: 'factures_frs', facture: f, tiers: f.fournisseurs?.nom, couleur: '#EA580C' })),
+    ].sort((a, b) => new Date(b.facture.qonto_matched_at || 0) - new Date(a.facture.qonto_matched_at || 0))
+    setHistorique(combine)
+  }
 
   async function lancerRapprochement() {
     setLoading(true)
@@ -84,6 +105,7 @@ export default function Rapprochement() {
       const idsAppliquesFrs = new Set(exactesFrs.map(r => r.facture.id))
       setSuggestionsCli(resultatsCli.filter(r => r.confiance === 'montant' && !idsAppliquesCli.has(r.facture.id)))
       setSuggestionsFrs(resultatsFrs.filter(r => r.confiance === 'montant' && !idsAppliquesFrs.has(r.facture.id)))
+      if (appliques > 0) chargerHistorique()
     } catch (err) {
       setError('Impossible de lancer le rapprochement : ' + err.message)
     }
@@ -98,8 +120,10 @@ export default function Rapprochement() {
       alert('Erreur : ' + err.message)
     } else if (table === 'factures_cli') {
       setSuggestionsCli(prev => prev.filter(r => r.facture.id !== match.facture.id))
+      chargerHistorique()
     } else {
       setSuggestionsFrs(prev => prev.filter(r => r.facture.id !== match.facture.id))
+      chargerHistorique()
     }
     setBusy(null)
   }
@@ -180,6 +204,44 @@ export default function Rapprochement() {
                 Aucune suggestion en attente.
               </div>
             ) : suggestionsFrs.map(r => <CarteSuggestion key={r.facture.id + r.transaction.transaction_id} r={r} table="factures_frs" couleur="#EA580C" />)}
+          </div>
+
+          <div style={{ marginTop: 32 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
+              Historique des rapprochements <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({historique.length})</span>
+            </div>
+            {historique.length === 0 ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 10, border: '1px dashed #E5E7EB', fontSize: 13 }}>
+                Aucune facture rapprochée avec Qonto pour l'instant.
+              </div>
+            ) : (
+              <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead><tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+                    {['N°', 'Tiers / Projet', 'Montant HT', 'Confiance', 'Rapproché le'].map(h => (
+                      <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500 }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {historique.map((h, i) => (
+                      <tr key={h.table + h.facture.id} style={{ borderBottom: i === historique.length - 1 ? 'none' : '1px solid #F3F4F6' }}>
+                        <td style={{ padding: '9px 14px', fontWeight: 600 }}>{h.facture.numero}</td>
+                        <td style={{ padding: '9px 14px', color: '#6B7280' }}>
+                          {h.tiers || '—'}{h.facture.projets?.nom ? ' · ' + h.facture.projets.nom : ''}
+                        </td>
+                        <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: h.couleur }}>{fmt(h.facture.montant_ht)}</td>
+                        <td style={{ padding: '9px 14px' }}>
+                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: h.facture.qonto_match_confiance === 'exact' ? '#EFF6FF' : '#FFFBEB', color: h.facture.qonto_match_confiance === 'exact' ? '#2563EB' : '#B45309' }}>
+                            {h.facture.qonto_match_confiance === 'exact' ? '🔗 Auto (n° + montant)' : '✓ Confirmé (montant)'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '9px 14px', color: '#9CA3AF' }}>{fmtDate(h.facture.qonto_matched_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </>
       )}
