@@ -13,9 +13,16 @@ export default function Dashboard() {
   const [depensesAPayer, setDepensesAPayer] = useState([])
   const [relances, setRelances] = useState([])
   const [loading, setLoading] = useState(true)
-  // État d'envoi par facture (id -> 'envoi' | 'envoye' | 'erreur:<message>'),
-  // uniquement pour le retour visuel — voir envoyerRelance().
+  // État d'envoi par facture (id -> 'envoye'), uniquement pour le retour
+  // visuel une fois l'envoi confirmé depuis la modale ci-dessous.
   const [envoiRelance, setEnvoiRelance] = useState({})
+  // Modale d'aperçu/édition avant envoi — { factureId, to, subject, body } ou
+  // null si fermée. L'email ne part jamais directement au clic sur
+  // "Relancer" : on ouvre toujours cette modale pour valider/corriger le
+  // contenu avant l'envoi réel (voir ouvrirRelance / envoyerRelanceDepuisModal).
+  const [modalRelance, setModalRelance] = useState(null)
+  const [modalRelanceBusy, setModalRelanceBusy] = useState(false)
+  const [modalRelanceError, setModalRelanceError] = useState('')
   const navigate = useNavigate()
 
   useEffect(() => { fetchAll() }, [])
@@ -109,23 +116,28 @@ export default function Dashboard() {
     return { sujet, corps }
   }
 
-  // Repli si l'envoi via Outlook n'est pas configuré ou échoue : ouvre la
-  // messagerie par défaut avec le message prérempli (comportement d'origine).
-  function lienRelance(f) {
+  // Ouvre l'aperçu/édition avant envoi — l'email ne part jamais directement
+  // au clic sur "Relancer", il faut valider (et éventuellement corriger) le
+  // contenu dans la modale qui s'ouvre ensuite. Voir modalRelance ci-dessous.
+  function ouvrirRelance(f) {
+    if (!f.clients?.email) return
     const { sujet, corps } = contenuRelance(f)
-    return 'mailto:' + (f.clients?.email || '') + '?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps)
+    setModalRelance({ factureId: f.id, to: f.clients.email, subject: sujet, body: corps })
+    setModalRelanceError('')
   }
 
-  async function envoyerRelance(f) {
-    if (!f.clients?.email) return
-    setEnvoiRelance(prev => ({ ...prev, [f.id]: 'envoi' }))
+  async function envoyerRelanceDepuisModal() {
+    if (!modalRelance) return
+    setModalRelanceBusy(true)
+    setModalRelanceError('')
     try {
-      const { sujet, corps } = contenuRelance(f)
-      await envoyerEmailOutlook({ to: f.clients.email, subject: sujet, body: corps })
-      setEnvoiRelance(prev => ({ ...prev, [f.id]: 'envoye' }))
+      await envoyerEmailOutlook({ to: modalRelance.to, subject: modalRelance.subject, body: modalRelance.body })
+      setEnvoiRelance(prev => ({ ...prev, [modalRelance.factureId]: 'envoye' }))
+      setModalRelance(null)
     } catch (err) {
-      setEnvoiRelance(prev => ({ ...prev, [f.id]: 'erreur:' + err.message }))
+      setModalRelanceError(err.message)
     }
+    setModalRelanceBusy(false)
   }
 
   const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
@@ -164,8 +176,52 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Relances à faire — factures clients en retard, avec un lien mail
-          prérempli pour relancer directement sans ressaisir le message. */}
+      {/* Modale d'aperçu/édition avant envoi — voir ouvrirRelance() /
+          envoyerRelanceDepuisModal(). L'email ne part jamais tant qu'on n'a
+          pas validé son contenu ici. */}
+      {modalRelance && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Relance par email</h3>
+
+            {modalRelanceError && (
+              <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+                {modalRelanceError}
+              </div>
+            )}
+
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>À</label>
+            <input value={modalRelance.to} onChange={e => setModalRelance(p => ({ ...p, to: e.target.value }))}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Objet</label>
+            <input value={modalRelance.subject} onChange={e => setModalRelance(p => ({ ...p, subject: e.target.value }))}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Message</label>
+            <textarea value={modalRelance.body} onChange={e => setModalRelance(p => ({ ...p, body: e.target.value }))} rows={9}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 20, fontFamily: 'inherit', resize: 'vertical' }} />
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
+              <a href={'mailto:' + modalRelance.to + '?subject=' + encodeURIComponent(modalRelance.subject) + '&body=' + encodeURIComponent(modalRelance.body)}
+                style={{ fontSize: 12, color: '#6B7280' }}>
+                ou ouvrir dans ma messagerie
+              </a>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setModalRelance(null)} disabled={modalRelanceBusy}
+                  style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                <button onClick={envoyerRelanceDepuisModal} disabled={modalRelanceBusy || !modalRelance.to}
+                  style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                  {modalRelanceBusy ? '⏳ Envoi...' : '✉️ Envoyer'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Relances à faire — factures clients en retard ; le bouton ouvre un
+          aperçu/édition avant tout envoi (voir modale ci-dessus). */}
       {relances.length > 0 && (
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #FCA5A5', overflow: 'hidden', marginBottom: 24 }}>
           <div style={{ padding: '14px 18px', borderBottom: '1px solid #FEE2E2', background: '#FEF2F2', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -187,17 +243,10 @@ export default function Dashboard() {
                     envoiRelance[f.id] === 'envoye' ? (
                       <span style={{ fontSize: 12, color: '#059669', fontWeight: 500, flexShrink: 0 }}>✓ Envoyé</span>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
-                        <button onClick={() => envoyerRelance(f)} disabled={envoiRelance[f.id] === 'envoi'}
-                          style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
-                          {envoiRelance[f.id] === 'envoi' ? '⏳ Envoi...' : '✉️ Relancer'}
-                        </button>
-                        {typeof envoiRelance[f.id] === 'string' && envoiRelance[f.id].startsWith('erreur:') && (
-                          <div style={{ fontSize: 10, color: '#DC2626', textAlign: 'right', maxWidth: 220 }}>
-                            {envoiRelance[f.id].slice(7)} — <a href={lienRelance(f)} style={{ color: '#DC2626' }}>ouvrir dans ma messagerie</a>
-                          </div>
-                        )}
-                      </div>
+                      <button onClick={() => ouvrirRelance(f)}
+                        style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
+                        ✉️ Relancer
+                      </button>
                     )
                   ) : (
                     <span style={{ fontSize: 11, color: '#9CA3AF', flexShrink: 0 }} title="Aucun email renseigné pour ce client">— pas d'email</span>
