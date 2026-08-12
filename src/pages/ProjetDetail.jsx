@@ -2504,10 +2504,16 @@ export default function ProjetDetail() {
           const margePrevu = ca - achatPrevu
           const tauxMargePrevu = ca > 0 ? ((margePrevu / ca) * 100).toFixed(1) : 0
 
-          // Calculs réels depuis les commandes
-          const achatReel = totalCommandes
-          const margeReelle = ca - achatReel
-          const tauxMargeReelle = ca > 0 ? ((margeReelle / ca) * 100).toFixed(1) : 0
+          // Calculs réels : le "réel" doit refléter les documents réellement
+          // émis — factures clients côté vente (et non le CA prévisionnel du
+          // devis, qui n'a pas sa place dans la colonne "Réel"), commandes
+          // fournisseurs côté achat. Toutes les commandes "Annulée" sont
+          // exclues (voir totalCommandesActives), cohérent avec les encarts
+          // budget des onglets Commandes/Factures clients.
+          const caReel = totalFcli
+          const achatReel = totalCommandesActives
+          const margeReelle = caReel - achatReel
+          const tauxMargeReelle = caReel > 0 ? ((margeReelle / caReel) * 100).toFixed(1) : 0
 
           // Écarts
           const ecartAchat = achatReel - achatPrevu
@@ -2534,7 +2540,7 @@ export default function ProjetDetail() {
                 </div>
 
                 {[
-                  { label: "Chiffre d'affaires (vente)", prev: ca, reel: ca, showEcart: false },
+                  { label: "Chiffre d'affaires (vente)", prev: ca, reel: caReel, showEcart: false },
                   { label: 'Coût achats', prev: achatPrevu, reel: achatReel, showEcart: true, ecartPositifMauvais: true },
                   { label: 'Marge brute', prev: margePrevu, reel: margeReelle, showEcart: true, ecartPositifMauvais: false, bold: true },
                   { label: 'Taux de marge', prev: tauxMargePrevu + '%', reel: tauxMargeReelle + '%', showEcart: false, isTaux: true },
@@ -2562,6 +2568,16 @@ export default function ProjetDetail() {
                 </div>
               </div>
 
+              {/* Avancement de la facturation client — complète la ligne CA du
+                  tableau ci-dessus sans porter de jugement bon/mauvais (un
+                  chantier en cours n'est normalement pas encore facturé à
+                  100%, ce n'est pas un écart au sens "dérapage"). */}
+              {ca > 0 && (
+                <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
+                  💶 Facturé à ce jour : <strong style={{ color: '#1E293B' }}>{fmt(caReel)}</strong> ({(caReel / ca * 100).toFixed(1)}% du CA prévu) · Reste à facturer : <strong style={{ color: '#1E293B' }}>{fmt(Math.max(0, ca - caReel))}</strong>
+                </div>
+              )}
+
               {/* Cartes résumé */}
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12, marginBottom: 16 }}>
                 <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 12, padding: '16px 20px' }}>
@@ -2570,7 +2586,7 @@ export default function ProjetDetail() {
                   <div style={{ fontSize: 12, color: '#3B82F6' }}>Taux : {tauxMargePrevu}%</div>
                 </div>
                 <div style={{ background: margeReelle >= 0 ? '#F0FDF4' : '#FEF2F2', border: '1px solid ' + (margeReelle >= 0 ? '#BBF7D0' : '#FCA5A5'), borderRadius: 12, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 11, color: margeReelle >= 0 ? '#059669' : '#DC2626', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📊 Marge réelle (commandes)</div>
+                  <div style={{ fontSize: 11, color: margeReelle >= 0 ? '#059669' : '#DC2626', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📊 Marge réelle (factures / commandes)</div>
                   <div style={{ fontSize: 24, fontWeight: 800, color: margeReelle >= 0 ? '#065F46' : '#991B1B', marginBottom: 4 }}>{fmt(margeReelle)}</div>
                   <div style={{ fontSize: 12, color: margeReelle >= 0 ? '#059669' : '#DC2626' }}>Taux : {tauxMargeReelle}%</div>
                 </div>
