@@ -2516,20 +2516,34 @@ export default function ProjetDetail() {
           //                    fournisseurs reçues côté achat (et non plus
           //                    les commandes, qui ne sont qu'un engagement),
           //                    factures clients émises côté vente.
+          // Tant qu'aucune commande / facture n'existe, un achat "à 0" ne veut
+          // rien dire (ce n'est pas "on a dépensé 0 et donc tout est marge",
+          // c'est juste "rien n'a encore été saisi") — sans ce garde-fou, un
+          // projet fraîchement créé affiche une marge "en cours"/"réelle" à
+          // 100%, verte, alors qu'il n'y a simplement aucune donnée. On
+          // n'affiche donc un chiffre en cours/réel que s'il y a au moins une
+          // commande/facture derrière.
+          const aCommandesActives = commandes.some(c => c.statut !== 'Annulée')
+          const aFacturesFrs = facturesFrs.length > 0
+          const aFacturesCli = facturesCli.length > 0
+
           const caEnCours = ca
-          const achatEnCours = totalCommandesActives
-          const margeEnCours = caEnCours - achatEnCours
-          const tauxMargeEnCours = caEnCours > 0 ? ((margeEnCours / caEnCours) * 100).toFixed(1) : 0
+          const achatEnCours = aCommandesActives ? totalCommandesActives : null
+          const margeEnCours = achatEnCours !== null ? caEnCours - achatEnCours : null
+          const tauxMargeEnCours = margeEnCours !== null && caEnCours > 0 ? ((margeEnCours / caEnCours) * 100).toFixed(1) : null
 
-          const caReel = totalFcli
-          const achatReel = totalFfrs
-          const margeReelle = caReel - achatReel
-          const tauxMargeReelle = caReel > 0 ? ((margeReelle / caReel) * 100).toFixed(1) : 0
+          const caReel = aFacturesCli ? totalFcli : null
+          const achatReel = aFacturesFrs ? totalFfrs : null
+          const margeReelle = (caReel !== null || achatReel !== null) ? (caReel || 0) - (achatReel || 0) : null
+          const tauxMargeReelle = margeReelle !== null && caReel > 0 ? ((margeReelle / caReel) * 100).toFixed(1) : null
 
-          // Écarts (réel vs prévisionnel — la comparaison qui compte au final)
-          const ecartAchatEnCours = achatEnCours - achatPrevu
-          const ecartAchat = achatReel - achatPrevu
-          const ecartMarge = margeReelle - margePrevu
+          // Écarts (réel vs prévisionnel — la comparaison qui compte au
+          // final) : uniquement quand il y a vraiment un réel à comparer,
+          // sinon un "-1 500 € d'écart" ne ferait que comparer le devis à du
+          // vide et laisserait croire à tort qu'on est sous le budget.
+          const ecartAchatEnCours = achatEnCours !== null ? achatEnCours - achatPrevu : null
+          const ecartAchat = achatReel !== null ? achatReel - achatPrevu : null
+          const ecartMarge = margeReelle !== null ? margeReelle - margePrevu : null
 
           const col = (val, positifBon = true) => {
             if (val === 0) return '#6B7280'
@@ -2556,7 +2570,7 @@ export default function ProjetDetail() {
                   { label: "Chiffre d'affaires (vente)", prev: ca, enCours: caEnCours, reel: caReel, showEcart: false },
                   { label: 'Coût achats', prev: achatPrevu, enCours: achatEnCours, reel: achatReel, showEcart: true, ecartPositifMauvais: true },
                   { label: 'Marge brute', prev: margePrevu, enCours: margeEnCours, reel: margeReelle, showEcart: true, ecartPositifMauvais: false, bold: true },
-                  { label: 'Taux de marge', prev: tauxMargePrevu + '%', enCours: tauxMargeEnCours + '%', reel: tauxMargeReelle + '%', showEcart: false, isTaux: true },
+                  { label: 'Taux de marge', prev: tauxMargePrevu + '%', enCours: tauxMargeEnCours !== null ? tauxMargeEnCours + '%' : '—', reel: tauxMargeReelle !== null ? tauxMargeReelle + '%' : '—', showEcart: false, isTaux: true },
                 ].map(({ label, prev, enCours, reel, showEcart, ecartPositifMauvais, bold, isTaux }, i) => {
                   const ecart = isTaux ? null : (typeof reel === 'number' && typeof prev === 'number' ? reel - prev : null)
                   return (
@@ -2610,20 +2624,23 @@ export default function ProjetDetail() {
                   <div style={{ fontSize: 24, fontWeight: 800, color: margePrevu >= 0 ? '#1E40AF' : '#DC2626', marginBottom: 4 }}>{fmt(margePrevu)}</div>
                   <div style={{ fontSize: 12, color: '#3B82F6' }}>Taux : {tauxMargePrevu}%</div>
                 </div>
-                <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 12, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 11, color: '#EA580C', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>🔄 Marge en cours (commandes)</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: margeEnCours >= 0 ? '#9A3412' : '#DC2626', marginBottom: 4 }}>{fmt(margeEnCours)}</div>
-                  <div style={{ fontSize: 12, color: '#EA580C' }}>Taux : {tauxMargeEnCours}%</div>
+                <div style={{ background: margeEnCours === null ? '#F9FAFB' : '#FFF7ED', border: '1px solid ' + (margeEnCours === null ? '#E5E7EB' : '#FED7AA'), borderRadius: 12, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 11, color: margeEnCours === null ? '#9CA3AF' : '#EA580C', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>🔄 Marge en cours (commandes)</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: margeEnCours === null ? '#9CA3AF' : (margeEnCours >= 0 ? '#9A3412' : '#DC2626'), marginBottom: 4 }}>{margeEnCours === null ? 'Aucune commande' : fmt(margeEnCours)}</div>
+                  <div style={{ fontSize: 12, color: margeEnCours === null ? '#9CA3AF' : '#EA580C' }}>Taux : {tauxMargeEnCours !== null ? tauxMargeEnCours + '%' : '—'}</div>
                 </div>
-                <div style={{ background: margeReelle >= 0 ? '#F0FDF4' : '#FEF2F2', border: '1px solid ' + (margeReelle >= 0 ? '#BBF7D0' : '#FCA5A5'), borderRadius: 12, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 11, color: margeReelle >= 0 ? '#059669' : '#DC2626', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📊 Marge réelle (factures)</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: margeReelle >= 0 ? '#065F46' : '#991B1B', marginBottom: 4 }}>{fmt(margeReelle)}</div>
-                  <div style={{ fontSize: 12, color: margeReelle >= 0 ? '#059669' : '#DC2626' }}>Taux : {tauxMargeReelle}%</div>
+                <div style={{ background: margeReelle === null ? '#F9FAFB' : (margeReelle >= 0 ? '#F0FDF4' : '#FEF2F2'), border: '1px solid ' + (margeReelle === null ? '#E5E7EB' : (margeReelle >= 0 ? '#BBF7D0' : '#FCA5A5')), borderRadius: 12, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 11, color: margeReelle === null ? '#9CA3AF' : (margeReelle >= 0 ? '#059669' : '#DC2626'), fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📊 Marge réelle (factures)</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: margeReelle === null ? '#9CA3AF' : (margeReelle >= 0 ? '#065F46' : '#991B1B'), marginBottom: 4 }}>{margeReelle === null ? 'Aucune facture' : fmt(margeReelle)}</div>
+                  <div style={{ fontSize: 12, color: margeReelle === null ? '#9CA3AF' : (margeReelle >= 0 ? '#059669' : '#DC2626') }}>Taux : {tauxMargeReelle !== null ? tauxMargeReelle + '%' : '—'}</div>
                 </div>
               </div>
 
-              {/* Écart global */}
-              {ca > 0 && (
+              {/* Écart global — seulement quand il y a un vrai réel (au moins
+                  une facture) à comparer au prévisionnel, sinon le calcul
+                  compare le devis à du vide et affiche à tort "meilleure
+                  marge que prévu". */}
+              {ca > 0 && ecartMarge !== null && (
                 <div style={{ background: ecartMarge >= 0 ? '#F0FDF4' : '#FEF2F2', border: '2px solid ' + (ecartMarge >= 0 ? '#059669' : '#DC2626'), borderRadius: 12, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: ecartMarge >= 0 ? '#065F46' : '#991B1B' }}>
@@ -2637,6 +2654,11 @@ export default function ProjetDetail() {
                     <div style={{ fontSize: 22, fontWeight: 800, color: ecartMarge >= 0 ? '#065F46' : '#991B1B' }}>{ecartMarge > 0 ? '+' : ''}{fmt(ecartMarge)}</div>
                     <div style={{ fontSize: 11, color: '#6B7280' }}>sur la marge</div>
                   </div>
+                </div>
+              )}
+              {ca > 0 && ecartMarge === null && (
+                <div style={{ padding: '10px 16px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 12, color: '#6B7280' }}>
+                  💡 Pas encore de facture client ou fournisseur sur ce projet — la marge réelle s'affichera dès la première facture.
                 </div>
               )}
 
