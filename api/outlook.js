@@ -32,7 +32,10 @@ export default async function handler(req, res) {
     })
   }
 
-  const { to, subject, body, cc } = req.body || {}
+  // attachments : tableau optionnel de pièces jointes déjà encodées en
+  // base64 côté client (ex. PDF de facture/commande généré avec jsPDF), au
+  // format attendu par Microsoft Graph — voir construction ci-dessous.
+  const { to, subject, body, cc, attachments } = req.body || {}
   if (!to || !subject || !body) {
     return res.status(400).json({ error: 'to, subject et body sont requis.' })
   }
@@ -67,6 +70,14 @@ export default async function handler(req, res) {
           body: { contentType: 'Text', content: body },
           toRecipients: [{ emailAddress: { address: to } }],
           ...(cc ? { ccRecipients: [{ emailAddress: { address: cc } }] } : {}),
+          ...(Array.isArray(attachments) && attachments.length > 0 ? {
+            attachments: attachments.map(a => ({
+              '@odata.type': '#microsoft.graph.fileAttachment',
+              name: a.name,
+              contentType: a.contentType || 'application/pdf',
+              contentBytes: a.contentBytes,
+            })),
+          } : {}),
         },
         saveToSentItems: true,
       }),

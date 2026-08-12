@@ -12,6 +12,7 @@ import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
+import { envoyerEmailOutlook } from '../lib/useOutlook'
 
 const TABS = [
   { id: 'infos', label: '📋 Infos' },
@@ -231,6 +232,14 @@ export default function ProjetDetail() {
   // reprendre doit être une action volontaire et confirmée. Voir editCmd().
   const [cmdDeverrouillees, setCmdDeverrouillees] = useState(new Set())
   const [showPdfPreview, setShowPdfPreview] = useState(null) // commande en preview PDF
+  // Modale d'aperçu/édition avant envoi d'un email (facture client ou
+  // commande fournisseur), PDF joint automatiquement — voir
+  // ouvrirEnvoiFactureCli / ouvrirEnvoiCommande / envoyerEmailDepuisModal.
+  // Même principe que la modale de relance du Dashboard : l'email ne part
+  // jamais directement au clic sur "Envoyer".
+  const [envoiEmailModal, setEnvoiEmailModal] = useState(null)
+  const [envoiEmailBusy, setEnvoiEmailBusy] = useState(false)
+  const [envoiEmailError, setEnvoiEmailError] = useState('')
   const [showLignesSelector, setShowLignesSelector] = useState(false) // sélecteur lignes projet
   const [documents, setDocuments] = useState({ projet: [], officiels: [] }) // documents du projet
   const [cmdDocs, setCmdDocs] = useState({}) // { [cmdId]: [docs] }
@@ -709,6 +718,87 @@ export default function ProjetDetail() {
     return doc
   }
 
+  // ── Envoi d'email (facture client / commande fournisseur) avec PDF joint ──
+  // Même principe que la relance du Dashboard ("Ca doit pas partir direct") :
+  // aucun envoi n'est déclenché directement au clic sur "Envoyer", tout passe
+  // par la modale d'aperçu/édition ci-dessous (voir envoiEmailModal, plus
+  // bas dans le rendu).
+  function pdfEnBase64(doc) {
+    const dataUri = doc.output('datauristring')
+    return dataUri.split('base64,')[1] || ''
+  }
+
+  function ouvrirEnvoiFactureCli(f) {
+    const email = projet?.clients?.email
+    if (!email) { alert('Ce client n\'a pas d\'adresse email enregistrée.'); return }
+    const doc = generateFactureCliPDF(f, 'fr')
+    const sujet = 'Facture ' + (f.numero || '') + (projet?.nom ? ' — ' + projet.nom : '')
+    const corps = 'Bonjour,\n\nVeuillez trouver ci-joint la facture ' + (f.numero || '') +
+      (projet?.nom ? ' relative au projet ' + projet.nom : '') +
+      ', d\'un montant de ' + Number(f.montant_ht || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' € HT' +
+      (f.date_echeance ? ', à régler avant le ' + new Date(f.date_echeance).toLocaleDateString('fr-FR') : '') +
+      '.\n\nN\'hésitez pas à revenir vers nous pour toute question.\n\nCordialement'
+    setEnvoiEmailModal({
+      type: 'facture_cli',
+      id: f.id,
+      to: email,
+      subject: sujet,
+      body: corps,
+      attachment: { name: (f.numero || 'facture') + '.pdf', contentType: 'application/pdf', contentBytes: pdfEnBase64(doc) },
+    })
+    setEnvoiEmailError('')
+  }
+
+  function ouvrirEnvoiCommande(cmd) {
+    const fournisseur = fournisseurs.find(fr => fr.id === cmd.fournisseur_id)
+    const email = fournisseur?.email
+    if (!email) { alert('Ce fournisseur n\'a pas d\'adresse email enregistrée.'); return }
+    const doc = generateCmdPDF({ ...cmd, fournisseurs: fournisseur }, 'fr')
+    const sujet = 'Commande ' + (cmd.numero || '') + (projet?.nom ? ' — ' + projet.nom : '')
+    const corps = 'Bonjour,\n\nVeuillez trouver ci-joint notre commande ' + (cmd.numero || '') +
+      (projet?.nom ? ' pour le projet ' + projet.nom : '') +
+      ', d\'un montant de ' + Number(cmd.montant_ht || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' € HT' +
+      '.\n\nMerci de nous confirmer sa bonne réception.\n\nCordialement'
+    setEnvoiEmailModal({
+      type: 'commande',
+      id: cmd.id,
+      to: email,
+      subject: sujet,
+      body: corps,
+      attachment: { name: (cmd.numero || 'commande') + '.pdf', contentType: 'application/pdf', contentBytes: pdfEnBase64(doc) },
+    })
+    setEnvoiEmailError('')
+  }
+
+  async function envoyerEmailDepuisModal() {
+    if (!envoiEmailModal) return
+    setEnvoiEmailBusy(true)
+    setEnvoiEmailError('')
+    try {
+      await envoyerEmailOutlook({
+        to: envoiEmailModal.to,
+        subject: envoiEmailModal.subject,
+        body: envoiEmailModal.body,
+        attachments: envoiEmailModal.attachment ? [envoiEmailModal.attachment] : undefined,
+      })
+      // Facture client envoyée depuis l'état "À envoyer" : on fait passer
+      // son statut à "Envoyée" pour refléter l'action (sans écraser un
+      // statut déjà plus avancé, ex. Payée).
+      if (envoiEmailModal.type === 'facture_cli') {
+        const facture = facturesCli.find(f => f.id === envoiEmailModal.id)
+        if (facture && facture.statut === 'À envoyer') {
+          await supabase.from('factures_cli').update({ statut: 'Envoyée' }).eq('id', envoiEmailModal.id)
+          const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
+          setFacturesCli(data || [])
+        }
+      }
+      setEnvoiEmailModal(null)
+    } catch (err) {
+      setEnvoiEmailError(err.message)
+    }
+    setEnvoiEmailBusy(false)
+  }
+
   async function ajouterFactureFrs() {
     setError('')
     if (!formFfrs.numero.trim()) { setError('Le numéro est obligatoire.'); return }
@@ -1012,6 +1102,60 @@ export default function ProjetDetail() {
           </div>
         </div>
       </div>
+
+      {/* Modale d'aperçu/édition avant envoi d'un email (facture client ou
+          commande fournisseur, PDF joint) — voir ouvrirEnvoiFactureCli() /
+          ouvrirEnvoiCommande() / envoyerEmailDepuisModal(). Placée hors des
+          onglets pour rester visible quel que soit l'onglet actif. L'email
+          ne part jamais tant qu'on n'a pas validé son contenu ici. */}
+      {envoiEmailModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>
+              {envoiEmailModal.type === 'facture_cli' ? 'Envoyer la facture par email' : 'Envoyer la commande par email'}
+            </h3>
+
+            {envoiEmailError && (
+              <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+                {envoiEmailError}
+              </div>
+            )}
+
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>À</label>
+            <input value={envoiEmailModal.to} onChange={e => setEnvoiEmailModal(p => ({ ...p, to: e.target.value }))}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Objet</label>
+            <input value={envoiEmailModal.subject} onChange={e => setEnvoiEmailModal(p => ({ ...p, subject: e.target.value }))}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Message</label>
+            <textarea value={envoiEmailModal.body} onChange={e => setEnvoiEmailModal(p => ({ ...p, body: e.target.value }))} rows={9}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'inherit', resize: 'vertical' }} />
+
+            {envoiEmailModal.attachment && (
+              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+                📎 {envoiEmailModal.attachment.name}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
+              <a href={'mailto:' + envoiEmailModal.to + '?subject=' + encodeURIComponent(envoiEmailModal.subject) + '&body=' + encodeURIComponent(envoiEmailModal.body)}
+                style={{ fontSize: 12, color: '#6B7280' }}>
+                ou ouvrir dans ma messagerie (sans pièce jointe)
+              </a>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setEnvoiEmailModal(null)} disabled={envoiEmailBusy}
+                  style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                <button onClick={envoyerEmailDepuisModal} disabled={envoiEmailBusy || !envoiEmailModal.to}
+                  style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                  {envoiEmailBusy ? '⏳ Envoi...' : '✉️ Envoyer'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Onglets */}
       <div style={{ background: '#fff', borderBottom: '1px solid #E5E7EB', display: 'flex', paddingLeft: 16, overflowX: 'auto', flexShrink: 0 }}>
@@ -1871,6 +2015,10 @@ export default function ProjetDetail() {
                               )}
                               <button onClick={() => setShowPdfPreview({ ...c, ...cmdEditees[c.id], fournisseurs: fournisseurs.find(f => f.id === (cmdEditees[c.id]?.fournisseur_id || c.fournisseur_id)) })}
                                 style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 11 }}>👁 PDF</button>
+                              {c.statut === 'Validée' && (
+                                <button onClick={() => ouvrirEnvoiCommande(c)} title="Envoyer la commande par email (PDF joint)"
+                                  style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontSize: 11 }}>✉️ Envoyer</button>
+                              )}
                               <button onClick={() => { if (expandedCmd === c.id) { setExpandedCmd(null) } else { setExpandedCmd(c.id); fetchCmdDocs(c.id) } }}
                                 style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #E9D5FF', background: '#F5F3FF', color: '#7C3AED', cursor: 'pointer', fontSize: 11 }}>
                                 📎 {cmdDocs[c.id]?.length > 0 ? cmdDocs[c.id].length : ''}
@@ -2209,6 +2357,8 @@ export default function ProjetDetail() {
                             title="PDF en français" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #E5E7EB', background: '#fff', color: '#059669', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>FR</button>
                           <button onClick={() => generateFactureCliPDF(f, 'en').save((f.numero || 'facture') + '_EN.pdf')}
                             title="PDF in English" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #E5E7EB', background: '#fff', color: '#2563EB', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>EN</button>
+                          <button onClick={() => ouvrirEnvoiFactureCli(f)} title="Envoyer la facture par email (PDF joint)"
+                            style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontSize: 11 }}>✉️ Envoyer</button>
                           <button onClick={() => supprimer('factures_cli', f.id)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}>✕</button>
                         </div>
                       </td>

@@ -13,11 +13,15 @@ async function authHeaders() {
 // connexion Outlook n'est pas encore configurée ou si l'envoi échoue, pour
 // que l'UI puisse proposer un repli (ex. lien mailto) plutôt que de planter
 // silencieusement.
-export async function envoyerEmailOutlook({ to, subject, body, cc }) {
+//
+// attachments (optionnel) : tableau de { name, contentType, contentBytes }
+// — contentBytes en base64 pur (pas de préfixe data:...;base64,). Utilisé
+// pour joindre automatiquement le PDF d'une facture/commande à l'envoi.
+export async function envoyerEmailOutlook({ to, subject, body, cc, attachments }) {
   const res = await fetch('/api/outlook', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-    body: JSON.stringify({ to, subject, body, cc }),
+    body: JSON.stringify({ to, subject, body, cc, attachments }),
   })
   if (!res.ok) {
     const data = await res.json().catch(() => null)
