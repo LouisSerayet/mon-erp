@@ -2504,18 +2504,30 @@ export default function ProjetDetail() {
           const margePrevu = ca - achatPrevu
           const tauxMargePrevu = ca > 0 ? ((margePrevu / ca) * 100).toFixed(1) : 0
 
-          // Calculs réels : le "réel" doit refléter les documents réellement
-          // émis — factures clients côté vente (et non le CA prévisionnel du
-          // devis, qui n'a pas sa place dans la colonne "Réel"), commandes
-          // fournisseurs côté achat. Toutes les commandes "Annulée" sont
-          // exclues (voir totalCommandesActives), cohérent avec les encarts
-          // budget des onglets Commandes/Factures clients.
+          // Trois temps de lecture du budget achat/vente d'un projet :
+          //  1. Prévisionnel : ce qui a été chiffré au devis (lignes projet)
+          //  2. En cours     : ce qui est réellement engagé — commandes
+          //                    fournisseurs émises côté achat (hors
+          //                    "Annulée", voir totalCommandesActives) ; côté
+          //                    vente, rien de plus fiable que le devis tant
+          //                    que la facturation n'est pas là, donc on
+          //                    reprend le CA prévisionnel tel quel.
+          //  3. Réel         : ce qui a été effectivement facturé — factures
+          //                    fournisseurs reçues côté achat (et non plus
+          //                    les commandes, qui ne sont qu'un engagement),
+          //                    factures clients émises côté vente.
+          const caEnCours = ca
+          const achatEnCours = totalCommandesActives
+          const margeEnCours = caEnCours - achatEnCours
+          const tauxMargeEnCours = caEnCours > 0 ? ((margeEnCours / caEnCours) * 100).toFixed(1) : 0
+
           const caReel = totalFcli
-          const achatReel = totalCommandesActives
+          const achatReel = totalFfrs
           const margeReelle = caReel - achatReel
           const tauxMargeReelle = caReel > 0 ? ((margeReelle / caReel) * 100).toFixed(1) : 0
 
-          // Écarts
+          // Écarts (réel vs prévisionnel — la comparaison qui compte au final)
+          const ecartAchatEnCours = achatEnCours - achatPrevu
           const ecartAchat = achatReel - achatPrevu
           const ecartMarge = margeReelle - margePrevu
 
@@ -2531,26 +2543,30 @@ export default function ProjetDetail() {
 
               {/* Tableau comparatif */}
               <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: isMobile ? 'auto' : 'hidden', marginBottom: 20 }}>
-                <div style={{ minWidth: isMobile ? 480 : 'auto' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', background: '#1E293B', color: '#fff' }}>
+                <div style={{ minWidth: isMobile ? 620 : 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr', background: '#1E293B', color: '#fff' }}>
                   <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}></div>
                   <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textAlign: 'right', color: '#93C5FD' }}>📐 Prévisionnel</div>
+                  <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textAlign: 'right', color: '#FDBA74' }}>🔄 En cours</div>
                   <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textAlign: 'right', color: '#86EFAC' }}>📊 Réel</div>
                   <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textAlign: 'right', color: '#FDE68A' }}>Écart</div>
                 </div>
 
                 {[
-                  { label: "Chiffre d'affaires (vente)", prev: ca, reel: caReel, showEcart: false },
-                  { label: 'Coût achats', prev: achatPrevu, reel: achatReel, showEcart: true, ecartPositifMauvais: true },
-                  { label: 'Marge brute', prev: margePrevu, reel: margeReelle, showEcart: true, ecartPositifMauvais: false, bold: true },
-                  { label: 'Taux de marge', prev: tauxMargePrevu + '%', reel: tauxMargeReelle + '%', showEcart: false, isTaux: true },
-                ].map(({ label, prev, reel, showEcart, ecartPositifMauvais, bold, isTaux }, i) => {
+                  { label: "Chiffre d'affaires (vente)", prev: ca, enCours: caEnCours, reel: caReel, showEcart: false },
+                  { label: 'Coût achats', prev: achatPrevu, enCours: achatEnCours, reel: achatReel, showEcart: true, ecartPositifMauvais: true },
+                  { label: 'Marge brute', prev: margePrevu, enCours: margeEnCours, reel: margeReelle, showEcart: true, ecartPositifMauvais: false, bold: true },
+                  { label: 'Taux de marge', prev: tauxMargePrevu + '%', enCours: tauxMargeEnCours + '%', reel: tauxMargeReelle + '%', showEcart: false, isTaux: true },
+                ].map(({ label, prev, enCours, reel, showEcart, ecartPositifMauvais, bold, isTaux }, i) => {
                   const ecart = isTaux ? null : (typeof reel === 'number' && typeof prev === 'number' ? reel - prev : null)
                   return (
-                    <div key={label} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', borderBottom: i < 3 ? '1px solid #F3F4F6' : 'none', background: bold ? '#F0FDF4' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                    <div key={label} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr', borderBottom: i < 3 ? '1px solid #F3F4F6' : 'none', background: bold ? '#F0FDF4' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                       <div style={{ padding: '14px 16px', fontSize: 13, fontWeight: bold ? 700 : 500, color: '#374151' }}>{label}</div>
                       <div style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: '#2563EB' }}>
                         {isTaux ? prev : fmt(prev)}
+                      </div>
+                      <div style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: '#EA580C' }}>
+                        {isTaux ? enCours : fmt(enCours)}
                       </div>
                       <div style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: '#059669' }}>
                         {isTaux ? reel : fmt(reel)}
@@ -2567,26 +2583,40 @@ export default function ProjetDetail() {
                 })}
                 </div>
               </div>
+              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: -14, marginBottom: 20 }}>
+                🔄 En cours = commandé aux fournisseurs (achat) — la vente reprend le prévisionnel tant qu'elle n'est pas facturée. 📊 Réel = effectivement facturé (factures fournisseurs et clients).
+              </div>
 
-              {/* Avancement de la facturation client — complète la ligne CA du
-                  tableau ci-dessus sans porter de jugement bon/mauvais (un
-                  chantier en cours n'est normalement pas encore facturé à
-                  100%, ce n'est pas un écart au sens "dérapage"). */}
+              {/* Avancement achat (commandé) et vente (facturé) — complètent
+                  le tableau ci-dessus sans porter de jugement bon/mauvais
+                  (un chantier en cours n'est normalement ni commandé ni
+                  facturé à 100%, ce n'est pas un écart au sens "dérapage"). */}
               {ca > 0 && (
+                <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 6 }}>
+                  💶 Facturé aux clients à ce jour : <strong style={{ color: '#1E293B' }}>{fmt(caReel)}</strong> ({(caReel / ca * 100).toFixed(1)}% du CA prévu) · Reste à facturer : <strong style={{ color: '#1E293B' }}>{fmt(Math.max(0, ca - caReel))}</strong>
+                </div>
+              )}
+              {achatPrevu > 0 && (
                 <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
-                  💶 Facturé à ce jour : <strong style={{ color: '#1E293B' }}>{fmt(caReel)}</strong> ({(caReel / ca * 100).toFixed(1)}% du CA prévu) · Reste à facturer : <strong style={{ color: '#1E293B' }}>{fmt(Math.max(0, ca - caReel))}</strong>
+                  🛒 Commandé aux fournisseurs à ce jour : <strong style={{ color: '#1E293B' }}>{fmt(achatEnCours)}</strong> ({(achatEnCours / achatPrevu * 100).toFixed(1)}% du budget achat
+                  {ecartAchatEnCours > 0 && <span style={{ color: '#DC2626' }}> · +{fmt(ecartAchatEnCours)} vs devis</span>}) · Facturé par les fournisseurs : <strong style={{ color: '#1E293B' }}>{fmt(achatReel)}</strong>
                 </div>
               )}
 
               {/* Cartes résumé */}
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
                 <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 12, padding: '16px 20px' }}>
                   <div style={{ fontSize: 11, color: '#2563EB', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📐 Marge prévisionnelle</div>
                   <div style={{ fontSize: 24, fontWeight: 800, color: margePrevu >= 0 ? '#1E40AF' : '#DC2626', marginBottom: 4 }}>{fmt(margePrevu)}</div>
                   <div style={{ fontSize: 12, color: '#3B82F6' }}>Taux : {tauxMargePrevu}%</div>
                 </div>
+                <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 12, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 11, color: '#EA580C', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>🔄 Marge en cours (commandes)</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: margeEnCours >= 0 ? '#9A3412' : '#DC2626', marginBottom: 4 }}>{fmt(margeEnCours)}</div>
+                  <div style={{ fontSize: 12, color: '#EA580C' }}>Taux : {tauxMargeEnCours}%</div>
+                </div>
                 <div style={{ background: margeReelle >= 0 ? '#F0FDF4' : '#FEF2F2', border: '1px solid ' + (margeReelle >= 0 ? '#BBF7D0' : '#FCA5A5'), borderRadius: 12, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 11, color: margeReelle >= 0 ? '#059669' : '#DC2626', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📊 Marge réelle (factures / commandes)</div>
+                  <div style={{ fontSize: 11, color: margeReelle >= 0 ? '#059669' : '#DC2626', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📊 Marge réelle (factures)</div>
                   <div style={{ fontSize: 24, fontWeight: 800, color: margeReelle >= 0 ? '#065F46' : '#991B1B', marginBottom: 4 }}>{fmt(margeReelle)}</div>
                   <div style={{ fontSize: 12, color: margeReelle >= 0 ? '#059669' : '#DC2626' }}>Taux : {tauxMargeReelle}%</div>
                 </div>
