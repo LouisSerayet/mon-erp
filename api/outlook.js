@@ -75,6 +75,7 @@ export default async function handler(req, res) {
     })
     const tokenData = await tokenRes.json()
     if (!tokenRes.ok || !tokenData.access_token) {
+      console.error('Outlook: échec récupération du jeton', tokenRes.status, JSON.stringify(tokenData))
       return res.status(502).json({ error: 'Impossible de récupérer un jeton Microsoft.', details: tokenData.error_description || tokenData })
     }
 
@@ -93,7 +94,13 @@ export default async function handler(req, res) {
       if (!draftRes.ok) {
         let details = null
         try { details = await draftRes.json() } catch { /* pas de corps JSON exploitable */ }
-        return res.status(502).json({ error: 'Microsoft Graph a refusé la création du brouillon.', details: details?.error?.message || details })
+        // Log complet côté serveur (visible dans Vercel > Logs) pour
+        // diagnostiquer les refus Graph — le message renvoyé au client est
+        // volontairement résumé, mais le code d'erreur Graph (ex.
+        // ErrorAccessDenied) et l'éventuel innerError donnent la vraie cause.
+        console.error('Outlook draft refusé par Graph', draftRes.status, JSON.stringify(details))
+        const messageDetaille = details?.error ? `[${details.error.code}] ${details.error.message}` : details
+        return res.status(502).json({ error: 'Microsoft Graph a refusé la création du brouillon.', details: messageDetaille })
       }
       const draftData = await draftRes.json()
       return res.status(200).json({ ok: true, webLink: draftData.webLink, id: draftData.id })
@@ -112,7 +119,13 @@ export default async function handler(req, res) {
     if (!sendRes.ok) {
       let details = null
       try { details = await sendRes.json() } catch { /* pas de corps JSON exploitable */ }
-      return res.status(502).json({ error: 'Microsoft Graph a refusé l\'envoi.', details: details?.error?.message || details })
+      // Log complet côté serveur (visible dans Vercel > Logs) pour
+      // diagnostiquer les refus Graph — le message renvoyé au client est
+      // volontairement résumé, mais le code d'erreur Graph (ex.
+      // ErrorAccessDenied) et l'éventuel innerError donnent la vraie cause.
+      console.error('Outlook sendMail refusé par Graph', sendRes.status, JSON.stringify(details))
+      const messageDetaille = details?.error ? `[${details.error.code}] ${details.error.message}` : details
+      return res.status(502).json({ error: 'Microsoft Graph a refusé l\'envoi.', details: messageDetaille })
     }
 
     return res.status(200).json({ ok: true })
