@@ -12,7 +12,7 @@ import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
-import { envoyerEmailOutlook } from '../lib/useOutlook'
+import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 
 const TABS = [
   { id: 'infos', label: '📋 Infos' },
@@ -240,6 +240,9 @@ export default function ProjetDetail() {
   const [envoiEmailModal, setEnvoiEmailModal] = useState(null)
   const [envoiEmailBusy, setEnvoiEmailBusy] = useState(false)
   const [envoiEmailError, setEnvoiEmailError] = useState('')
+  // Busy state séparé pour "créer un brouillon dans Outlook" (voir
+  // creerBrouillonEmailDepuisModal) — distinct de l'envoi direct ci-dessus.
+  const [envoiEmailDraftBusy, setEnvoiEmailDraftBusy] = useState(false)
   const [showLignesSelector, setShowLignesSelector] = useState(false) // sélecteur lignes projet
   const [documents, setDocuments] = useState({ projet: [], officiels: [] }) // documents du projet
   const [cmdDocs, setCmdDocs] = useState({}) // { [cmdId]: [docs] }
@@ -799,6 +802,29 @@ export default function ProjetDetail() {
     setEnvoiEmailBusy(false)
   }
 
+  // Alternative à l'envoi automatique : enregistre le message (avec sa
+  // pièce jointe) comme brouillon dans la boîte Outlook configurée puis
+  // l'ouvre dans un nouvel onglet, pour que Louis le relise et l'envoie
+  // lui-même directement depuis Outlook.
+  async function creerBrouillonEmailDepuisModal() {
+    if (!envoiEmailModal) return
+    setEnvoiEmailDraftBusy(true)
+    setEnvoiEmailError('')
+    try {
+      const webLink = await creerBrouillonOutlook({
+        to: envoiEmailModal.to,
+        subject: envoiEmailModal.subject,
+        body: envoiEmailModal.body,
+        attachments: envoiEmailModal.attachment ? [envoiEmailModal.attachment] : undefined,
+      })
+      if (webLink) window.open(webLink, '_blank', 'noopener,noreferrer')
+      setEnvoiEmailModal(null)
+    } catch (err) {
+      setEnvoiEmailError(err.message)
+    }
+    setEnvoiEmailDraftBusy(false)
+  }
+
   async function ajouterFactureFrs() {
     setError('')
     if (!formFfrs.numero.trim()) { setError('Le numéro est obligatoire.'); return }
@@ -1140,14 +1166,14 @@ export default function ProjetDetail() {
             )}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
-              <a href={'mailto:' + envoiEmailModal.to + '?subject=' + encodeURIComponent(envoiEmailModal.subject) + '&body=' + encodeURIComponent(envoiEmailModal.body)}
-                style={{ fontSize: 12, color: '#6B7280' }}>
-                ou ouvrir dans ma messagerie (sans pièce jointe)
-              </a>
+              <button onClick={creerBrouillonEmailDepuisModal} disabled={envoiEmailBusy || envoiEmailDraftBusy || !envoiEmailModal.to}
+                style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}>
+                {envoiEmailDraftBusy ? '⏳ Création du brouillon...' : 'ou créer un brouillon dans Outlook'}
+              </button>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => setEnvoiEmailModal(null)} disabled={envoiEmailBusy}
                   style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                <button onClick={envoyerEmailDepuisModal} disabled={envoiEmailBusy || !envoiEmailModal.to}
+                <button onClick={envoyerEmailDepuisModal} disabled={envoiEmailBusy || envoiEmailDraftBusy || !envoiEmailModal.to}
                   style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
                   {envoiEmailBusy ? '⏳ Envoi...' : '✉️ Envoyer'}
                 </button>

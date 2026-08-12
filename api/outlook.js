@@ -35,9 +35,30 @@ export default async function handler(req, res) {
   // attachments : tableau optionnel de pièces jointes déjà encodées en
   // base64 côté client (ex. PDF de facture/commande généré avec jsPDF), au
   // format attendu par Microsoft Graph — voir construction ci-dessous.
-  const { to, subject, body, cc, attachments } = req.body || {}
+  //
+  // draftOnly : si true, on ne fait qu'enregistrer le message dans le
+  // dossier Brouillons de la boîte configurée (sans l'envoyer) et on
+  // renvoie son webLink — pratique pour ouvrir directement le brouillon
+  // dans Outlook (web ou app) et laisser Louis l'envoyer lui-même depuis
+  // là, plutôt que de forcer un envoi automatique.
+  const { to, subject, body, cc, attachments, draftOnly } = req.body || {}
   if (!to || !subject || !body) {
     return res.status(400).json({ error: 'to, subject et body sont requis.' })
+  }
+
+  const messagePayload = {
+    subject,
+    body: { contentType: 'Text', content: body },
+    toRecipients: [{ emailAddress: { address: to } }],
+    ...(cc ? { ccRecipients: [{ emailAddress: { address: cc } }] } : {}),
+    ...(Array.isArray(attachments) && attachments.length > 0 ? {
+      attachments: attachments.map(a => ({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: a.name,
+        contentType: a.contentType || 'application/pdf',
+        contentBytes: a.contentBytes,
+      })),
+    } : {}),
   }
 
   try {
@@ -57,30 +78,35 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'Impossible de récupérer un jeton Microsoft.', details: tokenData.error_description || tokenData })
     }
 
-    // 2) Envoi via Microsoft Graph, "au nom de" la boîte configurée.
+    if (draftOnly) {
+      // 2a) Création d'un brouillon (dossier Drafts de la boîte configurée)
+      // — POST /messages sans passer par /sendMail équivaut à enregistrer
+      // un brouillon. On renvoie son webLink pour l'ouvrir directement.
+      const draftRes = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(senderEmail)}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${tokenData.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(messagePayload),
+      })
+      if (!draftRes.ok) {
+        let details = null
+        try { details = await draftRes.json() } catch { /* pas de corps JSON exploitable */ }
+        return res.status(502).json({ error: 'Microsoft Graph a refusé la création du brouillon.', details: details?.error?.message || details })
+      }
+      const draftData = await draftRes.json()
+      return res.status(200).json({ ok: true, webLink: draftData.webLink, id: draftData.id })
+    }
+
+    // 2b) Envoi direct via Microsoft Graph, "au nom de" la boîte configurée.
     const sendRes = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(senderEmail)}/sendMail`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${tokenData.access_token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        message: {
-          subject,
-          body: { contentType: 'Text', content: body },
-          toRecipients: [{ emailAddress: { address: to } }],
-          ...(cc ? { ccRecipients: [{ emailAddress: { address: cc } }] } : {}),
-          ...(Array.isArray(attachments) && attachments.length > 0 ? {
-            attachments: attachments.map(a => ({
-              '@odata.type': '#microsoft.graph.fileAttachment',
-              name: a.name,
-              contentType: a.contentType || 'application/pdf',
-              contentBytes: a.contentBytes,
-            })),
-          } : {}),
-        },
-        saveToSentItems: true,
-      }),
+      body: JSON.stringify({ message: messagePayload, saveToSentItems: true }),
     })
 
     if (!sendRes.ok) {

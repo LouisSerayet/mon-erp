@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { calculerMarge } from '../lib/calculs'
-import { envoyerEmailOutlook } from '../lib/useOutlook'
+import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
@@ -23,6 +23,9 @@ export default function Dashboard() {
   const [modalRelance, setModalRelance] = useState(null)
   const [modalRelanceBusy, setModalRelanceBusy] = useState(false)
   const [modalRelanceError, setModalRelanceError] = useState('')
+  // Busy state séparé pour "créer un brouillon dans Outlook" (voir
+  // creerBrouillonDepuisModal) — distinct de l'envoi direct ci-dessus.
+  const [modalRelanceDraftBusy, setModalRelanceDraftBusy] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => { fetchAll() }, [])
@@ -140,6 +143,24 @@ export default function Dashboard() {
     setModalRelanceBusy(false)
   }
 
+  // Alternative à l'envoi automatique : enregistre le message comme
+  // brouillon dans la boîte Outlook configurée puis l'ouvre dans un nouvel
+  // onglet (Outlook sur le web), pour que Louis le relise et l'envoie
+  // lui-même directement depuis Outlook.
+  async function creerBrouillonDepuisModal() {
+    if (!modalRelance) return
+    setModalRelanceDraftBusy(true)
+    setModalRelanceError('')
+    try {
+      const webLink = await creerBrouillonOutlook({ to: modalRelance.to, subject: modalRelance.subject, body: modalRelance.body })
+      if (webLink) window.open(webLink, '_blank', 'noopener,noreferrer')
+      setModalRelance(null)
+    } catch (err) {
+      setModalRelanceError(err.message)
+    }
+    setModalRelanceDraftBusy(false)
+  }
+
   const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
   const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
 
@@ -203,14 +224,14 @@ export default function Dashboard() {
               style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 20, fontFamily: 'inherit', resize: 'vertical' }} />
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
-              <a href={'mailto:' + modalRelance.to + '?subject=' + encodeURIComponent(modalRelance.subject) + '&body=' + encodeURIComponent(modalRelance.body)}
-                style={{ fontSize: 12, color: '#6B7280' }}>
-                ou ouvrir dans ma messagerie
-              </a>
+              <button onClick={creerBrouillonDepuisModal} disabled={modalRelanceBusy || modalRelanceDraftBusy || !modalRelance.to}
+                style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}>
+                {modalRelanceDraftBusy ? '⏳ Création du brouillon...' : 'ou créer un brouillon dans Outlook'}
+              </button>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => setModalRelance(null)} disabled={modalRelanceBusy}
                   style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                <button onClick={envoyerRelanceDepuisModal} disabled={modalRelanceBusy || !modalRelance.to}
+                <button onClick={envoyerRelanceDepuisModal} disabled={modalRelanceBusy || modalRelanceDraftBusy || !modalRelance.to}
                   style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
                   {modalRelanceBusy ? '⏳ Envoi...' : '✉️ Envoyer'}
                 </button>

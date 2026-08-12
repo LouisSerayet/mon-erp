@@ -32,3 +32,26 @@ export async function envoyerEmailOutlook({ to, subject, body, cc, attachments }
   }
   return true
 }
+
+// Crée un brouillon dans le dossier Brouillons de la boîte Outlook
+// configurée côté serveur, SANS l'envoyer, et renvoie son webLink — à
+// ouvrir dans un nouvel onglet pour que Louis retrouve le message
+// directement dans Outlook (web ou app) et l'envoie lui-même quand il le
+// souhaite. Alternative au "mailto:" qui ouvre la messagerie par défaut du
+// système (pas forcément Outlook) et ne permet pas de joindre de fichier.
+export async function creerBrouillonOutlook({ to, subject, body, cc, attachments }) {
+  const res = await fetch('/api/outlook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify({ to, subject, body, cc, attachments, draftOnly: true }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => null)
+    const message = data?.details
+      ? (typeof data.details === 'string' ? data.details : JSON.stringify(data.details))
+      : (data?.error || 'Erreur inconnue lors de la création du brouillon.')
+    throw new Error(message)
+  }
+  const data = await res.json()
+  return data.webLink
+}
