@@ -16,6 +16,15 @@ export const PAGE_W = 210
 export const MARGIN_L = 14
 export const MARGIN_R = 196 // = 210 - 14, bord droit du contenu
 
+// Styles de tableau communs (autoTable / jspdf-autotable) — c'est la même
+// trame que les tableaux détaillés du devis (en-tête gris clair, pied vert
+// pour le total, lignes alternées) : tous les documents envoyés à un tiers
+// (devis, commande, facture) doivent avoir des tableaux qui se ressemblent.
+export const TABLE_STYLE = { fontSize: 9, cellPadding: 2.5, overflow: 'linebreak' }
+export const TABLE_HEAD_STYLE = { fillColor: [248, 250, 252], textColor: GRAY, fontStyle: 'bold', lineWidth: 0.1, lineColor: LIGHT_GRAY }
+export const TABLE_FOOT_STYLE = { fillColor: [240, 253, 244], textColor: [6, 95, 70], fontStyle: 'bold' }
+export const TABLE_ALT_ROW_STYLE = { fillColor: [250, 250, 250] }
+
 // NB : on n'utilise pas toLocaleString() ici — en français il insère une
 // espace fine insécable (U+202F) comme séparateur de milliers que la police
 // standard de jsPDF ne sait pas afficher correctement. On regroupe donc les

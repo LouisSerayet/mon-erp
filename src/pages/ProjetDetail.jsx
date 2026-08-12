@@ -7,7 +7,7 @@ import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
 import { calculerLigne } from '../lib/calculs'
-import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse } from '../lib/pdfStyle'
+import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
@@ -64,6 +64,10 @@ export default function ProjetDetail() {
   const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '' })
   const [formFfrs, setFormFfrs] = useState({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' })
   const [formFcli, setFormFcli] = useState({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' })
+  // Saisie auxiliaire "% du devis" pour la nouvelle facture client — ne va
+  // pas en base (seul montant_ht est stocké), sert juste à calculer le
+  // montant HT à partir d'un pourcentage d'avancement (situation de travaux).
+  const [formFcliPct, setFormFcliPct] = useState('')
   const [fileFfrs, setFileFfrs] = useState(null) // PDF sélectionné pour la nouvelle facture fournisseur
   const [pennylaneBusy, setPennylaneBusy] = useState(null) // id de la facture en cours de synchro
   const [pennylaneError, setPennylaneError] = useState('')
@@ -203,9 +207,9 @@ export default function ProjetDetail() {
         head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
         body,
         foot: [['', '', '', '', t.totalLot(lot.numero), lot.total_ht > 0 ? fmtMontant(lot.total_ht, lang) : '']],
-        styles: { fontSize: 7.5, cellPadding: 2, overflow: 'linebreak' },
-        headStyles: { fillColor: [248, 250, 252], textColor: [107, 114, 128], fontStyle: 'bold', lineWidth: 0.1, lineColor: [229, 231, 235] },
-        footStyles: { fillColor: [240, 253, 244], textColor: [6, 95, 70], fontStyle: 'bold' },
+        styles: { ...TABLE_STYLE, fontSize: 7.5, cellPadding: 2 },
+        headStyles: TABLE_HEAD_STYLE,
+        footStyles: TABLE_FOOT_STYLE,
         columnStyles: {
           0: { cellWidth: 14 },
           1: { cellWidth: 'auto' },
@@ -214,7 +218,7 @@ export default function ProjetDetail() {
           4: { cellWidth: 28, halign: 'right' },
           5: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
         },
-        alternateRowStyles: { fillColor: [250, 250, 250] },
+        alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14 },
       })
     }
@@ -664,15 +668,20 @@ export default function ProjetDetail() {
       startY: y,
       head: [[t.colDescription, t.colMontantHt]],
       body: [[cmd.description || '', fmtEUR(cmd.montant_ht, lang)]],
-      foot: [[t.totalHtFoot, fmtEUR(cmd.montant_ht, lang)]],
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: NAVY, textColor: 255 },
-      footStyles: { fillColor: [240, 253, 244], textColor: [6, 95, 70], fontStyle: 'bold' },
-      columnStyles: { 1: { halign: 'right', cellWidth: 40 } },
+      styles: TABLE_STYLE,
+      headStyles: TABLE_HEAD_STYLE,
+      alternateRowStyles: TABLE_ALT_ROW_STYLE,
+      columnStyles: { 1: { halign: 'right', cellWidth: 40, fontStyle: 'bold' } },
       margin: { left: 14, right: 14 },
     })
 
-    y = doc.lastAutoTable.finalY + 12
+    y = doc.lastAutoTable.finalY + 10
+    if (y > 220) { doc.addPage(); y = 20 }
+    const totalHt = cmd.montant_ht || 0
+    const totalTva = totalHt * 0.20
+    const totalTtc = totalHt + totalTva
+    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, lang })
+
     doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
     doc.text(t.statutLabel + (cmd.statut || ''), 14, y)
 
@@ -704,9 +713,10 @@ export default function ProjetDetail() {
       startY: y,
       head: [[t.colDesignation, t.colMontantHt]],
       body: [[description, fmtEUR(totalHt, lang)]],
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: NAVY, textColor: 255 },
-      columnStyles: { 1: { halign: 'right', cellWidth: 40 } },
+      styles: TABLE_STYLE,
+      headStyles: TABLE_HEAD_STYLE,
+      alternateRowStyles: TABLE_ALT_ROW_STYLE,
+      columnStyles: { 1: { halign: 'right', cellWidth: 40, fontStyle: 'bold' } },
       margin: { left: 14, right: 14 },
     })
 
@@ -996,7 +1006,7 @@ export default function ProjetDetail() {
     if (errNumero) { setError('Impossible de générer le numéro de facture : ' + errNumero.message); return }
     const { error } = await supabase.from('factures_cli').insert([{ ...formFcli, numero: numeroGenere, projet_id: id, client_id: projet?.client_id || null, montant_ht: parseFloat(formFcli.montant_ht) || 0 }])
     if (error) { setError(error.message); return }
-    setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' })
+    setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' }); setFormFcliPct('')
     const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
   }
@@ -1089,6 +1099,18 @@ export default function ProjetDetail() {
     if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
     return acc
   }, {})
+
+  // ── Budgets prévisionnels du devis (lots + lignes sans lot), pour guider
+  // la saisie des commandes fournisseurs et factures clients : combien a-t-on
+  // prévu au devis, combien est déjà engagé/facturé, combien reste-t-il ?
+  // Voir les encarts "Budget" dans les formulaires Commandes / Factures clients.
+  const lignesSansLotGlobal = lignes.filter(l => l.type === 'ligne' && !l.lot)
+  const totalVenteGlobal = lots.reduce((s, l) => s + (l.total_ht || 0), 0) + lignesSansLotGlobal.reduce((s, l) => s + (l.total_ht || 0), 0)
+  const totalAchatGlobal = lots.reduce((s, l) => s + (l.total_achat || 0), 0) + lignesSansLotGlobal.reduce((s, l) => s + (l.total_achat || 0), 0)
+  // Une commande "Annulée" ne consomme pas le budget achat.
+  const totalCommandesActives = commandes.filter(c => c.statut !== 'Annulée').reduce((s, c) => s + (c.montant_ht || 0), 0)
+  const resteAchatDisponible = totalAchatGlobal - totalCommandesActives
+  const resteAFacturer = totalVenteGlobal - totalFcli
 
   return (
     <div style={{ fontFamily: 'Inter, sans-serif', height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -1915,6 +1937,31 @@ export default function ProjetDetail() {
               <div style={{ background: '#fff', borderRadius: 12, padding: 20, border: '1px solid #E5E7EB', marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle commande</h4>
                 {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
+                {(() => {
+                  const saisie = parseFloat(formCmd.montant_ht) || 0
+                  const resteApres = resteAchatDisponible - saisie
+                  return (
+                    <div style={{ background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 10, padding: '12px 14px', marginBottom: 14, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>Budget achat (devis)</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B' }}>{fmt(totalAchatGlobal)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>Déjà commandé</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#2563EB' }}>{fmt(totalCommandesActives)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{saisie > 0 ? 'Reste après cette commande' : 'Reste disponible'}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: resteApres >= 0 ? '#059669' : '#DC2626' }}>{fmt(resteApres)}</div>
+                      </div>
+                      {resteApres < 0 && (
+                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#DC2626', marginTop: 2 }}>
+                          ⚠️ Ce montant dépasse le budget achat prévu au devis de {fmt(Math.abs(resteApres))}.
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                   <div>
                     <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Fournisseur</label>
@@ -2288,14 +2335,57 @@ export default function ProjetDetail() {
               <div style={{ background: '#fff', borderRadius: 12, padding: 20, border: '1px solid #E5E7EB', marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle facture client</h4>
                 {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
+                {(() => {
+                  const saisie = parseFloat(formFcli.montant_ht) || 0
+                  const resteApres = resteAFacturer - saisie
+                  const pctSaisi = totalVenteGlobal > 0 ? (saisie / totalVenteGlobal * 100) : 0
+                  return (
+                    <div style={{ background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 10, padding: '12px 14px', marginBottom: 14, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>Budget vente (devis)</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B' }}>{fmt(totalVenteGlobal)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>Déjà facturé</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>{fmt(totalFcli)}{totalVenteGlobal > 0 && <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 400 }}> · {(totalFcli / totalVenteGlobal * 100).toFixed(1)}%</span>}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{saisie > 0 ? 'Reste après cette facture' : 'Reste à facturer'}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: resteApres >= 0 ? '#059669' : '#DC2626' }}>{fmt(resteApres)}</div>
+                      </div>
+                      {saisie > 0 && (
+                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#6B7280' }}>
+                          Cette facture représente <strong style={{ color: '#1E293B' }}>{pctSaisi.toFixed(1)}%</strong> du budget vente du devis.
+                        </div>
+                      )}
+                      {resteApres < 0 && (
+                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#DC2626' }}>
+                          ⚠️ Ce montant dépasse le reste à facturer sur le devis de {fmt(Math.abs(resteApres))}.
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° facture</label>
                     <div style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px dashed #E5E7EB', fontSize: 13, boxSizing: 'border-box', color: '#9CA3AF', fontStyle: 'italic' }}>
                       Généré automatiquement à la création
                     </div></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
-                    <input type="number" value={formFcli.montant_ht} onChange={e => setFormFcli(p => ({ ...p, montant_ht: e.target.value }))}
+                    <input type="number" value={formFcli.montant_ht} onChange={e => { setFormFcli(p => ({ ...p, montant_ht: e.target.value })); setFormFcliPct('') }}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
+                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>— ou % du devis</label>
+                    <div style={{ position: 'relative' }}>
+                      <input type="number" value={formFcliPct} placeholder="Ex: 30" disabled={totalVenteGlobal <= 0}
+                        onChange={e => {
+                          const pct = e.target.value
+                          setFormFcliPct(pct)
+                          const montant = totalVenteGlobal > 0 && pct !== '' ? (totalVenteGlobal * parseFloat(pct) / 100) : ''
+                          setFormFcli(p => ({ ...p, montant_ht: montant === '' ? '' : montant.toFixed(2) }))
+                        }}
+                        style={{ width: '100%', padding: '8px 28px 8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', background: totalVenteGlobal <= 0 ? '#F9FAFB' : '#fff' }} />
+                      <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#9CA3AF' }}>%</span>
+                    </div></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture</label>
                     <input type="date" value={formFcli.date_facture} onChange={e => setFormFcli(p => ({ ...p, date_facture: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
