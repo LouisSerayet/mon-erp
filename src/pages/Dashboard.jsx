@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { calculerMarge } from '../lib/calculs'
+import { envoyerEmailOutlook } from '../lib/useOutlook'
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
@@ -12,6 +13,9 @@ export default function Dashboard() {
   const [depensesAPayer, setDepensesAPayer] = useState([])
   const [relances, setRelances] = useState([])
   const [loading, setLoading] = useState(true)
+  // État d'envoi par facture (id -> 'envoi' | 'envoye' | 'erreur:<message>'),
+  // uniquement pour le retour visuel — voir envoyerRelance().
+  const [envoiRelance, setEnvoiRelance] = useState({})
   const navigate = useNavigate()
 
   useEffect(() => { fetchAll() }, [])
@@ -94,7 +98,7 @@ export default function Dashboard() {
     setLoading(false)
   }
 
-  function lienRelance(f) {
+  function contenuRelance(f) {
     const joursRetard = f.date_echeance ? Math.floor((new Date() - new Date(f.date_echeance)) / 86400000) : null
     const sujet = 'Relance facture ' + (f.numero || '') + ' — ' + (f.projets?.nom || '')
     const corps = 'Bonjour,\n\nSauf erreur de notre part, la facture ' + (f.numero || '') +
@@ -102,7 +106,26 @@ export default function Dashboard() {
       ' d\'un montant de ' + Number(f.montant_ht || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' € HT' +
       (joursRetard !== null ? ', échue depuis ' + joursRetard + ' jour(s),' : '') +
       ' ne semble pas encore réglée.\n\nPourriez-vous nous indiquer où en est son règlement ?\n\nMerci d\'avance,\nCordialement'
+    return { sujet, corps }
+  }
+
+  // Repli si l'envoi via Outlook n'est pas configuré ou échoue : ouvre la
+  // messagerie par défaut avec le message prérempli (comportement d'origine).
+  function lienRelance(f) {
+    const { sujet, corps } = contenuRelance(f)
     return 'mailto:' + (f.clients?.email || '') + '?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps)
+  }
+
+  async function envoyerRelance(f) {
+    if (!f.clients?.email) return
+    setEnvoiRelance(prev => ({ ...prev, [f.id]: 'envoi' }))
+    try {
+      const { sujet, corps } = contenuRelance(f)
+      await envoyerEmailOutlook({ to: f.clients.email, subject: sujet, body: corps })
+      setEnvoiRelance(prev => ({ ...prev, [f.id]: 'envoye' }))
+    } catch (err) {
+      setEnvoiRelance(prev => ({ ...prev, [f.id]: 'erreur:' + err.message }))
+    }
   }
 
   const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
@@ -161,10 +184,21 @@ export default function Dashboard() {
                   </div>
                   <div style={{ fontWeight: 600, fontSize: 13, color: '#DC2626', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
                   {f.clients?.email ? (
-                    <a href={lienRelance(f)}
-                      style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0, textDecoration: 'none' }}>
-                      ✉️ Relancer
-                    </a>
+                    envoiRelance[f.id] === 'envoye' ? (
+                      <span style={{ fontSize: 12, color: '#059669', fontWeight: 500, flexShrink: 0 }}>✓ Envoyé</span>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+                        <button onClick={() => envoyerRelance(f)} disabled={envoiRelance[f.id] === 'envoi'}
+                          style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
+                          {envoiRelance[f.id] === 'envoi' ? '⏳ Envoi...' : '✉️ Relancer'}
+                        </button>
+                        {typeof envoiRelance[f.id] === 'string' && envoiRelance[f.id].startsWith('erreur:') && (
+                          <div style={{ fontSize: 10, color: '#DC2626', textAlign: 'right', maxWidth: 220 }}>
+                            {envoiRelance[f.id].slice(7)} — <a href={lienRelance(f)} style={{ color: '#DC2626' }}>ouvrir dans ma messagerie</a>
+                          </div>
+                        )}
+                      </div>
+                    )
                   ) : (
                     <span style={{ fontSize: 11, color: '#9CA3AF', flexShrink: 0 }} title="Aucun email renseigné pour ce client">— pas d'email</span>
                   )}
