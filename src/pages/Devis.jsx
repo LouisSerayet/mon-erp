@@ -306,15 +306,36 @@ export default function Devis() {
   function generatePDF(d, lang = 'fr') {
     const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const lots = (d.lignes || []).filter(l => l.type === 'lot')
-    const lignesParLot = (d.lignes || []).reduce((acc, l) => {
+    // Valeurs "effectives" (édition en cours non enregistrée comprise, via
+    // getLigneVal — même logique que ce qui s'affiche à l'écran) plutôt que
+    // les valeurs brutes de `d.lignes`/`d.montant_ht` (dernier état enregistré
+    // en base) : sinon un export PDF juste après une modification de ligne
+    // non sauvegardée affichait des totaux à 0 ou obsolètes.
+    const lignesEff = (d.lignes || []).map(l => {
+      if (l.type !== 'ligne') return l
+      const qte = parseFloat(getLigneVal(l, 'qte')) || 0
+      const prixUnit = parseFloat(getLigneVal(l, 'prix_unit_ht')) || 0
+      const prixAchat = parseFloat(getLigneVal(l, 'prix_achat_ht')) || 0
+      return { ...l, qte, prix_unit_ht: prixUnit, prix_achat_ht: prixAchat, total_ht: qte * prixUnit, total_achat: qte * prixAchat }
+    })
+    const lots = lignesEff.filter(l => l.type === 'lot').map(lot => {
+      const enfants = lignesEff.filter(l => l.type === 'ligne' && l.lot === lot.numero)
+      return {
+        ...lot,
+        total_ht: enfants.reduce((s, l) => s + (l.total_ht || 0), 0),
+        total_achat: enfants.reduce((s, l) => s + (l.total_achat || 0), 0),
+      }
+    })
+    const lignesParLot = lignesEff.reduce((acc, l) => {
       if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
       return acc
     }, {})
     // On n'utilise pas toLocaleString() ici — voir fmtMontant (lib/pdfI18n.js)
     // pour la raison (caractère parasite affiché par la police jsPDF).
     const fmtN = (n) => (n > 0 ? fmtMontant(n, lang) : '')
-    const totalHt = d.montant_ht || 0
+    const lignesSansLotEff = lignesEff.filter(l => (l.type === 'ligne' || l.type === 'titre') && !l.lot)
+    const totalHt = lots.reduce((s, l) => s + (l.total_ht || 0), 0)
+      + lignesSansLotEff.filter(l => l.type === 'ligne').reduce((s, l) => s + (l.total_ht || 0), 0)
     const totalTva = totalHt * 0.20
     const totalTtc = totalHt + totalTva
 
@@ -352,7 +373,7 @@ export default function Devis() {
     }
 
     // Lignes créées manuellement sans être rattachées à un lot
-    const lignesSansLot = (d.lignes || []).filter(l => (l.type === 'ligne' || l.type === 'titre') && !l.lot)
+    const lignesSansLot = lignesSansLotEff
     if (lignesSansLot.length) {
       if (y > 250) { doc.addPage(); y = 20 }
       doc.setFillColor(55, 65, 81); doc.rect(14, y - 5, 182, 8, 'F')
