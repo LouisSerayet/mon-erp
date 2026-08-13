@@ -123,10 +123,16 @@ export default function ProjetDetail() {
       if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
       return acc
     }, {})
+    // Lignes/titres créés sans être rattachés à un lot — un devis simple
+    // (pas de découpage en lots) n'a QUE des lignes comme ça. Il faut les
+    // compter dans le total ET les faire apparaître dans le détail, sinon un
+    // devis sans lot ressort systématiquement à 0 € avec un PDF vide.
+    const lignesSansLot = lignesEff.filter(l => (l.type === 'ligne' || l.type === 'titre') && !l.lot)
     // Formatage sans séparateur de milliers problématique — voir fmtMontant
     // (lib/pdfI18n.js) pour la raison (caractère parasite affiché par jsPDF).
     const fmtN = n => (n > 0 ? fmtMontant(n, lang) + ' EUR' : '—')
     const totalHT = lotsData.reduce((s, l) => s + (l.total_ht || 0), 0)
+      + lignesSansLot.filter(l => l.type === 'ligne').reduce((s, l) => s + (l.total_ht || 0), 0)
     const totalTVA = totalHT * 0.20
     const totalTTC = totalHT + totalTVA
     const numero = 'DEV-' + projet.nom.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase() + '-' + new Date().getFullYear()
@@ -229,6 +235,62 @@ export default function ProjetDetail() {
         head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
         body,
         foot: [['', '', '', '', t.totalLot(lot.numero), lot.total_ht > 0 ? fmtMontant(lot.total_ht, lang) : '']],
+        styles: { ...TABLE_STYLE, fontSize: 7.5, cellPadding: 2 },
+        headStyles: TABLE_HEAD_STYLE,
+        footStyles: TABLE_FOOT_STYLE,
+        columnStyles: {
+          0: { cellWidth: 14 },
+          1: { cellWidth: 'auto' },
+          2: { cellWidth: 14, halign: 'center' },
+          3: { cellWidth: 12, halign: 'right' },
+          4: { cellWidth: 28, halign: 'right' },
+          5: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
+        },
+        alternateRowStyles: TABLE_ALT_ROW_STYLE,
+        margin: { left: 14, right: 14 },
+      })
+    }
+
+    // ── PAGE DÉTAIL : LIGNES SANS LOT ─────────────────────────
+    if (lignesSansLot.length) {
+      const totalSansLot = lignesSansLot.filter(l => l.type === 'ligne').reduce((s, l) => s + (l.total_ht || 0), 0)
+      doc.addPage()
+      doc.setFillColor(30, 41, 59); doc.rect(0, 0, 210, 16, 'F')
+      doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
+      doc.text(t.lignesSansLot, 14, 10)
+      doc.setFontSize(9); doc.setFont('helvetica', 'bold')
+      doc.text(fmtN(totalSansLot), 196, 10, { align: 'right' })
+      doc.setTextColor(30, 41, 59)
+
+      const body = []
+      for (let li = 0; li < lignesSansLot.length; li++) {
+        const l = lignesSansLot[li]
+        if (l.type === 'titre') {
+          const hasLignesAvecMontant = lignesSansLot.slice(li + 1).some(
+            ll => ll.type !== 'titre' && (ll.total_ht > 0 || ll.prix_unit_ht > 0)
+          )
+          if (hasLignesAvecMontant) {
+            body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
+              styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [71, 85, 105], fontSize: 7 } }])
+          }
+        } else {
+          if (!l.total_ht && !l.prix_unit_ht && !l.qte) continue
+          body.push([
+            l.numero || '',
+            l.descriptif || '',
+            l.unite || '',
+            l.qte > 0 ? String(l.qte) : '',
+            l.prix_unit_ht > 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
+            l.total_ht > 0 ? fmtMontant(l.total_ht, lang) : '',
+          ])
+        }
+      }
+
+      autoTable(doc, {
+        startY: 20,
+        head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
+        body,
+        foot: [['', '', '', '', t.totalHt.toUpperCase(), totalSansLot > 0 ? fmtMontant(totalSansLot, lang) : '']],
         styles: { ...TABLE_STYLE, fontSize: 7.5, cellPadding: 2 },
         headStyles: TABLE_HEAD_STYLE,
         footStyles: TABLE_FOOT_STYLE,
