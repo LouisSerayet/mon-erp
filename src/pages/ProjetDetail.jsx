@@ -79,6 +79,7 @@ export default function ProjetDetail() {
   const [facFrsEditees, setFacFrsEditees] = useState({}) // édition inline factures fournisseurs
   const [lignesEditees, setLignesEditees] = useState({}) // { [id]: {champ: valeur} }
   const [savingLignes, setSavingLignes] = useState(false)
+  const [dupliquerBusy, setDupliquerBusy] = useState(false) // duplication du projet (devis + lignes) en cours
   const [lotsReduits, setLotsReduits] = useState({}) // { [lotNumero]: true/false }
   const [showAddLigne, setShowAddLigne] = useState(false)
   const [showAddLot, setShowAddLot] = useState(false)
@@ -96,8 +97,29 @@ export default function ProjetDetail() {
   function generateDevisPDF(lang = 'fr') {
     const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const lotsData = lignes.filter(l => l.type === 'lot')
-    const lignesParLot = lignes.reduce((acc, l) => {
+    // Valeurs "effectives" (édition en cours non enregistrée comprise, via
+    // getLigneVal — même logique que ce qui s'affiche à l'écran) plutôt que
+    // les valeurs brutes de `lignes` (dernier état enregistré en base) : sans
+    // ça, éditer une ligne puis exporter le devis SANS avoir cliqué sur
+    // "Enregistrer les modifications" produisait un devis à 0 € — le PDF
+    // lisait les totaux stockés en base, pas ce qui est réellement affiché
+    // à l'écran au moment de l'export.
+    const lignesEff = lignes.map(l => {
+      if (l.type !== 'ligne') return l
+      const qte = parseFloat(getLigneVal(l, 'qte')) || 0
+      const prixUnit = parseFloat(getLigneVal(l, 'prix_unit_ht')) || 0
+      const prixAchat = parseFloat(getLigneVal(l, 'prix_achat_ht')) || 0
+      return { ...l, qte, prix_unit_ht: prixUnit, prix_achat_ht: prixAchat, total_ht: qte * prixUnit, total_achat: qte * prixAchat }
+    })
+    const lotsData = lignesEff.filter(l => l.type === 'lot').map(lot => {
+      const enfants = lignesEff.filter(l => l.type === 'ligne' && l.lot === lot.numero)
+      return {
+        ...lot,
+        total_ht: enfants.reduce((s, l) => s + (l.total_ht || 0), 0),
+        total_achat: enfants.reduce((s, l) => s + (l.total_achat || 0), 0),
+      }
+    })
+    const lignesParLot = lignesEff.reduce((acc, l) => {
       if (l.type !== 'lot') { const lot = l.lot || 'sans'; if (!acc[lot]) acc[lot] = []; acc[lot].push(l) }
       return acc
     }, {})
@@ -572,6 +594,63 @@ export default function ProjetDetail() {
     await supabase.from('projets').update(formInfos).eq('id', id)
     setProjet(prev => ({ ...prev, ...formInfos }))
     setEditInfos(false)
+  }
+
+  // ── Duplication (devis + projet) ────────────────────────────────
+  // Repart d'un devis déjà chiffré pour un projet similaire, sans tout
+  // ressaisir : crée une nouvelle fiche projet (statut remis à "Devis
+  // envoyé", dates de chantier vidées puisqu'elles ne s'appliquent pas au
+  // nouveau) et copie toutes les lignes du devis (lots, lignes, titres)
+  // dessus. Ne duplique volontairement ni les commandes, ni les factures,
+  // ni les documents — seulement le chiffrage.
+  async function dupliquerProjet() {
+    const nomCopie = projet.nom + ' (copie)'
+    if (!confirm('Dupliquer "' + projet.nom + '" ? Une nouvelle fiche "' + nomCopie + '" sera créée avec les mêmes lignes de devis (hors commandes/factures).')) return
+    setDupliquerBusy(true)
+    try {
+      const { data: nouveauProjet, error } = await supabase.from('projets').insert([{
+        nom: nomCopie,
+        client_id: projet.client_id || null,
+        statut: 'Devis envoyé',
+        date_debut: null,
+        date_fin_prevue: null,
+        surface: projet.surface || null,
+        adresse_chantier: projet.adresse_chantier || null,
+        acces_livraison: projet.acces_livraison || null,
+        notes: projet.notes || null,
+        montant_ht: projet.montant_ht || 0,
+      }]).select().single()
+      if (error) throw error
+
+      if (lignes.length > 0) {
+        // On ne recopie que les colonnes de contenu — pas l'id, le projet_id
+        // ni les dates, qui doivent être régénérés pour cette copie.
+        const nouvellesLignes = lignes.map(l => ({
+          type: l.type,
+          lot: l.lot,
+          numero: l.numero,
+          categorie: l.categorie,
+          descriptif: l.descriptif,
+          unite: l.unite,
+          qte: l.qte,
+          prix_unit_ht: l.prix_unit_ht,
+          prix_achat_ht: l.prix_achat_ht,
+          total_ht: l.total_ht,
+          total_achat: l.total_achat,
+          coeff: l.coeff,
+          fournisseur: l.fournisseur,
+          ordre: l.ordre,
+          projet_id: nouveauProjet.id,
+        }))
+        const { error: errLignes } = await supabase.from('projet_lignes').insert(nouvellesLignes)
+        if (errLignes) throw errLignes
+      }
+
+      navigate('/projets/' + nouveauProjet.id)
+    } catch (err) {
+      alert('Erreur lors de la duplication : ' + err.message)
+    }
+    setDupliquerBusy(false)
   }
 
   // ── Commandes ─────────────────────────────────────────────────
@@ -1146,6 +1225,10 @@ export default function ProjetDetail() {
             <button onClick={() => generateDevisPDF('en')} title="Devis PDF in English"
               style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
               ⬇ Devis EN
+            </button>
+            <button onClick={dupliquerProjet} disabled={dupliquerBusy} title="Dupliquer ce projet (devis + lignes) pour en repartir"
+              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#F9FAFB', color: '#374151', cursor: dupliquerBusy ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, opacity: dupliquerBusy ? 0.6 : 1 }}>
+              {dupliquerBusy ? '⏳ Duplication...' : '⧉ Dupliquer'}
             </button>
           </div>
         </div>
