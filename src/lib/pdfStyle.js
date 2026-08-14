@@ -163,6 +163,25 @@ export function blocConditionsEtSignature(doc, y, { bullets, avecSignature = tru
   return yy
 }
 
+// Bloc "Coordonnées bancaires" (banque / IBAN / BIC) — utilisé sur la
+// facture client pour que le client ait directement de quoi payer par
+// virement, sans avoir à redemander le RIB séparément.
+export function blocCoordonneesBancaires(doc, y, { lang = 'fr' } = {}) {
+  const t = L[lang]
+  const boxH = 24
+  if (y + boxH > 275) { doc.addPage(); y = 20 }
+  doc.setFillColor(248, 250, 252)
+  doc.setDrawColor(...LIGHT_GRAY)
+  doc.roundedRect(MARGIN_L, y, MARGIN_R - MARGIN_L, boxH, 2, 2, 'FD')
+  let yy = y + 7
+  doc.setTextColor(...NAVY); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+  doc.text(t.coordonneesBancaires, MARGIN_L + 5, yy); yy += 5.5
+  doc.setTextColor(...GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+  doc.text(t.banqueLabel + ENTREPRISE.banque.nom + '   —   ' + t.ibanLabel + ENTREPRISE.banque.iban, MARGIN_L + 5, yy); yy += 5
+  doc.text(t.bicLabel + ENTREPRISE.banque.bic, MARGIN_L + 5, yy)
+  return y + boxH + 8
+}
+
 // Pied de page (numéro de page + libellé) sur toutes les pages du document.
 export function piedDePage(doc, docLabel, lang = 'fr') {
   const t = L[lang]

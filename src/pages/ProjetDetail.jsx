@@ -7,7 +7,7 @@ import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
 import { calculerLigne } from '../lib/calculs'
-import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
+import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
@@ -853,8 +853,11 @@ export default function ProjetDetail() {
     return doc
   }
 
-  // ── Facture client : même charte graphique que le devis, avec CGV
-  // jointes (document de vente adressé au client) et sans bloc signature.
+  // ── Facture client : même charte graphique que le devis, mais SANS les
+  // CGV en annexe (contrairement au devis) et AVEC les coordonnées
+  // bancaires pour le règlement — deux différences volontaires demandées
+  // spécifiquement pour la facture, pas les autres documents. Pas de bloc
+  // signature non plus (une facture n'a pas besoin d'un "bon pour accord").
   function generateFactureCliPDF(f, lang = 'fr') {
     const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -889,9 +892,10 @@ export default function ProjetDetail() {
     if (y > 220) { doc.addPage(); y = 20 }
     y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, tauxTva, lang })
     if (y > 250) { doc.addPage(); y = 20 }
-    blocConditionsEtSignature(doc, y, { bullets: t.bulletsFacture(tauxTva), avecSignature: false, lang })
+    y = blocConditionsEtSignature(doc, y, { bullets: t.bulletsFacture(tauxTva), avecSignature: false, lang })
+    if (y > 260) { doc.addPage(); y = 20 }
+    blocCoordonneesBancaires(doc, y, { lang })
 
-    ajouterPagesCGV(doc, lang)
     piedDePage(doc, f.numero || projet?.nom || '', lang)
     return doc
   }
