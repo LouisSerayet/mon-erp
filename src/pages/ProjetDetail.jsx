@@ -28,6 +28,9 @@ const STATUTS_PROJET = ['Devis envoyé', 'Devis signé', 'En cours', 'Finalisati
 const STATUTS_CMD = ['Brouillon', 'Validée', 'Annulée']
 const STATUTS_FFRS = ['À payer', 'Payée']
 const STATUTS_FCLI = ['À envoyer', 'Envoyée', 'Payée']
+// Taux de TVA sélectionnables sur un projet (devis + facture client — les
+// commandes fournisseurs restent toujours à 20 %, voir generateCmdPDF).
+const TAUX_TVA_OPTIONS = [20, 10, 5.5, 0]
 const STATUT_COLOR = {
   'Devis envoyé': '#EA580C',
   'Devis signé':  '#7C3AED',
@@ -133,7 +136,12 @@ export default function ProjetDetail() {
     const fmtN = n => (n > 0 ? fmtMontant(n, lang) + ' EUR' : '—')
     const totalHT = lotsData.reduce((s, l) => s + (l.total_ht || 0), 0)
       + lignesSansLot.filter(l => l.type === 'ligne').reduce((s, l) => s + (l.total_ht || 0), 0)
-    const totalTVA = totalHT * 0.20
+    // Taux de TVA du projet (réglage "TVA" dans l'onglet Infos) — 20 % par
+    // défaut, mais peut être ramené à 10 / 5,5 / 0 % (client exonéré, taux
+    // réduit...). Ne concerne que devis + facture client, pas les commandes
+    // fournisseurs (leur TVA dépend du fournisseur, pas du client).
+    const tauxTva = Number(projet.taux_tva ?? 20)
+    const totalTVA = totalHT * (tauxTva / 100)
     const totalTTC = totalHT + totalTVA
     const numero = 'DEV-' + projet.nom.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase() + '-' + new Date().getFullYear()
 
@@ -185,9 +193,9 @@ export default function ProjetDetail() {
     y += 4
 
     if (y > 220) { doc.addPage(); y = 20 }
-    y = blocTotaux(doc, y, { totalHt: totalHT, totalTva: totalTVA, totalTtc: totalTTC, lang })
+    y = blocTotaux(doc, y, { totalHt: totalHT, totalTva: totalTVA, totalTtc: totalTTC, tauxTva, lang })
     if (y > 250) { doc.addPage(); y = 20 }
-    blocConditionsEtSignature(doc, y, { bullets: t.bulletsDevisDetaille, lang })
+    blocConditionsEtSignature(doc, y, { bullets: t.bulletsDevisDetaille(tauxTva), lang })
 
     // ── PAGES DÉTAIL PAR LOT ─────────────────────────────────
     for (const lot of lotsData) {
@@ -681,6 +689,7 @@ export default function ProjetDetail() {
         acces_livraison: projet.acces_livraison || null,
         notes: projet.notes || null,
         montant_ht: projet.montant_ht || 0,
+        taux_tva: projet.taux_tva ?? 20,
       }]).select().single()
       if (error) throw error
 
@@ -836,7 +845,8 @@ export default function ProjetDetail() {
     const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const totalHt = f.montant_ht || 0
-    const totalTva = totalHt * 0.20
+    const tauxTva = Number(projet?.taux_tva ?? 20)
+    const totalTva = totalHt * (tauxTva / 100)
     const totalTtc = totalHt + totalTva
     const description = t.prestations + (projet?.nom || '')
 
@@ -863,9 +873,9 @@ export default function ProjetDetail() {
 
     y = doc.lastAutoTable.finalY + 10
     if (y > 220) { doc.addPage(); y = 20 }
-    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, lang })
+    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, tauxTva, lang })
     if (y > 250) { doc.addPage(); y = 20 }
-    blocConditionsEtSignature(doc, y, { bullets: t.bulletsFacture, avecSignature: false, lang })
+    blocConditionsEtSignature(doc, y, { bullets: t.bulletsFacture(tauxTva), avecSignature: false, lang })
 
     ajouterPagesCGV(doc, lang)
     piedDePage(doc, f.numero || projet?.nom || '', lang)
@@ -1372,7 +1382,7 @@ export default function ProjetDetail() {
               <div style={{ padding: '16px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Informations du projet</div>
                 {!editInfos && (
-                  <button onClick={() => { setEditInfos(true); setFormInfos({ nom: projet.nom, statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '' }) }}
+                  <button onClick={() => { setEditInfos(true); setFormInfos({ nom: projet.nom, statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20 }) }}
                     style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 12 }}>✏️ Modifier</button>
                 )}
               </div>
@@ -1558,6 +1568,13 @@ export default function ProjetDetail() {
                       <input type="date" value={formInfos.date_fin_prevue || ''} onChange={e => setFormInfos(p => ({ ...p, date_fin_prevue: e.target.value }))}
                         style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                     </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>TVA (devis / facture client)</label>
+                      <select value={formInfos.taux_tva ?? 20} onChange={e => setFormInfos(p => ({ ...p, taux_tva: parseFloat(e.target.value) }))}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                        {TAUX_TVA_OPTIONS.map(tx => <option key={tx} value={tx}>{tx === 0 ? '0 % (non applicable)' : tx + ' %'}</option>)}
+                      </select>
+                    </div>
                     <div style={{ gridColumn: '1 / -1' }}>
                       <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Adresse chantier</label>
                       <input value={formInfos.adresse_chantier || ''} onChange={e => setFormInfos(p => ({ ...p, adresse_chantier: e.target.value }))} placeholder="12 rue de la Paix, 75001 Paris"
@@ -1587,6 +1604,7 @@ export default function ProjetDetail() {
                       ['Statut', projet.statut],
                       ['Surface', projet.surface ? projet.surface + ' m²' : null],
                       ['Montant HT', fmt(projet.montant_ht)],
+                      ['TVA', (projet.taux_tva ?? 20) === 0 ? '0 % (non applicable)' : (projet.taux_tva ?? 20) + ' %'],
                       ['Date début', fmtDate(projet.date_debut)],
                       ['Date fin prévue', fmtDate(projet.date_fin_prevue)],
                       ['Adresse chantier', projet.adresse_chantier],

@@ -58,19 +58,21 @@ export const L = {
     devisSuffix: '_devis.pdf',
     factureSuffix: '_facture.pdf',
     commandeSuffix: '_commande.pdf',
-    bulletsDevisSimple: [
+    // Fonctions du taux de TVA réel du document (20 / 10 / 5,5 / 0 — voir le
+    // réglage "TVA" du projet/devis) plutôt qu'un texte figé à "20 %".
+    bulletsDevisSimple: taux => [
       'Devis valable 30 jours à compter de sa date d’émission.',
-      'Montants exprimés en euros HT, TVA au taux de 20 % en sus.',
+      taux > 0 ? `Montants exprimés en euros HT, TVA au taux de ${taux} % en sus.` : 'Montants exprimés en euros HT — TVA non applicable sur ce devis.',
       'Conditions générales de vente jointes en annexe du présent devis.',
     ],
-    bulletsDevisDetaille: [
+    bulletsDevisDetaille: taux => [
       'Devis valable 30 jours à compter de sa date d’émission.',
-      'Montants exprimés en euros HT, TVA au taux de 20 % en sus.',
+      taux > 0 ? `Montants exprimés en euros HT, TVA au taux de ${taux} % en sus.` : 'Montants exprimés en euros HT — TVA non applicable sur ce devis.',
       'Le détail par lot figure en annexe ; les conditions générales de vente sont jointes en fin de document.',
     ],
-    bulletsFacture: [
+    bulletsFacture: taux => [
       'Facture payable à réception, dans un délai de 30 jours date de facture (voir échéance ci-dessus), par virement bancaire.',
-      'Montants exprimés en euros HT, TVA au taux de 20 % en sus.',
+      taux > 0 ? `Montants exprimés en euros HT, TVA au taux de ${taux} % en sus.` : 'Montants exprimés en euros HT — TVA non applicable sur cette facture.',
       'Tout retard de paiement entraîne l’application d’intérêts de retard et d’une indemnité forfaitaire de 40 € pour frais de recouvrement (art. L441-10 et D441-5 du Code de commerce). Aucun escompte pour paiement anticipé.',
       'Les conditions générales de vente sont jointes en fin de document.',
     ],
@@ -126,19 +128,19 @@ export const L = {
     devisSuffix: '_quote_EN.pdf',
     factureSuffix: '_invoice_EN.pdf',
     commandeSuffix: '_EN.pdf',
-    bulletsDevisSimple: [
+    bulletsDevisSimple: taux => [
       'This quote is valid for 30 days from its issue date.',
-      'Amounts are shown in euros excluding VAT; VAT applies at a rate of 20% in addition.',
+      taux > 0 ? `Amounts are shown in euros excluding VAT; VAT applies at a rate of ${taux}% in addition.` : 'Amounts are shown in euros excluding VAT — VAT does not apply to this quote.',
       'The general terms and conditions of sale are attached as an appendix to this quote.',
     ],
-    bulletsDevisDetaille: [
+    bulletsDevisDetaille: taux => [
       'This quote is valid for 30 days from its issue date.',
-      'Amounts are shown in euros excluding VAT; VAT applies at a rate of 20% in addition.',
+      taux > 0 ? `Amounts are shown in euros excluding VAT; VAT applies at a rate of ${taux}% in addition.` : 'Amounts are shown in euros excluding VAT — VAT does not apply to this quote.',
       'The breakdown by section is provided as an appendix; the general terms and conditions of sale are attached at the end of this document.',
     ],
-    bulletsFacture: [
+    bulletsFacture: taux => [
       'This invoice is payable on receipt, within 30 days of the invoice date (see due date above), by bank transfer.',
-      'Amounts are shown in euros excluding VAT; VAT applies at a rate of 20% in addition.',
+      taux > 0 ? `Amounts are shown in euros excluding VAT; VAT applies at a rate of ${taux}% in addition.` : 'Amounts are shown in euros excluding VAT — VAT does not apply to this invoice.',
       'Late payment automatically incurs late-payment interest and a flat-rate compensation of €40 for collection costs (Articles L441-10 and D441-5 of the French Commercial Code). No discount is granted for early payment.',
       'The general terms and conditions of sale are attached at the end of this document.',
     ],

@@ -98,7 +98,9 @@ export function blocMetaEtDestinataire(doc, y, { metaGauche = [], destinataire }
 
 // Bloc de totaux (Total HT / TVA / Total TTC), aligné à droite façon devis
 // modèle — la ligne Total TTC est mise en avant en bleu marine plein.
-export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true, lang = 'fr' }) {
+// tauxTva : taux réellement appliqué à CE document (20 / 10 / 5,5 / 0 —
+// voir le réglage "TVA" du projet/devis), pas une constante figée à 20 %.
+export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true, tauxTva = ENTREPRISE.tvaTauxDefaut, lang = 'fr' }) {
   const t = L[lang]
   const xLabel = MARGIN_L, wLabel = 120
   const xVal = MARGIN_L + wLabel, wVal = MARGIN_R - xVal
@@ -129,7 +131,7 @@ export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true
   }
 
   ligne(t.totalHt, totalHt, false)
-  if (showTva) ligne(t.totalTva(ENTREPRISE.tvaTauxDefaut), totalTva, false)
+  if (showTva) ligne(t.totalTva(tauxTva), totalTva, false)
   ligne(t.totalTtc, totalTtc, true)
 
   doc.setTextColor(...NAVY)

@@ -10,6 +10,9 @@ import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate } from '../lib/pdfI18n'
 
 const STATUTS = ['Brouillon', 'Envoyé', 'Accepté', 'Refusé']
+// Taux de TVA sélectionnables sur un devis — voir aussi ProjetDetail.jsx
+// (le réglage est repris tel quel quand le devis devient un projet).
+const TAUX_TVA_OPTIONS = [20, 10, 5.5, 0]
 const STATUS_STYLE = {
   'Brouillon': { bg: '#F3F4F6', color: '#6B7280' },
   'Envoyé':    { bg: '#EFF6FF', color: '#2563EB' },
@@ -29,7 +32,7 @@ export default function Devis() {
   const [importing, setImporting] = useState(false)
   const [createError, setCreateError] = useState('')
   const [creatingProjet, setCreatingProjet] = useState(false)
-  const [form, setForm] = useState({ client_id: '', titre: '', statut: 'Brouillon', notes: '' })
+  const [form, setForm] = useState({ client_id: '', titre: '', statut: 'Brouillon', notes: '', taux_tva: 20 })
   const [showAddLigne, setShowAddLigne] = useState(false)
   const [formLigne, setFormLigne] = useState({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30' })
   const [savingLigne, setSavingLigne] = useState(false)
@@ -231,15 +234,21 @@ export default function Devis() {
     setCreateError('')
     if (!form.titre.trim()) { setCreateError('Le titre est obligatoire.'); return }
     if (!form.client_id) { setCreateError('Sélectionne un client.'); return }
-    const { data, error } = await supabase.from('devis').insert([{ titre: form.titre.trim(), statut: form.statut, notes: form.notes, client_id: form.client_id, montant_ht: 0 }]).select().single()
+    const { data, error } = await supabase.from('devis').insert([{ titre: form.titre.trim(), statut: form.statut, notes: form.notes, client_id: form.client_id, montant_ht: 0, taux_tva: form.taux_tva ?? 20 }]).select().single()
     if (error) { setCreateError('Erreur : ' + error.message); return }
-    setShowForm(false); setCreateError(''); setForm({ client_id: '', titre: '', statut: 'Brouillon', notes: '' })
+    setShowForm(false); setCreateError(''); setForm({ client_id: '', titre: '', statut: 'Brouillon', notes: '', taux_tva: 20 })
     await fetchAll(); ouvrirDevis(data)
   }
 
   async function updateStatut(id, statut) {
     await supabase.from('devis').update({ statut }).eq('id', id)
     setDevisOuvert(prev => ({ ...prev, statut }))
+    fetchAll()
+  }
+
+  async function updateTauxTva(id, taux_tva) {
+    await supabase.from('devis').update({ taux_tva }).eq('id', id)
+    setDevisOuvert(prev => ({ ...prev, taux_tva }))
     fetchAll()
   }
 
@@ -259,6 +268,7 @@ export default function Devis() {
       devis_id: devisOuvert.id,
       montant_ht: devisOuvert.montant_ht,
       statut: 'En cours',
+      taux_tva: devisOuvert.taux_tva ?? 20,
     }]).select().single()
     if (error) { alert('Erreur : ' + error.message); setCreatingProjet(false); return }
 
@@ -336,7 +346,10 @@ export default function Devis() {
     const lignesSansLotEff = lignesEff.filter(l => (l.type === 'ligne' || l.type === 'titre') && !l.lot)
     const totalHt = lots.reduce((s, l) => s + (l.total_ht || 0), 0)
       + lignesSansLotEff.filter(l => l.type === 'ligne').reduce((s, l) => s + (l.total_ht || 0), 0)
-    const totalTva = totalHt * 0.20
+    // Taux de TVA du devis (réglage "TVA" — voir le sélecteur dans l'en-tête
+    // du devis ouvert) — 20 % par défaut, ramenable à 10 / 5,5 / 0 %.
+    const tauxTva = Number(d.taux_tva ?? 20)
+    const totalTva = totalHt * (tauxTva / 100)
     const totalTtc = totalHt + totalTva
 
     let y = enTeteDocument(doc, { titre: t.titreDevis, lang })
@@ -396,9 +409,9 @@ export default function Devis() {
     }
 
     if (y > 240) { doc.addPage(); y = 20 }
-    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, lang })
+    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, tauxTva, lang })
     if (y > 250) { doc.addPage(); y = 20 }
-    blocConditionsEtSignature(doc, y, { bullets: t.bulletsDevisSimple, lang })
+    blocConditionsEtSignature(doc, y, { bullets: t.bulletsDevisSimple(tauxTva), lang })
 
     ajouterPagesCGV(doc, lang)
     piedDePage(doc, d.titre, lang)
@@ -525,6 +538,11 @@ export default function Devis() {
             <select value={devisOuvert.statut} onChange={e => updateStatut(devisOuvert.id, e.target.value)}
               style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13, background: STATUS_STYLE[devisOuvert.statut]?.bg, color: STATUS_STYLE[devisOuvert.statut]?.color, fontWeight: 500, cursor: 'pointer' }}>
               {STATUTS.map(s => <option key={s}>{s}</option>)}
+            </select>
+            <select value={devisOuvert.taux_tva ?? 20} onChange={e => updateTauxTva(devisOuvert.id, parseFloat(e.target.value))}
+              title="Taux de TVA appliqué sur ce devis"
+              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13, background: '#fff', color: '#374151', fontWeight: 500, cursor: 'pointer' }}>
+              {TAUX_TVA_OPTIONS.map(tx => <option key={tx} value={tx}>TVA {tx === 0 ? '0 % (non applicable)' : tx + ' %'}</option>)}
             </select>
             <button onClick={() => setShowAddLigne(!showAddLigne)}
               style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
@@ -752,6 +770,11 @@ export default function Devis() {
             <select value={form.statut} onChange={e => setForm(prev => ({ ...prev, statut: e.target.value }))}
               style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 14, cursor: 'pointer' }}>
               {STATUTS.map(s => <option key={s}>{s}</option>)}
+            </select>
+            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>TVA</label>
+            <select value={form.taux_tva ?? 20} onChange={e => setForm(prev => ({ ...prev, taux_tva: parseFloat(e.target.value) }))}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 14, cursor: 'pointer' }}>
+              {TAUX_TVA_OPTIONS.map(tx => <option key={tx} value={tx}>{tx === 0 ? '0 % (non applicable)' : tx + ' %'}</option>)}
             </select>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShowForm(false); setCreateError('') }}
