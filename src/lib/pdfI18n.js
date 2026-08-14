@@ -45,6 +45,11 @@ export const L = {
     lot: numero => 'LOT ' + numero,
     lignesSansLot: 'LIGNES SANS LOT',
     objetCommande: 'Objet de la commande',
+    // Mention obligatoire quand une commande est en autoliquidation de TVA
+    // (sous-traitance BTP) — le fournisseur facture hors taxe, Partenaires
+    // Particuliers déclare et paie la TVA lui-même. À faire valider par un
+    // expert-comptable si le libellé exact doit évoluer.
+    mentionAutoliquidation: 'Autoliquidation — TVA due par le preneur (article 283 du Code général des impôts).',
     statutLabel: 'Statut : ',
     adresseChantier: 'Adresse chantier : ',
     debutTravaux: 'Début des travaux : ',
@@ -115,6 +120,7 @@ export const L = {
     lot: numero => 'SECTION ' + numero,
     lignesSansLot: 'UNGROUPED ITEMS',
     objetCommande: 'Purchase order details',
+    mentionAutoliquidation: 'Reverse charge — VAT due by the customer (Article 283 of the French General Tax Code).',
     statutLabel: 'Status: ',
     adresseChantier: 'Site address: ',
     debutTravaux: 'Start of works: ',

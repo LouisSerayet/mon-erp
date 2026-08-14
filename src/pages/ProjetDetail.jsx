@@ -64,7 +64,7 @@ export default function ProjetDetail() {
   const [error, setError] = useState('')
   const [editInfos, setEditInfos] = useState(false)
   const [formInfos, setFormInfos] = useState({})
-  const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '' })
+  const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
   const [formFfrs, setFormFfrs] = useState({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' })
   const [formFcli, setFormFcli] = useState({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' })
   // Saisie auxiliaire "% du devis" pour la nouvelle facture client — ne va
@@ -746,7 +746,7 @@ export default function ProjetDetail() {
     }])
     if (error) { setError(error.message); return }
     setShowForm(false)
-    setFormCmd({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '' })
+    setFormCmd({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
     const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setCommandes(data || [])
   }
@@ -828,9 +828,23 @@ export default function ProjetDetail() {
     y = doc.lastAutoTable.finalY + 10
     if (y > 220) { doc.addPage(); y = 20 }
     const totalHt = cmd.montant_ht || 0
-    const totalTva = totalHt * 0.20
+    // Autoliquidation (sous-traitance BTP, article 283 du CGI) : le
+    // fournisseur ne facture pas de TVA, c'est Partenaires Particuliers qui
+    // la déclare et la paie — donc pas de ligne TVA sur ce bon de commande,
+    // juste la mention légale obligatoire. Réglage par commande (contraire
+    // au taux du devis/facture client, qui est par projet) car un même
+    // projet mélange souvent fournitures (TVA normale) et sous-traitants
+    // BTP (autoliquidation).
+    const autoliquidation = cmd.regime_tva === 'autoliquidation'
+    const totalTva = autoliquidation ? 0 : totalHt * 0.20
     const totalTtc = totalHt + totalTva
-    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, lang })
+    y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva: !autoliquidation, lang })
+    if (autoliquidation) {
+      doc.setFontSize(7.5); doc.setFont('helvetica', 'italic'); doc.setTextColor(...GRAY)
+      const mentionLines = doc.splitTextToSize(t.mentionAutoliquidation, 182)
+      doc.text(mentionLines, 14, y)
+      y += 4.5 * mentionLines.length + 2
+    }
 
     doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
     doc.text(t.statutLabel + (cmd.statut || ''), 14, y)
@@ -2068,6 +2082,7 @@ export default function ProjetDetail() {
                       <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 2 }}>Date</div><div>{fmtDate(showPdfPreview.date_commande)}</div></div>
                       <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 2 }}>Fournisseur</div><div style={{ fontWeight: 600 }}>{showPdfPreview.fournisseurs?.nom || '—'}</div></div>
                       <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 2 }}>Montant HT</div><div style={{ fontWeight: 700, color: '#059669', fontSize: 15 }}>{fmt(showPdfPreview.montant_ht)}</div></div>
+                      <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 2 }}>TVA</div><div>{showPdfPreview.regime_tva === 'autoliquidation' ? 'Autoliquidation (0 %)' : 'Normale (20 %)'}</div></div>
                     </div>
                     <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 4 }}>Description</div><div style={{ color: '#374151' }}>{showPdfPreview.description}</div></div>
                     <div style={{ marginTop: 12 }}><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 4 }}>Projet</div><div>{projet?.nom}</div></div>
@@ -2090,7 +2105,7 @@ export default function ProjetDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Commandes fournisseurs · <span style={{ color: '#2563EB' }}>{fmt(totalCommandes)}</span></div>
               <button onClick={() => { setShowForm(true); setError('');
-                setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', statut: 'Brouillon', date_commande: new Date().toISOString().split('T')[0] }) }}
+                setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', statut: 'Brouillon', date_commande: new Date().toISOString().split('T')[0], regime_tva: 'normale' }) }}
                 style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
                 + Nouvelle commande
               </button>
@@ -2182,6 +2197,15 @@ export default function ProjetDetail() {
                       {STATUTS_CMD.map(s => <option key={s}>{s}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>TVA</label>
+                    <select value={formCmd.regime_tva || 'normale'} onChange={e => setFormCmd(p => ({ ...p, regime_tva: e.target.value }))}
+                      title="Autoliquidation : le fournisseur facture hors taxe, vous déclarez la TVA vous-même (sous-traitance BTP, article 283 du CGI)."
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      <option value="normale">Normale (20 %)</option>
+                      <option value="autoliquidation">Autoliquidation (sous-traitance BTP)</option>
+                    </select>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => { setShowForm(false); setError(''); setShowLignesSelector(false) }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
@@ -2199,7 +2223,7 @@ export default function ProjetDetail() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                      {['Code CF', 'Statut', 'Date', 'Fournisseur', 'Description', 'Achat HT', 'Actions'].map(h => (
+                      {['Code CF', 'Statut', 'Date', 'Fournisseur', 'Description', 'Achat HT', 'TVA', 'Actions'].map(h => (
                         <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Achat HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
@@ -2243,6 +2267,16 @@ export default function ProjetDetail() {
                             <input type="number" value={getCmdVal(c, 'montant_ht')} onChange={e => editCmd(c.id, 'montant_ht', e.target.value)}
                               style={{ ...inStyle, width: 100, textAlign: 'right', fontWeight: 600, color: '#111827' }} />
                           </td>
+                          <td style={{ padding: '8px 14px' }}>
+                            <select value={getCmdVal(c, 'regime_tva') || 'normale'} onChange={e => editCmd(c.id, 'regime_tva', e.target.value)}
+                              title="Autoliquidation : le fournisseur facture hors taxe, vous déclarez la TVA vous-même (sous-traitance BTP, article 283 du CGI)."
+                              style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer',
+                                background: getCmdVal(c, 'regime_tva') === 'autoliquidation' ? '#FFFBEB' : '#F3F4F6',
+                                color: getCmdVal(c, 'regime_tva') === 'autoliquidation' ? '#92400E' : '#6B7280' }}>
+                              <option value="normale">Normale</option>
+                              <option value="autoliquidation">Autoliq.</option>
+                            </select>
+                          </td>
                           <td style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
                             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                               {isEdited && (
@@ -2267,7 +2301,7 @@ export default function ProjetDetail() {
                         {/* Zone documents commande */}
                         {expandedCmd === c.id && (
                           <tr key={c.id + '_docs'} style={{ background: '#F5F3FF' }}>
-                            <td colSpan={7} style={{ padding: '12px 20px' }}>
+                            <td colSpan={8} style={{ padding: '12px 20px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: '#7C3AED' }}>📎 Pièces jointes — {c.numero}</span>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, background: '#7C3AED', color: '#fff', fontSize: 11, fontWeight: 500, cursor: 'pointer' }}>
