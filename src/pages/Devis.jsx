@@ -460,8 +460,8 @@ export default function Devis() {
                 onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}>✕</button>
             </div>
           </td>
-          <td style={{ padding: '4px 6px', color: '#374151', maxWidth: 300 }}>
-            <input value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
+          <td style={{ padding: '4px 6px', color: '#374151' }}>
+            <input value={getLigneVal(l, 'descriptif')} title={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
               style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, background: isEdited ? '#EFF6FF' : 'transparent', boxSizing: 'border-box' }} />
           </td>
           <td style={{ padding: '4px 4px', textAlign: 'center' }}>
