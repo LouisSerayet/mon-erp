@@ -55,6 +55,27 @@ export default async function handler(req, res) {
     // ── Appel JSON classique ───────────────────────────────────
     if (!endpoint) return res.status(400).json({ error: 'endpoint requis' })
 
+    // Liste blanche : ce proxy transmet un vrai jeton d'accès complet au
+    // compte Pennylane (facturation légale) — sans restriction, n'importe
+    // quel utilisateur connecté à l'ERP pourrait appeler n'importe quel
+    // endpoint avec n'importe quelle méthode (y compris DELETE), bien
+    // au-delà de ce que src/lib/usePennylane.js utilise réellement.
+    const ENDPOINTS_AUTORISES = [
+      /^company_customers(\?.*)?$/,
+      /^company_suppliers(\?.*)?$/,
+      /^customer_invoices$/,
+      /^customer_invoices\/[\w-]+$/,
+      /^supplier_invoices\/import$/,
+      /^supplier_invoices\/[\w-]+$/,
+    ]
+    const METHODES_AUTORISEES = ['GET', 'POST', 'PUT']
+    if (!METHODES_AUTORISEES.includes(method)) {
+      return res.status(403).json({ error: 'Méthode Pennylane non autorisée' })
+    }
+    if (!ENDPOINTS_AUTORISES.some(re => re.test(endpoint))) {
+      return res.status(403).json({ error: 'Endpoint Pennylane non autorisé' })
+    }
+
     const response = await fetch(`https://app.pennylane.com/api/external/v2/${endpoint}`, {
       method,
       headers: {

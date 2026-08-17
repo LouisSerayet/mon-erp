@@ -19,6 +19,16 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'endpoint requis' })
   }
 
+  // Liste blanche : ce proxy ne doit exposer que ce que l'app utilise
+  // réellement (voir src/lib/useQonto.js) — sans ça, n'importe quel
+  // utilisateur connecté à l'ERP pourrait interroger n'importe quel
+  // endpoint Qonto en lecture (soldes détaillés, bénéficiaires, cartes...)
+  // bien au-delà de ce que l'interface propose.
+  const ENDPOINTS_AUTORISES = [/^organizations\/me$/, /^transactions(\?.*)?$/]
+  if (!ENDPOINTS_AUTORISES.some(re => re.test(endpoint))) {
+    return res.status(403).json({ error: 'Endpoint Qonto non autorisé' })
+  }
+
   // Essayer v2 puis v1
   const urls = [
     `https://thirdparty.qonto.com/v2/${endpoint}`,
