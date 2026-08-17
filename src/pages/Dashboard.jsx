@@ -366,22 +366,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
-        {[
-          { label: 'Projets actifs', value: stats.nbEnCours + stats.nbFinalisation, sub: stats.nbEnCours + ' en cours · ' + stats.nbFinalisation + ' finalisation', color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' },
-          { label: 'CA total HT', value: fmt(stats.totalCA), sub: stats.nbProjets + ' projets au total', color: '#059669', bg: '#F0FDF4', border: '#BBF7D0' },
-          { label: 'Marge brute', value: fmt(stats.margeGlobale), sub: 'Taux : ' + stats.tauxMarge + '%', color: stats.margeGlobale >= 0 ? '#059669' : '#DC2626', bg: stats.margeGlobale >= 0 ? '#F0FDF4' : '#FEF2F2', border: stats.margeGlobale >= 0 ? '#BBF7D0' : '#FCA5A5' },
-          { label: 'À encaisser', value: fmt(stats.totalFcliAEncaisser), sub: 'Factures clients non payées', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
-        ].map(k => (
-          <div key={k.label} style={{ background: k.bg, border: '1px solid ' + k.border, borderRadius: 12, padding: '16px 20px' }}>
-            <div style={{ fontSize: 11, color: k.color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{k.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: k.color, marginBottom: 4 }}>{k.value}</div>
-            <div style={{ fontSize: 11, color: k.color + '99' }}>{k.sub}</div>
-          </div>
-        ))}
-      </div>
-
       {/* Vue globale des projets — filtres par statut (à cocher/décocher
           librement) + choix de la base de coût (devis prévu / commandes
           engagées), pour composer soi-même la vue voulue : prévisionnel,
