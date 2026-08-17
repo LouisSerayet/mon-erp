@@ -6,7 +6,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
-import { calculerLigne } from '../lib/calculs'
+import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, NATURE_LIGNE_OPTIONS } from '../lib/calculs'
 import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
@@ -102,9 +102,26 @@ export default function ProjetDetail() {
   const [validationDate, setValidationDate] = useState('') // date de début
   const [validationError, setValidationError] = useState('')
   const [validating, setValidating] = useState(false)
-  const [formLigne, setFormLigne] = useState({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne' })
+  const [formLigne, setFormLigne] = useState({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne', nature: 'negoce' })
   const [savingLigne, setSavingLigne] = useState(false)
   const [modeLignes, setModeLignes] = useState({}) // { [ligneId]: 'ac' | 'vc' | 'av' }
+
+  // Nature effective d'une ligne (negoce/option/variante_active/
+  // variante_inactive/texte), en tenant compte d'une édition non encore
+  // enregistrée — même principe que getLigneVal pour qte/prix, pour que le
+  // sélecteur "Nature" et l'export PDF restent cohérents avec ce qui est
+  // affiché à l'écran sans obliger à sauvegarder d'abord.
+  function getNatureEff(l) {
+    const cat = getLigneVal(l, 'categorie_ligne') || 'negoce'
+    const activeRaw = getLigneVal(l, 'variante_active')
+    const active = activeRaw === '' ? true : activeRaw
+    return getNatureLigne(cat, active)
+  }
+
+  function editLigneNature(ligneId, nature) {
+    const champs = natureLigneVersChamps(nature)
+    setLignesEditees(prev => ({ ...prev, [ligneId]: { ...(prev[ligneId] || {}), ...champs } }))
+  }
   function generateDevisPDF(lang = 'fr') {
     const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -120,10 +137,19 @@ export default function ProjetDetail() {
       const qte = parseFloat(getLigneVal(l, 'qte')) || 0
       const prixUnit = parseFloat(getLigneVal(l, 'prix_unit_ht')) || 0
       const prixAchat = parseFloat(getLigneVal(l, 'prix_achat_ht')) || 0
-      return { ...l, qte, prix_unit_ht: prixUnit, prix_achat_ht: prixAchat, total_ht: qte * prixUnit, total_achat: qte * prixAchat }
+      // Nature (négoce/option/variante/texte) elle aussi lue via getLigneVal,
+      // pour qu'un changement de nature pas encore sauvegardé soit déjà pris
+      // en compte à l'export — même logique que pour qte/prix ci-dessus.
+      const categorieLigne = getLigneVal(l, 'categorie_ligne') || 'negoce'
+      const varianteActiveRaw = getLigneVal(l, 'variante_active')
+      const varianteActive = varianteActiveRaw === '' ? true : varianteActiveRaw
+      return { ...l, qte, prix_unit_ht: prixUnit, prix_achat_ht: prixAchat, total_ht: qte * prixUnit, total_achat: qte * prixAchat, categorie_ligne: categorieLigne, variante_active: varianteActive }
     })
     const lotsData = lignesEff.filter(l => l.type === 'lot').map(lot => {
-      const enfants = lignesEff.filter(l => l.type === 'ligne' && l.lot === lot.numero)
+      // Options / variantes non retenues / texte n'entrent jamais dans le
+      // total du lot ni n'apparaissent dans son détail — voir plus bas la
+      // section "Options" séparée et ligneCompteDansTotal (lib/calculs.js).
+      const enfants = lignesEff.filter(l => l.type === 'ligne' && l.lot === lot.numero && ligneCompteDansTotal(l))
       return {
         ...lot,
         total_ht: enfants.reduce((s, l) => s + (l.total_ht || 0), 0),
@@ -139,11 +165,16 @@ export default function ProjetDetail() {
     // compter dans le total ET les faire apparaître dans le détail, sinon un
     // devis sans lot ressort systématiquement à 0 € avec un PDF vide.
     const lignesSansLot = lignesEff.filter(l => (l.type === 'ligne' || l.type === 'titre') && !l.lot)
+    // Options proposées (toutes, tous lots confondus) : hors total principal,
+    // regroupées dans leur propre section en fin de devis avec un sous-total
+    // à part — voir plus bas "PAGE OPTIONS".
+    const lignesOptions = lignesEff.filter(l => l.type === 'ligne' && l.categorie_ligne === 'option')
+    const totalOptions = lignesOptions.reduce((s, l) => s + (l.total_ht || 0), 0)
     // Formatage sans séparateur de milliers problématique — voir fmtMontant
     // (lib/pdfI18n.js) pour la raison (caractère parasite affiché par jsPDF).
     const fmtN = n => (n > 0 ? fmtMontant(n, lang) + ' EUR' : '—')
     const totalHT = lotsData.reduce((s, l) => s + (l.total_ht || 0), 0)
-      + lignesSansLot.filter(l => l.type === 'ligne').reduce((s, l) => s + (l.total_ht || 0), 0)
+      + lignesSansLot.filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)
     // Taux de TVA du projet (réglage "TVA" dans l'onglet Infos) — 20 % par
     // défaut, mais peut être ramené à 10 / 5,5 / 0 % (client exonéré, taux
     // réduit...). Ne concerne que devis + facture client, pas les commandes
@@ -223,14 +254,20 @@ export default function ProjetDetail() {
       const body = []
       for (let li = 0; li < lgLot.length; li++) {
         const l = lgLot[li]
-        if (l.type === 'titre') {
-          // On n'ajoute le titre que s'il y a au moins une ligne avec montant après lui
+        // Une Option n'apparaît pas ici — elle est listée à part dans la
+        // section "Options" en fin de devis, avec son propre sous-total.
+        // Une Variante non retenue n'apparaît pas non plus sur le devis
+        // envoyé au client (seule l'alternative choisie compte).
+        if (l.type === 'ligne' && (l.categorie_ligne === 'option' || (l.categorie_ligne === 'variante' && l.variante_active === false))) continue
+        if (l.type === 'titre' || (l.type === 'ligne' && l.categorie_ligne === 'texte')) {
+          // On n'ajoute le titre/texte que s'il y a au moins une ligne avec montant après lui
           const hasLignesAvecMontant = lgLot.slice(li + 1).some(
-            ll => ll.type !== 'titre' && (ll.total_ht > 0 || ll.prix_unit_ht > 0)
+            ll => ll.type !== 'titre' && ll.categorie_ligne !== 'texte' && ll.categorie_ligne !== 'option'
+              && !(ll.categorie_ligne === 'variante' && ll.variante_active === false) && (ll.total_ht > 0 || ll.prix_unit_ht > 0)
           )
-          if (hasLignesAvecMontant) {
+          if (hasLignesAvecMontant || l.categorie_ligne === 'texte') {
             body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
-              styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [71, 85, 105], fontSize: 7 } }])
+              styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', fillColor: [241, 245, 249], textColor: [71, 85, 105], fontSize: 7 } }])
           }
         } else {
           // Ignorer les lignes sans montant ni prix
@@ -269,7 +306,7 @@ export default function ProjetDetail() {
 
     // ── PAGE DÉTAIL : LIGNES SANS LOT ─────────────────────────
     if (lignesSansLot.length) {
-      const totalSansLot = lignesSansLot.filter(l => l.type === 'ligne').reduce((s, l) => s + (l.total_ht || 0), 0)
+      const totalSansLot = lignesSansLot.filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)
       doc.addPage()
       doc.setFillColor(30, 41, 59); doc.rect(0, 0, 210, 16, 'F')
       doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
@@ -281,13 +318,17 @@ export default function ProjetDetail() {
       const body = []
       for (let li = 0; li < lignesSansLot.length; li++) {
         const l = lignesSansLot[li]
-        if (l.type === 'titre') {
+        // Voir la même logique dans les pages détail par lot ci-dessus :
+        // Options et Variantes non retenues n'apparaissent pas sur le devis.
+        if (l.type === 'ligne' && (l.categorie_ligne === 'option' || (l.categorie_ligne === 'variante' && l.variante_active === false))) continue
+        if (l.type === 'titre' || (l.type === 'ligne' && l.categorie_ligne === 'texte')) {
           const hasLignesAvecMontant = lignesSansLot.slice(li + 1).some(
-            ll => ll.type !== 'titre' && (ll.total_ht > 0 || ll.prix_unit_ht > 0)
+            ll => ll.type !== 'titre' && ll.categorie_ligne !== 'texte' && ll.categorie_ligne !== 'option'
+              && !(ll.categorie_ligne === 'variante' && ll.variante_active === false) && (ll.total_ht > 0 || ll.prix_unit_ht > 0)
           )
-          if (hasLignesAvecMontant) {
+          if (hasLignesAvecMontant || l.categorie_ligne === 'texte') {
             body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
-              styles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [71, 85, 105], fontSize: 7 } }])
+              styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', fillColor: [241, 245, 249], textColor: [71, 85, 105], fontSize: 7 } }])
           }
         } else {
           if (!l.total_ht && !l.prix_unit_ht && !l.qte) continue
@@ -310,6 +351,54 @@ export default function ProjetDetail() {
         styles: { ...TABLE_STYLE, fontSize: 7.5, cellPadding: 2 },
         headStyles: TABLE_HEAD_STYLE,
         footStyles: TABLE_FOOT_STYLE,
+        columnStyles: {
+          0: { cellWidth: 14 },
+          1: { cellWidth: 'auto' },
+          2: { cellWidth: 14, halign: 'center' },
+          3: { cellWidth: 12, halign: 'right' },
+          4: { cellWidth: 28, halign: 'right' },
+          5: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
+        },
+        alternateRowStyles: TABLE_ALT_ROW_STYLE,
+        margin: { left: 14, right: 14 },
+      })
+    }
+
+    // ── PAGE OPTIONS ───────────────────────────────────────────
+    // Regroupe TOUTES les lignes marquées "Option" (tous lots confondus) :
+    // proposées au client mais volontairement hors du TOTAL HT ci-dessus —
+    // voir lignesOptions/totalOptions plus haut et ligneCompteDansTotal
+    // (lib/calculs.js) pour la règle de calcul.
+    if (lignesOptions.length) {
+      doc.addPage()
+      doc.setFillColor(217, 119, 6); doc.rect(0, 0, 210, 16, 'F')
+      doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
+      doc.text(t.optionsProposees, 14, 10)
+      doc.setFontSize(9); doc.setFont('helvetica', 'bold')
+      doc.text(fmtN(totalOptions), 196, 10, { align: 'right' })
+      doc.setFontSize(7); doc.setFont('helvetica', 'normal')
+      doc.text(t.optionsNote, 14, 15)
+      doc.setTextColor(30, 41, 59)
+
+      const bodyOptions = lignesOptions
+        .filter(l => l.total_ht > 0 || l.prix_unit_ht > 0 || l.qte > 0)
+        .map(l => [
+          l.numero || '',
+          l.descriptif || '',
+          l.unite || '',
+          l.qte > 0 ? String(l.qte) : '',
+          l.prix_unit_ht > 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
+          l.total_ht > 0 ? fmtMontant(l.total_ht, lang) : '',
+        ])
+
+      autoTable(doc, {
+        startY: 20,
+        head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
+        body: bodyOptions,
+        foot: [['', '', '', '', t.totalOptions, totalOptions > 0 ? fmtMontant(totalOptions, lang) : '']],
+        styles: { ...TABLE_STYLE, fontSize: 7.5, cellPadding: 2 },
+        headStyles: { ...TABLE_HEAD_STYLE, fillColor: [217, 119, 6] },
+        footStyles: { ...TABLE_FOOT_STYLE, fillColor: [254, 243, 199], textColor: [120, 80, 0] },
         columnStyles: {
           0: { cellWidth: 14 },
           1: { cellWidth: 'auto' },
@@ -390,7 +479,9 @@ export default function ProjetDetail() {
     if (!lignesArr) return
     const totalVente = lignesArr.reduce((s, l) => {
       if (l.type === 'lot') return s + (l.total_ht || 0)
-      if (l.type === 'ligne' && !l.lot) return s + (l.total_ht || 0)
+      // Options / variantes non retenues / texte n'entrent jamais dans le
+      // total principal du devis — voir ligneCompteDansTotal (lib/calculs.js).
+      if (l.type === 'ligne' && !l.lot && ligneCompteDansTotal(l)) return s + (l.total_ht || 0)
       return s
     }, 0)
     await supabase.from('projets').update({ montant_ht: totalVente }).eq('id', id)
@@ -409,7 +500,9 @@ export default function ProjetDetail() {
     if (!numeroLot) return lignesArr
     const lot = lignesArr.find(l => l.type === 'lot' && l.numero === numeroLot)
     if (!lot) return lignesArr
-    const enfants = lignesArr.filter(l => l.type === 'ligne' && l.lot === numeroLot)
+    // Options / variantes non retenues / texte n'entrent jamais dans le
+    // total du lot — voir ligneCompteDansTotal (lib/calculs.js).
+    const enfants = lignesArr.filter(l => l.type === 'ligne' && l.lot === numeroLot && ligneCompteDansTotal(l))
     const totalHt = enfants.reduce((s, l) => s + (l.total_ht || 0), 0)
     const totalAchat = enfants.reduce((s, l) => s + (l.total_achat || 0), 0)
     await supabase.from('projet_lignes').update({ total_ht: totalHt, total_achat: totalAchat }).eq('id', lot.id)
@@ -426,6 +519,7 @@ export default function ProjetDetail() {
     const totalHt = qte * prixVente
     const totalAchat = qte * prixAchat
     const maxOrdre = Math.max(...lignes.map(l => l.ordre || 0), 0)
+    const { categorie_ligne, variante_active } = natureLigneVersChamps(formLigne.nature || 'negoce')
     const { error } = await supabase.from('projet_lignes').insert([{
       projet_id: id,
       type: 'ligne',
@@ -439,6 +533,8 @@ export default function ProjetDetail() {
       total_ht: totalHt,
       total_achat: totalAchat,
       ordre: maxOrdre + 1,
+      categorie_ligne,
+      variante_active,
     }])
     if (!error) {
       let { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
@@ -446,7 +542,7 @@ export default function ProjetDetail() {
       setLignes(lg)
       await syncMontantHtProjet(lg)
       setShowAddLigne(false)
-      setFormLigne({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne' })
+      setFormLigne({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne', nature: 'negoce' })
     }
     setSavingLigne(false)
   }
@@ -534,7 +630,9 @@ export default function ProjetDetail() {
     const lotsData = lgData.filter(l => l.type === 'lot')
     const lignesData = lgData.filter(l => l.type === 'ligne')
     for (const lot of lotsData) {
-      const lgLot = lignesData.filter(l => l.lot === lot.numero)
+      // Options / variantes non retenues / texte n'entrent jamais dans le
+      // total du lot — voir ligneCompteDansTotal (lib/calculs.js).
+      const lgLot = lignesData.filter(l => l.lot === lot.numero && ligneCompteDansTotal(l))
       const newTotalHt = lgLot.reduce((s, l) => s + (l.total_ht || 0), 0)
       const newTotalAchat = lgLot.reduce((s, l) => s + (l.total_achat || 0), 0)
       await supabase.from('projet_lignes').update({ total_ht: newTotalHt, total_achat: newTotalAchat }).eq('id', lot.id)
@@ -719,6 +817,8 @@ export default function ProjetDetail() {
           coeff: l.coeff,
           fournisseur: l.fournisseur,
           ordre: l.ordre,
+          categorie_ligne: l.categorie_ligne,
+          variante_active: l.variante_active,
           projet_id: nouveauProjet.id,
         }))
         const { error: errLignes } = await supabase.from('projet_lignes').insert(nouvellesLignes)
@@ -1296,7 +1396,9 @@ export default function ProjetDetail() {
   // la saisie des commandes fournisseurs et factures clients : combien a-t-on
   // prévu au devis, combien est déjà engagé/facturé, combien reste-t-il ?
   // Voir les encarts "Budget" dans les formulaires Commandes / Factures clients.
-  const lignesSansLotGlobal = lignes.filter(l => l.type === 'ligne' && !l.lot)
+  // Options / variantes non retenues / texte n'entrent jamais dans les
+  // totaux prévisionnels — voir ligneCompteDansTotal (lib/calculs.js).
+  const lignesSansLotGlobal = lignes.filter(l => l.type === 'ligne' && !l.lot && ligneCompteDansTotal(l))
   const totalVenteGlobal = lots.reduce((s, l) => s + (l.total_ht || 0), 0) + lignesSansLotGlobal.reduce((s, l) => s + (l.total_ht || 0), 0)
   const totalAchatGlobal = lots.reduce((s, l) => s + (l.total_achat || 0), 0) + lignesSansLotGlobal.reduce((s, l) => s + (l.total_achat || 0), 0)
   // Une commande "Annulée" ne consomme pas le budget achat.
@@ -1793,6 +1895,13 @@ export default function ProjetDetail() {
                     <input type="number" value={formLigne.coeff} onChange={e => setFormLigne(p => ({ ...p, coeff: e.target.value }))} placeholder="1.30"
                       style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                   </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Nature</label>
+                    <select value={formLigne.nature} onChange={e => setFormLigne(p => ({ ...p, nature: e.target.value }))}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      {NATURE_LIGNE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
                 </div>
                 {/* Preview du prix vente */}
                 {formLigne.prix_achat_ht && formLigne.coeff && (
@@ -1850,8 +1959,9 @@ export default function ProjetDetail() {
             ) : (<>
               {/* Récap global */}
               {(() => {
-                // Inclure aussi les lignes sans lot
-                const lignesSansLot = (lignesParLot['sans'] || []).filter(l => l.type === 'ligne')
+                // Inclure aussi les lignes sans lot — hors Options / variantes
+                // non retenues / texte, voir ligneCompteDansTotal.
+                const lignesSansLot = (lignesParLot['sans'] || []).filter(l => l.type === 'ligne' && ligneCompteDansTotal(l))
                 const venteLotsOnly = lots.reduce((s, l) => s + (l.total_ht || 0), 0)
                 const achatLotsOnly = lots.reduce((s, l) => s + (l.total_achat || 0), 0)
                 const venteSansLot = lignesSansLot.reduce((s, l) => s + (l.total_ht || 0), 0)
@@ -1909,6 +2019,7 @@ export default function ProjetDetail() {
                         <th style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB', fontWeight: 600, width: 95 }}>P.U. Achat</th>
                         <th style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB', fontWeight: 600, width: 100 }}>Total Achat</th>
                         <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 80 }}>Mode</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 110 }}>Nature</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1918,7 +2029,7 @@ export default function ProjetDetail() {
                         if (l.type === 'titre') return (
                           <tr key={i} style={{ background: '#F1F5F9' }}>
                             <td style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
-                            <td colSpan={9} style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
+                            <td colSpan={10} style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
                           </tr>
                         )
                         const qte = parseFloat(getLigneVal(l, 'qte')) || 0
@@ -1927,8 +2038,10 @@ export default function ProjetDetail() {
                         const totalVente = qte * puVente
                         const totalAchat = qte * puAchat
                         const modeLocal = modeLignes[l.id] || 'ac'
+                        const nature = getNatureEff(l)
+                        const compteDansTotal = nature !== 'option' && nature !== 'texte' && nature !== 'variante_inactive'
                         return (
-                          <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                          <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : !compteDansTotal ? '#FAFAF9' : i % 2 === 0 ? '#fff' : '#FAFAFA', opacity: compteDansTotal ? 1 : 0.7 }}>
                             <td style={{ padding: '4px 6px', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
@@ -2001,6 +2114,12 @@ export default function ProjetDetail() {
                                 ))}
                               </div>
                             </td>
+                            <td style={{ padding: '4px 4px' }}>
+                              <select value={nature} onChange={e => editLigneNature(l.id, e.target.value)} title="Nature de la ligne — pilote si elle compte dans le total du devis"
+                                style={{ width: '100%', padding: '3px 4px', borderRadius: 4, border: '1px solid ' + (compteDansTotal ? '#E5E7EB' : '#FDE68A'), fontSize: 10, cursor: 'pointer', background: compteDansTotal ? '#fff' : '#FFFBEB', color: '#374151' }}>
+                                {NATURE_LIGNE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.shortLabel}</option>)}
+                              </select>
+                            </td>
                           </tr>
                         )
                       })}
@@ -2015,7 +2134,7 @@ export default function ProjetDetail() {
                   <div style={{ background: '#374151', color: '#fff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>Lignes sans lot</span>
                     <span style={{ fontSize: 12, color: '#D1FAE5' }}>
-                      Vente : {Number((lignesParLot['sans'] || []).reduce((s, l) => s + (l.total_ht || 0), 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                      Vente : {Number((lignesParLot['sans'] || []).filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </span>
                   </div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -2031,6 +2150,7 @@ export default function ProjetDetail() {
                         <th style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB', fontWeight: 600, width: 95 }}>P.U. Achat</th>
                         <th style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB', fontWeight: 600, width: 100 }}>Total Achat</th>
                         <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 80 }}>Mode</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 110 }}>Nature</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2041,7 +2161,7 @@ export default function ProjetDetail() {
                         if (l.type === 'titre') return (
                           <tr key={i} style={{ background: '#F1F5F9' }}>
                             <td style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
-                            <td colSpan={9} style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
+                            <td colSpan={10} style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
                           </tr>
                         )
                         const qte = parseFloat(getLigneVal(l, 'qte')) || 0
@@ -2049,9 +2169,11 @@ export default function ProjetDetail() {
                         const puAchat = parseFloat(getLigneVal(l, 'prix_achat_ht')) || 0
                         const totalVente = qte * puVente
                         const totalAchat = qte * puAchat
+                        const nature = getNatureEff(l)
+                        const compteDansTotal = nature !== 'option' && nature !== 'texte' && nature !== 'variante_inactive'
                         return (
                           <>
-                          <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                          <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : !compteDansTotal ? '#FAFAF9' : i % 2 === 0 ? '#fff' : '#FAFAFA', opacity: compteDansTotal ? 1 : 0.7 }}>
                             <td style={{ padding: '4px 6px', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
@@ -2098,6 +2220,12 @@ export default function ProjetDetail() {
                                   </button>
                                 ))}
                               </div>
+                            </td>
+                            <td style={{ padding: '4px 4px' }}>
+                              <select value={nature} onChange={e => editLigneNature(l.id, e.target.value)} title="Nature de la ligne — pilote si elle compte dans le total du devis"
+                                style={{ width: '100%', padding: '3px 4px', borderRadius: 4, border: '1px solid ' + (compteDansTotal ? '#E5E7EB' : '#FDE68A'), fontSize: 10, cursor: 'pointer', background: compteDansTotal ? '#fff' : '#FFFBEB', color: '#374151' }}>
+                                {NATURE_LIGNE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.shortLabel}</option>)}
+                              </select>
                             </td>
                           </tr>
                           </>
@@ -2730,8 +2858,9 @@ export default function ProjetDetail() {
         {/* ── RENTABILITÉ ── */}
         {tab === 'rentabilite' && (() => {
           // Calculs prévisionnels depuis les LOTS + les lignes sans lot
-          // (mêmes totaux que ceux affichés dans l'onglet Lignes)
-          const lignesSansLot = (lignesParLot['sans'] || []).filter(l => l.type === 'ligne')
+          // (mêmes totaux que ceux affichés dans l'onglet Lignes) — hors
+          // Options / variantes non retenues / texte, voir ligneCompteDansTotal.
+          const lignesSansLot = (lignesParLot['sans'] || []).filter(l => l.type === 'ligne' && ligneCompteDansTotal(l))
           const venteLotsOnly = lots.reduce((s, l) => s + (l.total_ht || 0), 0)
           const achatLotsOnly = lots.reduce((s, l) => s + (l.total_achat || 0), 0)
           const venteSansLot = lignesSansLot.reduce((s, l) => s + (l.total_ht || 0), 0)

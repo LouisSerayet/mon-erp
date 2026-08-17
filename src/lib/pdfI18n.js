@@ -48,6 +48,9 @@ export const L = {
     totalLot: numero => 'TOTAL LOT ' + numero,
     lot: numero => 'LOT ' + numero,
     lignesSansLot: 'LIGNES SANS LOT',
+    optionsProposees: 'OPTIONS PROPOSÉES',
+    optionsNote: 'Options facultatives, non incluses dans le total ci-dessus — à ajouter sur demande.',
+    totalOptions: 'TOTAL OPTIONS',
     objetCommande: 'Objet de la commande',
     // Mention obligatoire quand une commande est en autoliquidation de TVA
     // (sous-traitance BTP) — le fournisseur facture hors taxe, Partenaires
@@ -126,6 +129,9 @@ export const L = {
     totalLot: numero => 'TOTAL SECTION ' + numero,
     lot: numero => 'SECTION ' + numero,
     lignesSansLot: 'UNGROUPED ITEMS',
+    optionsProposees: 'PROPOSED OPTIONS',
+    optionsNote: 'Optional items, not included in the total above — available on request.',
+    totalOptions: 'TOTAL OPTIONS',
     objetCommande: 'Purchase order details',
     mentionAutoliquidation: 'Reverse charge — VAT due by the customer (Article 283 of the French General Tax Code).',
     statutLabel: 'Status: ',
