@@ -84,6 +84,19 @@ export function ligneCompteDansTotal(l) {
   return true
 }
 
+// Lit la colonne "Nature" d'un import Excel (voir parseExcel dans
+// ProjetDetail.jsx et le gabarit d'import) : reconnaît le texte du libellé
+// affiché dans le sélecteur de l'app (insensible à la casse/aux espaces), et
+// retombe sur "Négoce" pour toute cellule vide ou non reconnue — un import
+// ne doit jamais échouer à cause d'une colonne Nature mal remplie ou absente
+// (fichiers construits avant l'ajout de cette colonne).
+export function natureLigneDepuisTexte(texte) {
+  const normalise = String(texte || '').trim().toLowerCase()
+  if (!normalise) return 'negoce'
+  const trouve = NATURE_LIGNE_OPTIONS.find(o => o.shortLabel.toLowerCase() === normalise)
+  return trouve ? trouve.value : 'negoce'
+}
+
 // Marge brute et taux de marge, utilisés sur le Dashboard et l'onglet
 // Rentabilité d'un projet. Centralisé ici pour que les deux ne divergent
 // jamais silencieusement.

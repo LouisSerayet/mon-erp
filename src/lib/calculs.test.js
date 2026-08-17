@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal } from './calculs'
+import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte } from './calculs'
 
 describe('calculerLigne', () => {
   const ligneBase = { qte: 2, prix_achat_ht: 100, prix_unit_ht: 130, coeff: 1.3 }
@@ -129,5 +129,27 @@ describe('ligneCompteDansTotal', () => {
     expect(ligneCompteDansTotal({ categorie_ligne: 'variante', variante_active: true })).toBe(true)
     expect(ligneCompteDansTotal({ categorie_ligne: 'variante' })).toBe(true) // undefined -> considérée active
     expect(ligneCompteDansTotal({ categorie_ligne: 'variante', variante_active: false })).toBe(false)
+  })
+})
+
+describe('natureLigneDepuisTexte (colonne "Nature" de l\'import Excel)', () => {
+  it('reconnaît chaque libellé exact du sélecteur', () => {
+    expect(natureLigneDepuisTexte('Négoce')).toBe('negoce')
+    expect(natureLigneDepuisTexte('Option')).toBe('option')
+    expect(natureLigneDepuisTexte('Variante retenue')).toBe('variante_active')
+    expect(natureLigneDepuisTexte('Variante alt.')).toBe('variante_inactive')
+    expect(natureLigneDepuisTexte('Texte')).toBe('texte')
+  })
+
+  it('est insensible à la casse et aux espaces superflus', () => {
+    expect(natureLigneDepuisTexte('  option  ')).toBe('option')
+    expect(natureLigneDepuisTexte('NÉGOCE')).toBe('negoce')
+  })
+
+  it('retombe sur "negoce" si vide, absent ou non reconnu — un import ne doit jamais échouer pour ça', () => {
+    expect(natureLigneDepuisTexte('')).toBe('negoce')
+    expect(natureLigneDepuisTexte(undefined)).toBe('negoce')
+    expect(natureLigneDepuisTexte(null)).toBe('negoce')
+    expect(natureLigneDepuisTexte('n\'importe quoi')).toBe('negoce')
   })
 })

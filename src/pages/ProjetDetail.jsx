@@ -6,7 +6,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
-import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, NATURE_LIGNE_OPTIONS } from '../lib/calculs'
+import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS } from '../lib/calculs'
 import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
@@ -751,13 +751,19 @@ export default function ProjetDetail() {
             const prixAchat = parseFloat(r[8]) || 0
             const totalAchat = parseFloat(r[9]) || 0
             const fournisseur = String(r[10] || '').trim()
+            // Colonne "Nature" (12e, optionnelle) — Négoce / Option / Variante
+            // retenue / Variante alt. / Texte, voir NATURE_LIGNE_OPTIONS. Un
+            // fichier construit avant l'ajout de cette colonne (ou une
+            // cellule vide/mal orthographiée) retombe sur "Négoce", comme
+            // avant — l'import ne casse jamais pour ça.
+            const { categorie_ligne: categorieLigne, variante_active: varianteActive } = natureLigneVersChamps(natureLigneDepuisTexte(r[11]))
             if (!num && !categorie && !descriptif) continue
             if (descriptif.toLowerCase() === 'total' && totalPrixUnit > 0) { totalGeneral = totalPrixUnit; continue }
             const isLot = /^\d+$/.test(num) && categorie && totalPrixUnit > 0
             if (isLot) { currentLot = num; lignes.push({ type: 'lot', numero: num, categorie, descriptif, total_ht: totalPrixUnit, total_achat: totalAchat, coeff }); continue }
             const isTitre = num && !categorie && !unite && qte === 0 && prixUnit === 0 && descriptif
             if (isTitre) { lignes.push({ type: 'titre', numero: num, descriptif, lot: currentLot }); continue }
-            if (num || descriptif) lignes.push({ type: 'ligne', numero: num, lot: currentLot, descriptif, unite, qte, prix_unit_ht: prixUnit, total_ht: totalPrixUnit, coeff, prix_achat_ht: prixAchat, total_achat: totalAchat, fournisseur })
+            if (num || descriptif) lignes.push({ type: 'ligne', numero: num, lot: currentLot, descriptif, unite, qte, prix_unit_ht: prixUnit, total_ht: totalPrixUnit, coeff, prix_achat_ht: prixAchat, total_achat: totalAchat, fournisseur, categorie_ligne: categorieLigne, variante_active: varianteActive })
           }
           resolve({ lignes, totalGeneral })
         } catch (err) { reject(err) }
@@ -777,12 +783,36 @@ export default function ProjetDetail() {
       const toInsert = parsed.map((l, idx) => ({ ...l, projet_id: id, ordre: idx }))
       const { error } = await supabase.from('projet_lignes').insert(toInsert)
       if (error) throw error
+
+      // Recalcule le total de chaque lot à partir de ses lignes réellement
+      // comptées (hors Options / variantes non retenues / texte) : la
+      // formule Excel qui a produit le total_ht importé du lot ne connaît
+      // pas la colonne "Nature" et somme toutes les lignes sans distinction
+      // — voir ligneCompteDansTotal (lib/calculs.js).
+      const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+      const lgApresImport = lg || []
+      const lotsImportes = lgApresImport.filter(l => l.type === 'lot')
+      const lignesImportees = lgApresImport.filter(l => l.type === 'ligne')
+      for (const lot of lotsImportes) {
+        const lgLot = lignesImportees.filter(l => l.lot === lot.numero && ligneCompteDansTotal(l))
+        const newTotalHt = lgLot.reduce((s, l) => s + (l.total_ht || 0), 0)
+        const newTotalAchat = lgLot.reduce((s, l) => s + (l.total_achat || 0), 0)
+        if (newTotalHt !== lot.total_ht || newTotalAchat !== lot.total_achat) {
+          await supabase.from('projet_lignes').update({ total_ht: newTotalHt, total_achat: newTotalAchat }).eq('id', lot.id)
+        }
+      }
+      const { data: lgFinal } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+      setLignes(lgFinal || [])
+
+      // Total général du projet : priorité à une ligne "TOTAL" explicite de
+      // l'Excel (override volontaire), sinon recalculé à partir des lots et
+      // lignes sans lot fraîchement importés (hors Options, etc.)
       if (totalGeneral > 0) {
         await supabase.from('projets').update({ montant_ht: totalGeneral }).eq('id', id)
         setProjet(prev => ({ ...prev, montant_ht: totalGeneral }))
+      } else {
+        await syncMontantHtProjet(lgFinal || [])
       }
-      const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
-      setLignes(lg || [])
     } catch (err) { setImportError("Erreur import : " + err.message) }
     setImporting(false); e.target.value = ''
   }
