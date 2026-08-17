@@ -590,6 +590,8 @@ export default function ProjetDetail() {
       total_ht: 0,
       total_achat: 0,
       ordre: maxOrdre + 1,
+      categorie_ligne: 'negoce',
+      variante_active: true,
     }])
     if (error) { setLotError(error.message); setSavingLot(false); return }
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
@@ -760,9 +762,13 @@ export default function ProjetDetail() {
             if (!num && !categorie && !descriptif) continue
             if (descriptif.toLowerCase() === 'total' && totalPrixUnit > 0) { totalGeneral = totalPrixUnit; continue }
             const isLot = /^\d+$/.test(num) && categorie && totalPrixUnit > 0
-            if (isLot) { currentLot = num; lignes.push({ type: 'lot', numero: num, categorie, descriptif, total_ht: totalPrixUnit, total_achat: totalAchat, coeff }); continue }
+            // categorie_ligne/variante_active sont explicitement fournis même pour
+            // lot/titre (qui n'utilisent pas la Nature) : la colonne est NOT NULL
+            // en base, mieux vaut ne jamais dépendre du DEFAULT de la migration
+            // pour que l'import ne casse jamais sur ces lignes.
+            if (isLot) { currentLot = num; lignes.push({ type: 'lot', numero: num, categorie, descriptif, total_ht: totalPrixUnit, total_achat: totalAchat, coeff, categorie_ligne: 'negoce', variante_active: true }); continue }
             const isTitre = num && !categorie && !unite && qte === 0 && prixUnit === 0 && descriptif
-            if (isTitre) { lignes.push({ type: 'titre', numero: num, descriptif, lot: currentLot }); continue }
+            if (isTitre) { lignes.push({ type: 'titre', numero: num, descriptif, lot: currentLot, categorie_ligne: 'negoce', variante_active: true }); continue }
             if (num || descriptif) lignes.push({ type: 'ligne', numero: num, lot: currentLot, descriptif, unite, qte, prix_unit_ht: prixUnit, total_ht: totalPrixUnit, coeff, prix_achat_ht: prixAchat, total_achat: totalAchat, fournisseur, categorie_ligne: categorieLigne, variante_active: varianteActive })
           }
           resolve({ lignes, totalGeneral })
