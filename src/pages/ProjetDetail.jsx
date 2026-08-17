@@ -239,7 +239,12 @@ export default function ProjetDetail() {
     // ── PAGES DÉTAIL PAR LOT ─────────────────────────────────
     for (const lot of lotsData) {
       const lgLot = lignesParLot[lot.numero] || []
-      if (!lgLot.length) continue
+      // Un lot qui ne contient (encore) que des Options — ou des variantes
+      // non retenues — n'a rien à montrer sur sa propre page : ses Options
+      // apparaissent quand même, mais regroupées dans la section "Options
+      // proposées" plus bas (avec le repère du lot d'origine).
+      const lignesReellesLot = lgLot.filter(l => l.type === 'ligne' && l.categorie_ligne !== 'option' && !(l.categorie_ligne === 'variante' && l.variante_active === false))
+      if (!lignesReellesLot.length) continue
       doc.addPage()
 
       // Header lot
@@ -380,16 +385,33 @@ export default function ProjetDetail() {
       doc.text(t.optionsNote, 14, 15)
       doc.setTextColor(30, 41, 59)
 
-      const bodyOptions = lignesOptions
-        .filter(l => l.total_ht > 0 || l.prix_unit_ht > 0 || l.qte > 0)
-        .map(l => [
-          l.numero || '',
-          l.descriptif || '',
-          l.unite || '',
-          l.qte > 0 ? String(l.qte) : '',
-          l.prix_unit_ht > 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
-          l.total_ht > 0 ? fmtMontant(l.total_ht, lang) : '',
-        ])
+      // Regroupées par lot d'origine (un sous-en-tête "LOT X — Catégorie"
+      // par groupe, même si ce lot n'a pas sa propre page détail ci-dessus)
+      // pour rester compréhensible — sinon une longue liste d'options sans
+      // repère ne dit plus à quoi elles se rattachent.
+      const ligneOptionVersRow = l => ([
+        l.numero || '',
+        l.descriptif || '',
+        l.unite || '',
+        l.qte > 0 ? String(l.qte) : '',
+        l.prix_unit_ht > 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
+        l.total_ht > 0 ? fmtMontant(l.total_ht, lang) : '',
+      ])
+      const enteteGroupe = libelle => ([{ content: libelle.toUpperCase(), colSpan: 6,
+        styles: { fontStyle: 'bold', fillColor: [254, 243, 199], textColor: [120, 80, 0], fontSize: 7 } }])
+
+      const bodyOptions = []
+      for (const lot of lotsData) {
+        const optsDuLot = lignesOptions.filter(l => l.lot === lot.numero && (l.total_ht > 0 || l.prix_unit_ht > 0 || l.qte > 0))
+        if (!optsDuLot.length) continue
+        bodyOptions.push(enteteGroupe(t.lot(lot.numero) + ' — ' + (lot.categorie || '')))
+        for (const l of optsDuLot) bodyOptions.push(ligneOptionVersRow(l))
+      }
+      const optsSansLot = lignesOptions.filter(l => !l.lot && (l.total_ht > 0 || l.prix_unit_ht > 0 || l.qte > 0))
+      if (optsSansLot.length) {
+        bodyOptions.push(enteteGroupe(t.lignesSansLot))
+        for (const l of optsSansLot) bodyOptions.push(ligneOptionVersRow(l))
+      }
 
       autoTable(doc, {
         startY: 20,
