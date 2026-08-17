@@ -35,6 +35,7 @@ export default function Depenses() {
   const [form, setForm] = useState(FORM_VIDE)
   const [fichier, setFichier] = useState(null)
   const [error, setError] = useState('')
+  const [savingDepense, setSavingDepense] = useState(false) // garde-fou anti double-clic
   const [editees, setEditees] = useState({}) // édition inline { [id]: {champ: valeur} }
   const [search, setSearch] = useState('')
   const [filtreCategorie, setFiltreCategorie] = useState('Toutes')
@@ -58,6 +59,7 @@ export default function Depenses() {
   }
 
   async function creerDepense() {
+    if (savingDepense) return
     setError('')
     if (!form.libelle.trim()) { setError('Le libellé est obligatoire.'); return }
     // Sans date de facture, la dépense n'apparaît dans aucune période du
@@ -65,6 +67,7 @@ export default function Depenses() {
     // silencieusement invisible dans les totaux même si elle est bien là
     // dans cette liste.
     if (!form.date_facture) { setError('La date de facture est obligatoire (sinon la dépense n\'apparaît pas dans le Compte de résultat).'); return }
+    setSavingDepense(true)
     const { data: inserted, error: err } = await supabase.from('depenses_generales').insert([{
       ...form,
       montant_ht: parseFloat(form.montant_ht) || 0,
@@ -72,7 +75,7 @@ export default function Depenses() {
       date_facture: form.date_facture || null,
       date_echeance: form.date_echeance || null,
     }]).select().single()
-    if (err) { setError(err.message); return }
+    if (err) { setError(err.message); setSavingDepense(false); return }
 
     if (fichier && inserted) {
       const fileName = 'depense_' + inserted.id + '_' + fichier.name.replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -82,6 +85,7 @@ export default function Depenses() {
     }
 
     setShowForm(false); setForm(FORM_VIDE); setFichier(null)
+    setSavingDepense(false)
     fetchAll()
   }
 
@@ -149,10 +153,19 @@ export default function Depenses() {
       const ouvertes = depenses.filter(d => d.statut !== 'Payée')
       const resultats = rapprocherFactures(ouvertes, transactions, 'debit', exclues)
       const exactes = resultats.filter(r => r.confiance === 'exact')
-      for (const match of exactes) await appliquerRapprochement(supabase, 'depenses_generales', match)
+      // appliquerRapprochement peut renvoyer une erreur (ex. policy RLS qui
+      // bloque silencieusement la mise à jour) — jusqu'ici ignorée ici, la
+      // dépense disparaissait de la liste "à vérifier" comme si tout
+      // s'était bien passé alors que rien n'avait été enregistré.
+      let echecs = 0
+      for (const match of exactes) {
+        const { error: errMatch } = await appliquerRapprochement(supabase, 'depenses_generales', match)
+        if (errMatch) echecs++
+      }
       const idsAppliques = new Set(exactes.map(r => r.facture.id))
       setSuggestions(resultats.filter(r => r.confiance === 'montant' && !idsAppliques.has(r.facture.id)))
       if (exactes.length > 0) fetchAll()
+      if (echecs > 0) setRapprochementError(echecs + ' correspondance(s) trouvée(s) mais non enregistrée(s) — la migration sql/qonto_migration.sql a-t-elle été exécutée dans Supabase ?')
     } catch (err) {
       setRapprochementError(err.message)
     }
@@ -318,8 +331,8 @@ export default function Depenses() {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShowForm(false); setError(''); setForm(FORM_VIDE); setFichier(null) }}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-              <button onClick={creerDepense}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Créer</button>
+              <button onClick={creerDepense} disabled={savingDepense}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingDepense ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingDepense ? 0.7 : 1 }}>{savingDepense ? 'Création...' : 'Créer'}</button>
             </div>
           </div>
         </div>

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate } from 'react-router-dom'
-import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
@@ -93,6 +92,7 @@ export default function ProjetDetail() {
   const [dupliquerBusy, setDupliquerBusy] = useState(false) // duplication du projet (devis + lignes) en cours
   const [lotsReduits, setLotsReduits] = useState({}) // { [lotNumero]: true/false }
   const [showAddLigne, setShowAddLigne] = useState(false)
+  const [ligneError, setLigneError] = useState('')
   const [showAddLot, setShowAddLot] = useState(false)
   const [formLot, setFormLot] = useState({ numero: '', categorie: '', descriptif: '' })
   const [savingLot, setSavingLot] = useState(false)
@@ -105,6 +105,15 @@ export default function ProjetDetail() {
   const [formLigne, setFormLigne] = useState({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne', nature: 'negoce' })
   const [savingLigne, setSavingLigne] = useState(false)
   const [modeLignes, setModeLignes] = useState({}) // { [ligneId]: 'ac' | 'vc' | 'av' }
+  // Garde-fous anti double-clic : sans ça, un clic rapide en double (ou un
+  // double-tap mobile) pendant l'aller-retour réseau peut créer deux
+  // commandes/factures pour une seule saisie — pour une facture client,
+  // ça consomme même deux numéros de facture réels (next_facture_numero)
+  // pour une seule facture voulue, ce qui n'est pas anodin (numérotation
+  // légale, pas de "renumérotation" propre possible après coup).
+  const [savingCmd, setSavingCmd] = useState(false)
+  const [savingFactureFrs, setSavingFactureFrs] = useState(false)
+  const [savingFactureCli, setSavingFactureCli] = useState(false)
 
   // Nature effective d'une ligne (negoce/option/variante_active/
   // variante_inactive/texte), en tenant compte d'une édition non encore
@@ -533,6 +542,7 @@ export default function ProjetDetail() {
 
   async function ajouterLigne() {
     if (!formLigne.descriptif.trim()) return
+    setLigneError('')
     setSavingLigne(true)
     const qte = parseFloat(formLigne.qte) || 0
     const prixAchat = parseFloat(formLigne.prix_achat_ht) || 0
@@ -565,6 +575,12 @@ export default function ProjetDetail() {
       await syncMontantHtProjet(lg)
       setShowAddLigne(false)
       setFormLigne({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne', nature: 'negoce' })
+    } else {
+      // Avant ce correctif, une erreur ici (ex. colonne manquante si
+      // categorie_ligne_migration.sql n'a pas été exécuté) refermait
+      // silencieusement le formulaire sans rien ajouter ni expliquer
+      // pourquoi — voir ajouterLot/lotError pour le même principe.
+      setLigneError(error.message)
     }
     setSavingLigne(false)
   }
@@ -729,7 +745,13 @@ export default function ProjetDetail() {
   }
 
   // ── Import Excel lignes ───────────────────────────────────────
-  function parseExcel(file) {
+  // XLSX (~420kB) est chargé à la demande, seulement quand l'utilisateur
+  // importe vraiment un fichier Excel — plutôt que sur chaque ouverture de
+  // page projet (voir aussi jsPDF, importé statiquement plus haut : lui
+  // reste statique car utilisé sur la quasi-totalité des visites de cette
+  // page, contrairement à l'import Excel qui est occasionnel).
+  async function parseExcel(file) {
+    const XLSX = await import('xlsx')
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = (e) => {
@@ -785,7 +807,14 @@ export default function ProjetDetail() {
     setImporting(true); setImportError('')
     try {
       const { lignes: parsed, totalGeneral } = await parseExcel(file)
-      await supabase.from('projet_lignes').delete().eq('projet_id', id)
+      // Le résultat de ce delete était jusqu'ici ignoré : si jamais il
+      // échouait (erreur réseau, contrainte...), l'import continuait quand
+      // même et insérait les nouvelles lignes par-dessus les anciennes —
+      // doublant silencieusement tous les totaux du projet. On vérifie
+      // maintenant l'erreur avant de poursuivre, comme pour l'insert juste
+      // en dessous.
+      const { error: errDelete } = await supabase.from('projet_lignes').delete().eq('projet_id', id)
+      if (errDelete) throw errDelete
       const toInsert = parsed.map((l, idx) => ({ ...l, projet_id: id, ordre: idx }))
       const { error } = await supabase.from('projet_lignes').insert(toInsert)
       if (error) throw error
@@ -914,8 +943,10 @@ export default function ProjetDetail() {
   }
 
   async function ajouterCommande() {
+    if (savingCmd) return
     setError('')
     if (!formCmd.description.trim()) { setError('La description est obligatoire.'); return }
+    setSavingCmd(true)
     const numeroAuto = formCmd.numero || genNumeroCommande(projet, commandes)
     const { error } = await supabase.from('commandes').insert([{
       ...formCmd,
@@ -925,11 +956,12 @@ export default function ProjetDetail() {
       fournisseur_id: formCmd.fournisseur_id || null,
       date_commande: formCmd.date_commande || new Date().toISOString().split('T')[0]
     }])
-    if (error) { setError(error.message); return }
+    if (error) { setError(error.message); setSavingCmd(false); return }
     setShowForm(false)
     setFormCmd({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
     const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setCommandes(data || [])
+    setSavingCmd(false)
   }
 
   async function saveCmd(cmdId) {
@@ -1186,10 +1218,12 @@ export default function ProjetDetail() {
   }
 
   async function ajouterFactureFrs() {
+    if (savingFactureFrs) return
     setError('')
     if (!formFfrs.numero.trim()) { setError('Le numéro est obligatoire.'); return }
+    setSavingFactureFrs(true)
     const { data: inserted, error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null }]).select().single()
-    if (error) { setError(error.message); return }
+    if (error) { setError(error.message); setSavingFactureFrs(false); return }
 
     // Si un PDF a été joint, on l'archive dans le stockage du projet — ce
     // fichier servira aussi de justificatif lors de l'envoi vers Pennylane.
@@ -1205,6 +1239,7 @@ export default function ProjetDetail() {
     setShowForm(false); setFormFfrs({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' }); setFileFfrs(null)
     const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesFrs(data || [])
+    setSavingFactureFrs(false)
   }
 
   // ── Pennylane : envoi / synchro des factures ──────────────────
@@ -1295,13 +1330,23 @@ export default function ProjetDetail() {
       const ouvertes = facturesCli.filter(f => f.statut !== 'Payée')
       const resultats = rapprocherFactures(ouvertes, transactions, 'credit', exclues)
       const exactes = resultats.filter(r => r.confiance === 'exact')
-      for (const match of exactes) await appliquerRapprochement(supabase, 'factures_cli', match)
+      // appliquerRapprochement peut renvoyer une erreur (ex. policy RLS qui
+      // bloque silencieusement la mise à jour) — jusqu'ici ignorée ici, la
+      // facture disparaissait de la liste "à vérifier" comme si tout s'était
+      // bien passé alors que rien n'avait été enregistré. Voir le même
+      // correctif sur la page globale Rapprochement.jsx.
+      let echecs = 0
+      for (const match of exactes) {
+        const { error: errMatch } = await appliquerRapprochement(supabase, 'factures_cli', match)
+        if (errMatch) echecs++
+      }
       const idsAppliques = new Set(exactes.map(r => r.facture.id))
       setSuggestionsQontoCli(resultats.filter(r => r.confiance === 'montant' && !idsAppliques.has(r.facture.id)))
       if (exactes.length > 0) {
         const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
         setFacturesCli(data || [])
       }
+      if (echecs > 0) setRapprochementError(echecs + ' correspondance(s) trouvée(s) mais non enregistrée(s) — la migration sql/qonto_migration.sql a-t-elle été exécutée dans Supabase ?')
     } catch (err) {
       setRapprochementError(err.message)
     }
@@ -1315,13 +1360,18 @@ export default function ProjetDetail() {
       const ouvertes = facturesFrs.filter(f => f.statut !== 'Payée')
       const resultats = rapprocherFactures(ouvertes, transactions, 'debit', exclues)
       const exactes = resultats.filter(r => r.confiance === 'exact')
-      for (const match of exactes) await appliquerRapprochement(supabase, 'factures_frs', match)
+      let echecs = 0
+      for (const match of exactes) {
+        const { error: errMatch } = await appliquerRapprochement(supabase, 'factures_frs', match)
+        if (errMatch) echecs++
+      }
       const idsAppliques = new Set(exactes.map(r => r.facture.id))
       setSuggestionsQontoFrs(resultats.filter(r => r.confiance === 'montant' && !idsAppliques.has(r.facture.id)))
       if (exactes.length > 0) {
         const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
         setFacturesFrs(data || [])
       }
+      if (echecs > 0) setRapprochementError(echecs + ' correspondance(s) trouvée(s) mais non enregistrée(s) — la migration sql/qonto_migration.sql a-t-elle été exécutée dans Supabase ?')
     } catch (err) {
       setRapprochementError(err.message)
     }
@@ -1347,18 +1397,26 @@ export default function ProjetDetail() {
   }
 
   async function ajouterFactureCli() {
+    // Double-clic/double-tap pendant l'aller-retour réseau = deux appels à
+    // next_facture_numero() pour une seule facture voulue par l'utilisateur
+    // : la numérotation légale est séquentielle et non modifiable, donc ce
+    // n'est pas juste "une ligne en trop facile à supprimer", le numéro
+    // sauté reste un trou dans la séquence. D'où le garde-fou ci-dessous.
+    if (savingFactureCli) return
     setError('')
+    setSavingFactureCli(true)
     // Le numéro n'est plus saisi à la main : la loi impose une suite
     // séquentielle et non modifiable pour les factures émises, donc il est
     // généré côté base de données (fonction next_facture_numero(), voir
     // sql/05_numerotation_factures.sql) au moment de la création.
     const { data: numeroGenere, error: errNumero } = await supabase.rpc('next_facture_numero')
-    if (errNumero) { setError('Impossible de générer le numéro de facture : ' + errNumero.message); return }
+    if (errNumero) { setError('Impossible de générer le numéro de facture : ' + errNumero.message); setSavingFactureCli(false); return }
     const { error } = await supabase.from('factures_cli').insert([{ ...formFcli, numero: numeroGenere, projet_id: id, client_id: projet?.client_id || null, montant_ht: parseFloat(formFcli.montant_ht) || 0 }])
-    if (error) { setError(error.message); return }
+    if (error) { setError(error.message); setSavingFactureCli(false); return }
     setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' }); setFormFcliPct('')
     const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
+    setSavingFactureCli(false)
   }
 
   // ── Édition inline factures clients / fournisseurs ─────────────
@@ -1918,6 +1976,7 @@ export default function ProjetDetail() {
             {showAddLigne && (
               <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, padding: 20, marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle ligne</h4>
+                {ligneError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{ligneError}</div>}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                   <div>
                     <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° Lot</label>
@@ -2438,7 +2497,7 @@ export default function ProjetDetail() {
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => { setShowForm(false); setError(''); setShowLignesSelector(false) }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                  <button onClick={ajouterCommande} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Créer la commande</button>
+                  <button onClick={ajouterCommande} disabled={savingCmd} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingCmd ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingCmd ? 0.7 : 1 }}>{savingCmd ? 'Création...' : 'Créer la commande'}</button>
                 </div>
               </div>
             )}
@@ -2642,7 +2701,7 @@ export default function ProjetDetail() {
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => { setShowForm(false); setError(''); setFileFfrs(null) }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                  <button onClick={ajouterFactureFrs} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Ajouter</button>
+                  <button onClick={ajouterFactureFrs} disabled={savingFactureFrs} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', cursor: savingFactureFrs ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingFactureFrs ? 0.7 : 1 }}>{savingFactureFrs ? 'Ajout...' : 'Ajouter'}</button>
                 </div>
               </div>
             )}
@@ -2825,7 +2884,7 @@ export default function ProjetDetail() {
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => { setShowForm(false); setError('') }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                  <button onClick={ajouterFactureCli} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Ajouter</button>
+                  <button onClick={ajouterFactureCli} disabled={savingFactureCli} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', cursor: savingFactureCli ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingFactureCli ? 0.7 : 1 }}>{savingFactureCli ? 'Ajout...' : 'Ajouter'}</button>
                 </div>
               </div>
             )}

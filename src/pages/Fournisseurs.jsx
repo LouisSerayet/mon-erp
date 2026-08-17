@@ -17,6 +17,7 @@ export default function Fournisseurs() {
   const [commandes, setCommandes] = useState([])
   const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
   const [error, setError] = useState('')
+  const [savingFournisseur, setSavingFournisseur] = useState(false) // garde-fou anti double-clic
   // true = le champ Métier est en saisie libre (nouveau métier hors liste),
   // false = choix dans la liste déroulante existante.
   const [metierLibre, setMetierLibre] = useState(false)
@@ -44,21 +45,24 @@ export default function Fournisseurs() {
   }
 
   async function sauvegarderFournisseur() {
+    if (savingFournisseur) return
     setError('')
     if (!form.nom.trim()) { setError('Le nom est obligatoire.'); return }
+    setSavingFournisseur(true)
     if (editingId) {
       const { data, error } = await supabase.from('fournisseurs').update({ ...form }).eq('id', editingId).select().single()
-      if (error) { setError('Erreur : ' + error.message); return }
+      if (error) { setError('Erreur : ' + error.message); setSavingFournisseur(false); return }
       setShowForm(false); setEditingId(null); setForm(FORM_VIDE)
       setFournisseurOuvert(data) // rafraîchit la vue détail sans repasser par la liste
       fetchFournisseurs()
     } else {
       const { error } = await supabase.from('fournisseurs').insert([{ ...form }])
-      if (error) { setError('Erreur : ' + error.message); return }
+      if (error) { setError('Erreur : ' + error.message); setSavingFournisseur(false); return }
       setShowForm(false)
       setForm(FORM_VIDE)
       fetchFournisseurs()
     }
+    setSavingFournisseur(false)
   }
 
   function ouvrirEdition(f) {
@@ -134,8 +138,8 @@ export default function Fournisseurs() {
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={() => { setShowForm(false); setEditingId(null); setError(''); setForm(FORM_VIDE); setMetierLibre(false) }}
             style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-          <button onClick={sauvegarderFournisseur}
-            style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>{editingId ? 'Enregistrer' : 'Créer'}</button>
+          <button onClick={sauvegarderFournisseur} disabled={savingFournisseur}
+            style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingFournisseur ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingFournisseur ? 0.7 : 1 }}>{savingFournisseur ? 'Enregistrement...' : (editingId ? 'Enregistrer' : 'Créer')}</button>
         </div>
       </div>
     </div>

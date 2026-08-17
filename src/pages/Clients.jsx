@@ -17,6 +17,7 @@ export default function Clients() {
   const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', adresse: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
   const [formEdit, setFormEdit] = useState({})
   const [error, setError] = useState('')
+  const [savingClient, setSavingClient] = useState(false) // garde-fou anti double-clic
   const navigate = useNavigate()
 
   useEffect(() => { fetchClients() }, [])
@@ -36,13 +37,16 @@ export default function Clients() {
   }
 
   async function creerClient() {
+    if (savingClient) return
     setError('')
     if (!form.nom.trim()) { setError('Le nom est obligatoire.'); return }
+    setSavingClient(true)
     const { data, error } = await supabase.from('clients').insert([{ ...form }]).select().single()
-    if (error) { setError('Erreur : ' + error.message); return }
+    if (error) { setError('Erreur : ' + error.message); setSavingClient(false); return }
     setShowForm(false)
     setForm({ nom: '', contact: '', email: '', telephone: '', adresse: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
     await fetchClients()
+    setSavingClient(false)
     ouvrirClient(data)
   }
 
@@ -237,8 +241,8 @@ export default function Clients() {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
               <button onClick={() => { setShowForm(false); setError('') }}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-              <button onClick={creerClient}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Créer</button>
+              <button onClick={creerClient} disabled={savingClient}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingClient ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingClient ? 0.7 : 1 }}>{savingClient ? 'Création...' : 'Créer'}</button>
             </div>
           </div>
         </div>

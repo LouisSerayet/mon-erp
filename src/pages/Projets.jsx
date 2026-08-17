@@ -28,6 +28,7 @@ export default function Projets() {
   const [clients, setClients] = useState([])
   const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
   const [error, setError] = useState('')
+  const [savingProjet, setSavingProjet] = useState(false) // garde-fou anti double-clic
   const navigate = useNavigate()
   const isMobile = useIsMobile()
 
@@ -45,8 +46,10 @@ export default function Projets() {
   }
 
   async function creerProjet() {
+    if (savingProjet) return
     setError('')
     if (!form.nom.trim()) { setError('Le nom est obligatoire.'); return }
+    setSavingProjet(true)
     const { data, error } = await supabase.from('projets').insert([{
       nom: form.nom.trim(),
       client_id: form.client_id || null,
@@ -57,12 +60,13 @@ export default function Projets() {
       notes: form.notes,
       montant_ht: 0,
     }]).select().single()
-    if (error) { setError('Erreur : ' + error.message); return }
+    if (error) { setError('Erreur : ' + error.message); setSavingProjet(false); return }
     setShowForm(false)
     // Remis à la même valeur que l'état initial ('Brouillon') — avant, ce
     // reset mettait 'En cours', donc un 2e projet créé juste après le 1er
     // démarrait silencieusement avec le mauvais statut par défaut.
     setForm({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
+    setSavingProjet(false)
     navigate('/projets/' + data.id)
   }
 
@@ -172,8 +176,8 @@ export default function Projets() {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShowForm(false); setError('') }}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-              <button onClick={creerProjet}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Créer</button>
+              <button onClick={creerProjet} disabled={savingProjet}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingProjet ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingProjet ? 0.7 : 1 }}>{savingProjet ? 'Création...' : 'Créer'}</button>
             </div>
           </div>
         </div>
