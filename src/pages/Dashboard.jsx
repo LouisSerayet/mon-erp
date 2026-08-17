@@ -97,7 +97,7 @@ export default function Dashboard() {
       margeGlobale,
       tauxMarge: tauxMargeGlobale,
     })
-    setProjets(projetsData.filter(p => p.statut !== 'Clôturé').slice(0, 6))
+    setProjets(projetsData.filter(p => p.statut !== 'Clôturé' && p.statut !== 'Perdu').slice(0, 6))
     setCmdEnAttente(cmdData.slice(0, 5))
     setFacturesFrsAPayer(ffrsData.slice(0, 5))
     setFacturesCliAEncaisser(fcliData.slice(0, 5))
@@ -167,9 +167,13 @@ export default function Dashboard() {
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Chargement...</div>
 
   const STATUT_STYLE = {
+    'Brouillon': { bg: '#F3F4F6', color: '#6B7280' },
+    'Devis envoyé': { bg: '#FFF7ED', color: '#EA580C' },
+    'Devis signé': { bg: '#F5F3FF', color: '#7C3AED' },
     'En cours': { bg: '#EFF6FF', color: '#2563EB' },
     'Finalisation': { bg: '#FFF7ED', color: '#EA580C' },
     'Clôturé': { bg: '#F0FDF4', color: '#059669' },
+    'Perdu': { bg: '#FEF2F2', color: '#DC2626' },
   }
 
   return (

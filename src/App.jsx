@@ -13,7 +13,6 @@ import Login from './pages/Login'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Projets = lazy(() => import('./pages/Projets'))
 const ProjetDetail = lazy(() => import('./pages/ProjetDetail'))
-const Devis = lazy(() => import('./pages/Devis'))
 const Clients = lazy(() => import('./pages/Clients'))
 const Fournisseurs = lazy(() => import('./pages/Fournisseurs'))
 const Depenses = lazy(() => import('./pages/Depenses'))
@@ -54,7 +53,10 @@ function Gate() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="projets" element={<Projets />} />
             <Route path="projets/:id" element={<ProjetDetail />} />
-            <Route path="devis" element={<Devis />} />
+            {/* Ancien onglet "Devis" fusionné dans Projets (un projet démarre
+                directement en devis, statut "Brouillon") — on garde une
+                redirection pour les anciens liens/favoris. */}
+            <Route path="devis" element={<Navigate to="/projets" replace />} />
             <Route path="clients" element={<Clients />} />
             <Route path="fournisseurs" element={<Fournisseurs />} />
             <Route path="depenses" element={<Depenses />} />

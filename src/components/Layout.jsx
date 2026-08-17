@@ -7,7 +7,6 @@ import { useIsMobile } from '../lib/useIsMobile'
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: '◻' },
   { to: '/projets', label: 'Projets', icon: '📋' },
-  { to: '/devis', label: 'Devis', icon: '📝' },
   { to: '/resultat', label: 'Compte de résultat', icon: '🧾' },
   { to: '/tresorerie', label: 'Trésorerie', icon: '🏦' },
   { to: '/rapprochement', label: 'Rapprochement', icon: '🔗' },
@@ -21,9 +20,9 @@ const nav = [
 ]
 
 // Sur mobile, seuls les 3 usages "coup d'œil rapide" ont leur propre onglet
-// dans la barre du bas — le reste (Devis, Clients, Fournisseurs) est
-// regroupé derrière "Plus" pour ne pas surcharger une barre pensée pour un
-// pouce, pas pour une souris.
+// dans la barre du bas — le reste (Clients, Fournisseurs...) est regroupé
+// derrière "Plus" pour ne pas surcharger une barre pensée pour un pouce,
+// pas pour une souris.
 const NAV_MOBILE_PRINCIPALE = nav.filter(n => n.to && ['/dashboard', '/projets', '/tresorerie'].includes(n.to))
 const NAV_MOBILE_PLUS = nav.filter(n => n.to && !['/dashboard', '/projets', '/tresorerie'].includes(n.to))
 

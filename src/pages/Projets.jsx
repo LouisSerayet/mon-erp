@@ -3,13 +3,20 @@ import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../lib/useIsMobile'
 
-const STATUTS = ['Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']
+// 'Brouillon' = devis en préparation (pas encore envoyé) ; 'Perdu' = devis
+// refusé / projet abandonné. Un projet démarre toujours en 'Brouillon' et
+// devient un devis "réel" (Rentabilité, etc.) dès sa création — voir
+// ProjetDetail.jsx pour le détail du cycle de vie et le bouton "Marquer perdu".
+const STATUTS = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé', 'Perdu']
+const TAUX_TVA_OPTIONS = [20, 10, 5.5, 0]
 const STATUT_STYLE = {
+  'Brouillon':    { bg: '#F3F4F6', color: '#6B7280', icon: '📝' },
   'Devis envoyé': { bg: '#FFF7ED', color: '#EA580C', icon: '📤' },
   'Devis signé':  { bg: '#F5F3FF', color: '#7C3AED', icon: '✍️' },
   'En cours':     { bg: '#EFF6FF', color: '#2563EB', icon: '🔨' },
   'Finalisation': { bg: '#ECFDF5', color: '#059669', icon: '✅' },
   'Clôturé':      { bg: '#F3F4F6', color: '#6B7280', icon: '🏁' },
+  'Perdu':        { bg: '#FEF2F2', color: '#DC2626', icon: '❌' },
 }
 
 export default function Projets() {
@@ -19,7 +26,7 @@ export default function Projets() {
   const [filtreStatut, setFiltreStatut] = useState('Tous')
   const [showForm, setShowForm] = useState(false)
   const [clients, setClients] = useState([])
-  const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Devis envoyé', date_debut: '', date_fin_prevue: '', notes: '' })
+  const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
   const [error, setError] = useState('')
   const navigate = useNavigate()
   const isMobile = useIsMobile()
@@ -44,6 +51,7 @@ export default function Projets() {
       nom: form.nom.trim(),
       client_id: form.client_id || null,
       statut: form.statut,
+      taux_tva: form.taux_tva ?? 20,
       date_debut: form.date_debut || null,
       date_fin_prevue: form.date_fin_prevue || null,
       notes: form.notes,
@@ -51,10 +59,10 @@ export default function Projets() {
     }]).select().single()
     if (error) { setError('Erreur : ' + error.message); return }
     setShowForm(false)
-    // Remis à la même valeur que l'état initial ('Devis envoyé') — avant, ce
+    // Remis à la même valeur que l'état initial ('Brouillon') — avant, ce
     // reset mettait 'En cours', donc un 2e projet créé juste après le 1er
     // démarrait silencieusement avec le mauvais statut par défaut.
-    setForm({ nom: '', client_id: '', statut: 'Devis envoyé', date_debut: '', date_fin_prevue: '', notes: '' })
+    setForm({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
     navigate('/projets/' + data.id)
   }
 
@@ -115,7 +123,8 @@ export default function Projets() {
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
           <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 500, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Nouveau projet</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600 }}>Nouveau projet</h3>
+            <p style={{ margin: '0 0 20px', fontSize: 12, color: '#9CA3AF' }}>Un projet démarre en devis (Brouillon) : tu retrouveras toutes les infos (lignes, rentabilité...) dans sa fiche, avant même qu'il soit signé.</p>
             {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
 
             <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Nom du projet *</label>
@@ -143,11 +152,22 @@ export default function Projets() {
               </div>
             </div>
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
-            <select value={form.statut} onChange={e => setForm(p => ({ ...p, statut: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 14, cursor: 'pointer' }}>
-              {STATUTS.map(s => <option key={s}>{s}</option>)}
-            </select>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
+                <select value={form.statut} onChange={e => setForm(p => ({ ...p, statut: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer', boxSizing: 'border-box' }}>
+                  {STATUTS.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>TVA</label>
+                <select value={form.taux_tva} onChange={e => setForm(p => ({ ...p, taux_tva: Number(e.target.value) }))}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer', boxSizing: 'border-box' }}>
+                  {TAUX_TVA_OPTIONS.map(t => <option key={t} value={t}>{t === 0 ? 'Non applicable (0%)' : t + ' %'}</option>)}
+                </select>
+              </div>
+            </div>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShowForm(false); setError('') }}
@@ -164,7 +184,7 @@ export default function Projets() {
           <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
             <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>Aucun projet</div>
-            <div style={{ fontSize: 13 }}>Crée un projet ou génère-en un depuis un devis accepté</div>
+            <div style={{ fontSize: 13 }}>Crée un projet pour démarrer un devis — il évoluera vers un chantier réel une fois signé</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

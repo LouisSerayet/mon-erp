@@ -24,26 +24,34 @@ const TABS = [
   { id: 'documents', label: '📁 Documents' },
 ]
 
-const STATUTS_PROJET = ['Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']
+// 'Brouillon' = devis en cours de préparation, pas encore envoyé au client ;
+// 'Perdu' = devis refusé / projet abandonné (statut terminal, hors flux normal).
+const STATUTS_PROJET = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé', 'Perdu']
 const STATUTS_CMD = ['Brouillon', 'Validée', 'Annulée']
 const STATUTS_FFRS = ['À payer', 'Payée']
 const STATUTS_FCLI = ['À envoyer', 'Envoyée', 'Payée']
 // Taux de TVA sélectionnables sur un projet (devis + facture client — les
-// commandes fournisseurs restent toujours à 20 %, voir generateCmdPDF).
+// commandes fournisseurs ont leur propre régime, voir "regime_tva" et
+// generateCmdPDF, car un même projet peut mêler fournisseurs classiques et
+// sous-traitants BTP en autoliquidation).
 const TAUX_TVA_OPTIONS = [20, 10, 5.5, 0]
 const STATUT_COLOR = {
+  'Brouillon':    '#9CA3AF',
   'Devis envoyé': '#EA580C',
   'Devis signé':  '#7C3AED',
   'En cours':     '#2563EB',
   'Finalisation': '#059669',
   'Clôturé':      '#6B7280',
+  'Perdu':        '#DC2626',
 }
 const STATUT_ICON = {
+  'Brouillon':    '📝',
   'Devis envoyé': '📤',
   'Devis signé':  '✍️',
   'En cours':     '🔨',
   'Finalisation': '✅',
   'Clôturé':      '🏁',
+  'Perdu':        '❌',
 }
 
 export default function ProjetDetail() {
@@ -681,7 +689,7 @@ export default function ProjetDetail() {
       const { data: nouveauProjet, error } = await supabase.from('projets').insert([{
         nom: nomCopie,
         client_id: projet.client_id || null,
-        statut: 'Devis envoyé',
+        statut: 'Brouillon',
         date_debut: null,
         date_fin_prevue: null,
         surface: projet.surface || null,
@@ -722,6 +730,21 @@ export default function ProjetDetail() {
       alert('Erreur lors de la duplication : ' + err.message)
     }
     setDupliquerBusy(false)
+  }
+
+  // Statut "Perdu" : sortie du flux normal (devis refusé / projet
+  // abandonné). Accessible tant que le projet n'est pas encore "En cours"
+  // (on ne marque pas perdu un chantier déjà lancé — voir bouton dans le
+  // header). Réactivable ensuite vers "Brouillon" si besoin.
+  async function marquerProjetPerdu() {
+    if (!confirm('Marquer "' + projet.nom + '" comme perdu ? Le projet sortira du flux actif mais restera consultable.')) return
+    await supabase.from('projets').update({ statut: 'Perdu' }).eq('id', id)
+    setProjet(prev => ({ ...prev, statut: 'Perdu' }))
+  }
+
+  async function reactiverProjetPerdu() {
+    await supabase.from('projets').update({ statut: 'Brouillon' }).eq('id', id)
+    setProjet(prev => ({ ...prev, statut: 'Brouillon' }))
   }
 
   // ── Commandes ─────────────────────────────────────────────────
@@ -1320,6 +1343,12 @@ export default function ProjetDetail() {
               style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#F9FAFB', color: '#374151', cursor: dupliquerBusy ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, opacity: dupliquerBusy ? 0.6 : 1 }}>
               {dupliquerBusy ? '⏳ Duplication...' : '⧉ Dupliquer'}
             </button>
+            {['Brouillon', 'Devis envoyé', 'Devis signé'].includes(projet.statut) && (
+              <button onClick={marquerProjetPerdu} title="Marquer ce devis/projet comme perdu"
+                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                ❌ Marquer perdu
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1406,11 +1435,21 @@ export default function ProjetDetail() {
               </div>
 
               {/* Bandeau progression */}
-            {(() => {
-              const flux = ['Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']
+            {projet.statut === 'Perdu' ? (
+              <div style={{ background: '#FEF2F2', borderRadius: 12, border: '1px solid #FECACA', padding: '16px 20px', margin: '0 0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 13, color: '#991B1B' }}>
+                  ❌ Ce devis/projet a été marqué comme <strong>perdu</strong> — il est sorti du flux actif.
+                </div>
+                <button onClick={reactiverProjetPerdu}
+                  style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                  ↩️ Réactiver (repasser en Brouillon)
+                </button>
+              </div>
+            ) : (() => {
+              const flux = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']
               const currentIdx = flux.indexOf(projet.statut)
-              const icons = ['📤', '✍️', '🔨', '✅', '🏁']
-              const colors = ['#EA580C', '#7C3AED', '#2563EB', '#059669', '#6B7280']
+              const icons = ['📝', '📤', '✍️', '🔨', '✅', '🏁']
+              const colors = ['#9CA3AF', '#EA580C', '#7C3AED', '#2563EB', '#059669', '#6B7280']
               const nextStatut = flux[currentIdx + 1]
               const prevStatut = flux[currentIdx - 1]
 
