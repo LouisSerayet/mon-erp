@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
+import { CATEGORIES } from '../lib/depenses'
 
 // Dépenses générales de la société : loyer, comptabilité, assurance,
 // abonnements... tout ce qui n'est pas lié à un projet client précis.
@@ -11,7 +12,8 @@ import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement
 // page remplace ce détour par un vrai espace dédié, avec les mêmes
 // fonctionnalités que l'onglet "Factures frs" d'un projet (suivi du
 // statut, pièce jointe, rapprochement bancaire Qonto).
-const CATEGORIES = ['Loyer & charges', 'Comptabilité & juridique', 'Assurance', 'Abonnements & logiciels', 'Banque & frais financiers', 'Marketing & communication', 'Fournitures & matériel', 'Déplacements', 'Impôts & taxes', 'Autre']
+// CATEGORIES vit maintenant dans lib/depenses.js (partagé avec
+// Rapprochement.jsx) — voir l'import ci-dessus.
 const STATUTS = ['À payer', 'Payée']
 
 const fmt = n => n !== undefined && n !== null
