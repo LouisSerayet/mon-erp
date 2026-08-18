@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte } from './calculs'
+import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, calculerEcheance } from './calculs'
 
 describe('calculerLigne', () => {
   const ligneBase = { qte: 2, prix_achat_ht: 100, prix_unit_ht: 130, coeff: 1.3 }
@@ -151,5 +151,40 @@ describe('natureLigneDepuisTexte (colonne "Nature" de l\'import Excel)', () => {
     expect(natureLigneDepuisTexte(undefined)).toBe('negoce')
     expect(natureLigneDepuisTexte(null)).toBe('negoce')
     expect(natureLigneDepuisTexte('n\'importe quoi')).toBe('negoce')
+  })
+})
+
+describe('calculerEcheance (échéance auto d\'une facture depuis les conditions de paiement du tiers)', () => {
+  it('comptant (0 jour) : échéance = date de facture', () => {
+    expect(calculerEcheance('2026-08-18', 0, false)).toBe('2026-08-18')
+  })
+
+  it('délai net simple (sans fin de mois)', () => {
+    expect(calculerEcheance('2026-08-18', 30, false)).toBe('2026-09-17')
+  })
+
+  it('délai + fin de mois : reporte au dernier jour du mois obtenu', () => {
+    expect(calculerEcheance('2026-08-18', 30, true)).toBe('2026-09-30')
+  })
+
+  it('fin de mois sur un mois de 31 jours (janvier)', () => {
+    expect(calculerEcheance('2026-01-15', 45, true)).toBe('2026-03-31')
+    expect(calculerEcheance('2026-01-15', 45, false)).toBe('2026-03-01')
+  })
+
+  it('franchit une fin d\'année civile correctement', () => {
+    expect(calculerEcheance('2025-12-20', 30, false)).toBe('2026-01-19')
+    expect(calculerEcheance('2025-12-05', 20, true)).toBe('2025-12-31')
+  })
+
+  it('renvoie une chaîne vide si la date de facture est vide/absente — ne doit jamais planter', () => {
+    expect(calculerEcheance('', 30, false)).toBe('')
+    expect(calculerEcheance(undefined, 30, false)).toBe('')
+    expect(calculerEcheance(null, 30, true)).toBe('')
+  })
+
+  it('traite un délai non numérique comme 0 jour', () => {
+    expect(calculerEcheance('2026-08-18', undefined, false)).toBe('2026-08-18')
+    expect(calculerEcheance('2026-08-18', '', false)).toBe('2026-08-18')
   })
 })

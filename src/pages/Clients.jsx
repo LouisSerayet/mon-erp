@@ -1,6 +1,40 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { PRESETS_DELAI_PAIEMENT } from '../lib/calculs'
+
+// Sélecteur "Conditions de paiement" (délai en jours + case "fin de mois"),
+// partagé entre le formulaire de création et le formulaire d'édition — sert
+// à pré-remplir automatiquement l'échéance des factures de ce client (voir
+// calculerEcheance dans lib/calculs.js et son usage dans ProjetDetail.jsx).
+// Composant local (non exporté) : pas de conflit avec
+// react-refresh/only-export-components puisque ce fichier n'exporte que
+// le composant Clients par défaut.
+function ConditionsPaiement({ jours, finMois, onChange }) {
+  const actif = p => Number(jours) === p.jours && !!finMois === p.finMois
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Conditions de paiement</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {PRESETS_DELAI_PAIEMENT.map(p => (
+          <button key={p.label} type="button" onClick={() => onChange(p.jours, p.finMois)}
+            style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid ' + (actif(p) ? '#2563EB' : '#E5E7EB'), background: actif(p) ? '#EFF6FF' : '#fff', color: actif(p) ? '#2563EB' : '#374151', cursor: 'pointer', fontSize: 12 }}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <input type="number" min="0" value={jours ?? 30} onChange={e => onChange(parseInt(e.target.value, 10) || 0, !!finMois)}
+          style={{ width: 70, padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+        <span style={{ fontSize: 13, color: '#6B7280' }}>jours</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer' }}>
+          <input type="checkbox" checked={!!finMois} onChange={e => onChange(Number(jours) || 0, e.target.checked)} />
+          Fin de mois
+        </label>
+      </div>
+    </div>
+  )
+}
 
 export default function Clients() {
   const location = useLocation()
@@ -14,7 +48,7 @@ export default function Clients() {
   const [clientOuvert, setClientOuvert] = useState(null)
   const [projets, setProjets] = useState([])
   const [editMode, setEditMode] = useState(false)
-  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', adresse: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
+  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', adresse: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false })
   const [formEdit, setFormEdit] = useState({})
   const [error, setError] = useState('')
   const [savingClient, setSavingClient] = useState(false) // garde-fou anti double-clic
@@ -44,7 +78,7 @@ export default function Clients() {
     const { data, error } = await supabase.from('clients').insert([{ ...form }]).select().single()
     if (error) { setError('Erreur : ' + error.message); setSavingClient(false); return }
     setShowForm(false)
-    setForm({ nom: '', contact: '', email: '', telephone: '', adresse: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
+    setForm({ nom: '', contact: '', email: '', telephone: '', adresse: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false })
     await fetchClients()
     setSavingClient(false)
     ouvrirClient(data)
@@ -96,7 +130,7 @@ export default function Clients() {
             {clientOuvert.adresse && <div style={{ fontSize: 12, color: '#9CA3AF' }}>📍 {clientOuvert.adresse}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => { setEditMode(true); setFormEdit({ nom: clientOuvert.nom, contact: clientOuvert.contact || '', email: clientOuvert.email || '', telephone: clientOuvert.telephone || '', adresse: clientOuvert.adresse || '', rue: clientOuvert.rue || '', code_postal: clientOuvert.code_postal || '', ville: clientOuvert.ville || '', pays: clientOuvert.pays || 'FR' }) }}
+            <button onClick={() => { setEditMode(true); setFormEdit({ nom: clientOuvert.nom, contact: clientOuvert.contact || '', email: clientOuvert.email || '', telephone: clientOuvert.telephone || '', adresse: clientOuvert.adresse || '', rue: clientOuvert.rue || '', code_postal: clientOuvert.code_postal || '', ville: clientOuvert.ville || '', pays: clientOuvert.pays || 'FR', delai_paiement_jours: clientOuvert.delai_paiement_jours ?? 30, delai_paiement_fin_mois: clientOuvert.delai_paiement_fin_mois ?? false }) }}
               style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>✏️ Modifier</button>
             <button onClick={() => supprimerClient(clientOuvert.id)}
               style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 13 }}>Supprimer</button>
@@ -119,6 +153,8 @@ export default function Clients() {
                         style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                     </div>
                   ))}
+                  <ConditionsPaiement jours={formEdit.delai_paiement_jours} finMois={formEdit.delai_paiement_fin_mois}
+                    onChange={(j, f) => setFormEdit(p => ({ ...p, delai_paiement_jours: j, delai_paiement_fin_mois: f }))} />
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => setEditMode(false)} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
                     <button onClick={sauvegarderClient} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Sauvegarder</button>
@@ -143,6 +179,12 @@ export default function Clients() {
                   {!clientOuvert.contact && !clientOuvert.email && !clientOuvert.telephone && (
                     <div style={{ fontSize: 13, color: '#9CA3AF', fontStyle: 'italic' }}>Aucune info de contact</div>
                   )}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>💳 Conditions</div>
+                    <div style={{ fontSize: 13, color: '#111827', fontWeight: 500 }}>
+                      {(clientOuvert.delai_paiement_jours ?? 30) === 0 ? 'Comptant' : (clientOuvert.delai_paiement_jours ?? 30) + ' jours' + (clientOuvert.delai_paiement_fin_mois ? ' fin de mois' : '')}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -238,6 +280,8 @@ export default function Clients() {
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
               </div>
             ))}
+            <ConditionsPaiement jours={form.delai_paiement_jours} finMois={form.delai_paiement_fin_mois}
+              onChange={(j, f) => setForm(prev => ({ ...prev, delai_paiement_jours: j, delai_paiement_fin_mois: f }))} />
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
               <button onClick={() => { setShowForm(false); setError('') }}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>

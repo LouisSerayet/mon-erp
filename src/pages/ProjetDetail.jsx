@@ -5,7 +5,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
-import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS } from '../lib/calculs'
+import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance } from '../lib/calculs'
 import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
@@ -114,6 +114,20 @@ export default function ProjetDetail() {
   const [savingCmd, setSavingCmd] = useState(false)
   const [savingFactureFrs, setSavingFactureFrs] = useState(false)
   const [savingFactureCli, setSavingFactureCli] = useState(false)
+
+  // Échéance de facture auto-calculée depuis les conditions de paiement du
+  // tiers (voir calculerEcheance dans lib/calculs.js) — true = le champ
+  // "Date échéance" du formulaire de création suit automatiquement la date
+  // de facture / le tiers sélectionné ; false = déverrouillé après
+  // confirmation explicite de l'utilisateur pour une saisie manuelle (voir
+  // le bouton 🔓 à côté du champ). Même principe pour les factures déjà
+  // créées : `echeanceXxxDeverrouillees` liste les factures dont l'échéance
+  // a été modifiée à la main dans cette session (une confirmation est
+  // redemandée pour chaque nouvelle facture, comme pour cmdDeverrouillees).
+  const [echeanceFfrsVerrouillee, setEcheanceFfrsVerrouillee] = useState(true)
+  const [echeanceFcliVerrouillee, setEcheanceFcliVerrouillee] = useState(true)
+  const [echeanceFrsDeverrouillees, setEcheanceFrsDeverrouillees] = useState(new Set())
+  const [echeanceCliDeverrouillees, setEcheanceCliDeverrouillees] = useState(new Set())
 
   // Nature effective d'une ligne (negoce/option/variante_active/
   // variante_inactive/texte), en tenant compte d'une édition non encore
@@ -475,6 +489,22 @@ export default function ProjetDetail() {
 
   useEffect(() => { fetchAll() }, [id])
 
+  // Échéance de la nouvelle facture fournisseur recalculée à la volée
+  // (pas via useEffect+setState pour éviter un rendu en cascade — voir
+  // react-hooks/set-state-in-effect) dès que la date de facture ou le
+  // fournisseur sélectionné change, tant que le champ n'a pas été
+  // déverrouillé manuellement (voir echeanceFfrsVerrouillee, et les
+  // onChange de date_facture / fournisseur_id / le bouton ↺ plus bas).
+  function echeanceFfrsAuto(dateFacture, fournisseurId) {
+    const frs = fournisseurs.find(x => x.id === fournisseurId)
+    return calculerEcheance(dateFacture, frs?.delai_paiement_jours ?? 30, frs?.delai_paiement_fin_mois ?? false)
+  }
+  // Même logique pour la nouvelle facture client, à partir des conditions
+  // de paiement du client du projet.
+  function echeanceFcliAuto(dateFacture) {
+    return calculerEcheance(dateFacture, projet?.clients?.delai_paiement_jours ?? 30, projet?.clients?.delai_paiement_fin_mois ?? false)
+  }
+
   function editLigne(ligneId, champ, valeur, ligne) {
     // Mode propre à la ligne (ac / vc / av), fallback sur 'ac'
     const modeLocal = modeLignes[ligneId] || 'ac'
@@ -691,8 +721,8 @@ export default function ProjetDetail() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: p }, { data: f }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }] = await Promise.all([
-      supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id)').eq('id', id).single(),
-      supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id').is('deleted_at', null).order('nom'),
+      supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois)').eq('id', id).single(),
+      supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id, delai_paiement_jours, delai_paiement_fin_mois').is('deleted_at', null).order('nom'),
       supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
@@ -1236,7 +1266,7 @@ export default function ProjetDetail() {
       }
     }
 
-    setShowForm(false); setFormFfrs({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' }); setFileFfrs(null)
+    setShowForm(false); setFormFfrs({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' }); setFileFfrs(null); setEcheanceFfrsVerrouillee(true)
     const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesFrs(data || [])
     setSavingFactureFrs(false)
@@ -1413,7 +1443,7 @@ export default function ProjetDetail() {
     if (errNumero) { setError('Impossible de générer le numéro de facture : ' + errNumero.message); setSavingFactureCli(false); return }
     const { error } = await supabase.from('factures_cli').insert([{ ...formFcli, numero: numeroGenere, projet_id: id, client_id: projet?.client_id || null, montant_ht: parseFloat(formFcli.montant_ht) || 0 }])
     if (error) { setError(error.message); setSavingFactureCli(false); return }
-    setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' }); setFormFcliPct('')
+    setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' }); setFormFcliPct(''); setEcheanceFcliVerrouillee(true)
     const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
     setSavingFactureCli(false)
@@ -1427,7 +1457,27 @@ export default function ProjetDetail() {
     return f[champ] ?? ''
   }
   function editFacCli(fId, champ, valeur) {
-    setFacCliEditees(prev => ({ ...prev, [fId]: { ...(prev[fId] || {}), [champ]: valeur } }))
+    setFacCliEditees(prev => {
+      const courant = { ...(prev[fId] || {}), [champ]: valeur }
+      // Modifier la date de facture recalcule l'échéance dans la foulée,
+      // tant que cette facture n'a pas été déverrouillée pour une échéance
+      // manuelle (voir editFacCliEcheance).
+      if (champ === 'date_facture' && !echeanceCliDeverrouillees.has(fId)) {
+        courant.date_echeance = calculerEcheance(valeur, projet?.clients?.delai_paiement_jours ?? 30, projet?.clients?.delai_paiement_fin_mois ?? false)
+      }
+      return { ...prev, [fId]: courant }
+    })
+  }
+  // Modification manuelle directe de l'échéance d'une facture existante —
+  // demande une confirmation la première fois (par facture, par session),
+  // même principe que editCmd/cmdDeverrouillees pour les commandes.
+  function editFacCliEcheance(fId, valeur) {
+    if (!echeanceCliDeverrouillees.has(fId)) {
+      const ok = confirm('L\'échéance de cette facture est calculée automatiquement à partir des conditions de paiement du client. Voulez-vous la modifier manuellement ?')
+      if (!ok) return
+      setEcheanceCliDeverrouillees(prev => new Set(prev).add(fId))
+    }
+    editFacCli(fId, 'date_echeance', valeur)
   }
   async function saveFacCli(facture) {
     const changes = facCliEditees[facture.id]
@@ -1437,6 +1487,9 @@ export default function ProjetDetail() {
     const { error } = await supabase.from('factures_cli').update(payload).eq('id', facture.id)
     if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setFacCliEditees(prev => { const n = { ...prev }; delete n[facture.id]; return n })
+    // Reverrouille l'échéance : une prochaine modification (même dans la
+    // même session) redemandera confirmation, comme pour cmdDeverrouillees.
+    setEcheanceCliDeverrouillees(prev => { const n = new Set(prev); n.delete(facture.id); return n })
     const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
 
@@ -1458,7 +1511,25 @@ export default function ProjetDetail() {
     return f[champ] ?? ''
   }
   function editFacFrs(fId, champ, valeur) {
-    setFacFrsEditees(prev => ({ ...prev, [fId]: { ...(prev[fId] || {}), [champ]: valeur } }))
+    setFacFrsEditees(prev => {
+      const courant = { ...(prev[fId] || {}), [champ]: valeur }
+      if (champ === 'date_facture' && !echeanceFrsDeverrouillees.has(fId)) {
+        const frs = facturesFrs.find(f => f.id === fId)?.fournisseurs
+        courant.date_echeance = calculerEcheance(valeur, frs?.delai_paiement_jours ?? 30, frs?.delai_paiement_fin_mois ?? false)
+      }
+      return { ...prev, [fId]: courant }
+    })
+  }
+  // Modification manuelle directe de l'échéance d'une facture existante —
+  // demande une confirmation la première fois (par facture, par session),
+  // même principe que editCmd/cmdDeverrouillees pour les commandes.
+  function editFacFrsEcheance(fId, valeur) {
+    if (!echeanceFrsDeverrouillees.has(fId)) {
+      const ok = confirm('L\'échéance de cette facture est calculée automatiquement à partir des conditions de paiement du fournisseur. Voulez-vous la modifier manuellement ?')
+      if (!ok) return
+      setEcheanceFrsDeverrouillees(prev => new Set(prev).add(fId))
+    }
+    editFacFrs(fId, 'date_echeance', valeur)
   }
   async function saveFacFrs(facture) {
     const changes = facFrsEditees[facture.id]
@@ -1468,6 +1539,9 @@ export default function ProjetDetail() {
     const { error } = await supabase.from('factures_frs').update(payload).eq('id', facture.id)
     if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setFacFrsEditees(prev => { const n = { ...prev }; delete n[facture.id]; return n })
+    // Reverrouille l'échéance : une prochaine modification (même dans la
+    // même session) redemandera confirmation, comme pour cmdDeverrouillees.
+    setEcheanceFrsDeverrouillees(prev => { const n = new Set(prev); n.delete(facture.id); return n })
     const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesFrs(data || [])
 
@@ -2644,7 +2718,7 @@ export default function ProjetDetail() {
                   style={{ background: '#fff', color: '#EA580C', border: '1px solid #FED7AA', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
                   {rapprochementBusy === 'frs' ? '⏳ Vérification...' : '🔗 Vérifier sur Qonto'}
                 </button>
-                <button onClick={() => { setShowForm(true); setError('') }} style={{ background: '#EA580C', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
+                <button onClick={() => { setShowForm(true); setError(''); setEcheanceFfrsVerrouillee(true) }} style={{ background: '#EA580C', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
               </div>
             </div>
             {rapprochementError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ {rapprochementError}</div>}
@@ -2673,7 +2747,7 @@ export default function ProjetDetail() {
                     <input value={formFfrs.numero} onChange={e => setFormFfrs(p => ({ ...p, numero: e.target.value }))} placeholder="FAC-2026-001"
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Fournisseur</label>
-                    <select value={formFfrs.fournisseur_id} onChange={e => setFormFfrs(p => ({ ...p, fournisseur_id: e.target.value }))}
+                    <select value={formFfrs.fournisseur_id} onChange={e => { const fournisseur_id = e.target.value; setFormFfrs(p => ({ ...p, fournisseur_id, date_echeance: echeanceFfrsVerrouillee ? echeanceFfrsAuto(p.date_facture, fournisseur_id) : p.date_echeance })) }}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
                       <option value=''>— Aucun —</option>{fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}</select></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Commande liée</label>
@@ -2684,11 +2758,21 @@ export default function ProjetDetail() {
                     <input type="number" value={formFfrs.montant_ht} onChange={e => setFormFfrs(p => ({ ...p, montant_ht: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture</label>
-                    <input type="date" value={formFfrs.date_facture} onChange={e => setFormFfrs(p => ({ ...p, date_facture: e.target.value }))}
+                    <input type="date" value={formFfrs.date_facture} onChange={e => { const date_facture = e.target.value; setFormFfrs(p => ({ ...p, date_facture, date_echeance: echeanceFfrsVerrouillee ? echeanceFfrsAuto(date_facture, p.fournisseur_id) : p.date_echeance })) }}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date échéance</label>
-                    <input type="date" value={formFfrs.date_echeance} onChange={e => setFormFfrs(p => ({ ...p, date_echeance: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
+                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date échéance {echeanceFfrsVerrouillee && <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(auto)</span>}</label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input type="date" value={formFfrs.date_echeance} disabled={echeanceFfrsVerrouillee} onChange={e => setFormFfrs(p => ({ ...p, date_echeance: e.target.value }))}
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', background: echeanceFfrsVerrouillee ? '#F9FAFB' : '#fff', color: echeanceFfrsVerrouillee ? '#6B7280' : '#111827' }} />
+                      {echeanceFfrsVerrouillee ? (
+                        <button type="button" title="Modifier l'échéance manuellement"
+                          onClick={() => { if (confirm('L\'échéance est calculée automatiquement à partir des conditions de paiement du fournisseur. La modifier manuellement ?')) setEcheanceFfrsVerrouillee(false) }}
+                          style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>🔓</button>
+                      ) : (
+                        <button type="button" title="Revenir au calcul automatique" onClick={() => { setEcheanceFfrsVerrouillee(true); setFormFfrs(p => ({ ...p, date_echeance: echeanceFfrsAuto(p.date_facture, p.fournisseur_id) })) }}
+                          style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>↺</button>
+                      )}
+                    </div></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
                     <select value={formFfrs.statut} onChange={e => setFormFfrs(p => ({ ...p, statut: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
@@ -2732,7 +2816,7 @@ export default function ProjetDetail() {
                         <input type="date" value={getFacFrsVal(f, 'date_facture')} onChange={e => editFacFrs(f.id, 'date_facture', e.target.value)} style={{ ...inStyle, width: 130 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <input type="date" value={getFacFrsVal(f, 'date_echeance')} onChange={e => editFacFrs(f.id, 'date_echeance', e.target.value)}
+                        <input type="date" value={getFacFrsVal(f, 'date_echeance')} onChange={e => editFacFrsEcheance(f.id, e.target.value)}
                           style={{ ...inStyle, width: 130, color: f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date() ? '#DC2626' : '#374151' }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
@@ -2796,7 +2880,7 @@ export default function ProjetDetail() {
                   style={{ background: '#fff', color: '#059669', border: '1px solid #BBF7D0', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
                   {rapprochementBusy === 'cli' ? '⏳ Vérification...' : '🔗 Vérifier sur Qonto'}
                 </button>
-                <button onClick={() => { setShowForm(true); setError('') }} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
+                <button onClick={() => { setShowForm(true); setError(''); setEcheanceFcliVerrouillee(true) }} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
               </div>
             </div>
             {rapprochementError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ {rapprochementError}</div>}
@@ -2872,11 +2956,21 @@ export default function ProjetDetail() {
                       <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#9CA3AF' }}>%</span>
                     </div></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture</label>
-                    <input type="date" value={formFcli.date_facture} onChange={e => setFormFcli(p => ({ ...p, date_facture: e.target.value }))}
+                    <input type="date" value={formFcli.date_facture} onChange={e => { const date_facture = e.target.value; setFormFcli(p => ({ ...p, date_facture, date_echeance: echeanceFcliVerrouillee ? echeanceFcliAuto(date_facture) : p.date_echeance })) }}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date échéance</label>
-                    <input type="date" value={formFcli.date_echeance} onChange={e => setFormFcli(p => ({ ...p, date_echeance: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
+                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date échéance {echeanceFcliVerrouillee && <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(auto)</span>}</label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input type="date" value={formFcli.date_echeance} disabled={echeanceFcliVerrouillee} onChange={e => setFormFcli(p => ({ ...p, date_echeance: e.target.value }))}
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', background: echeanceFcliVerrouillee ? '#F9FAFB' : '#fff', color: echeanceFcliVerrouillee ? '#6B7280' : '#111827' }} />
+                      {echeanceFcliVerrouillee ? (
+                        <button type="button" title="Modifier l'échéance manuellement"
+                          onClick={() => { if (confirm('L\'échéance est calculée automatiquement à partir des conditions de paiement du client. La modifier manuellement ?')) setEcheanceFcliVerrouillee(false) }}
+                          style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>🔓</button>
+                      ) : (
+                        <button type="button" title="Revenir au calcul automatique" onClick={() => { setEcheanceFcliVerrouillee(true); setFormFcli(p => ({ ...p, date_echeance: echeanceFcliAuto(p.date_facture) })) }}
+                          style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>↺</button>
+                      )}
+                    </div></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
                     <select value={formFcli.statut} onChange={e => setFormFcli(p => ({ ...p, statut: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
@@ -2913,7 +3007,7 @@ export default function ProjetDetail() {
                         <input type="date" value={getFacCliVal(f, 'date_facture')} onChange={e => editFacCli(f.id, 'date_facture', e.target.value)} style={{ ...inStyle, width: 130 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <input type="date" value={getFacCliVal(f, 'date_echeance')} onChange={e => editFacCli(f.id, 'date_echeance', e.target.value)} style={{ ...inStyle, width: 130 }} />
+                        <input type="date" value={getFacCliVal(f, 'date_echeance')} onChange={e => editFacCliEcheance(f.id, e.target.value)} style={{ ...inStyle, width: 130 }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
                         <input type="number" value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: '#059669' }} />

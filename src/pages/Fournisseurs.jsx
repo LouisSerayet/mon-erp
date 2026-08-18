@@ -1,8 +1,41 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useLocation } from 'react-router-dom'
+import { PRESETS_DELAI_PAIEMENT } from '../lib/calculs'
 
 const METIERS = ['Électricité', 'Plomberie', 'CVC', 'Menuiserie', 'Cloisons', 'Sols', 'Peinture', 'Serrurerie', 'Informatique', 'Autre']
+
+// Sélecteur "Conditions de paiement" (délai en jours + case "fin de mois")
+// — pré-remplit automatiquement l'échéance des factures de ce fournisseur
+// (voir calculerEcheance dans lib/calculs.js et son usage dans
+// ProjetDetail.jsx). Composant local (non exporté) : pas de conflit avec
+// react-refresh/only-export-components puisque ce fichier n'exporte que le
+// composant Fournisseurs par défaut.
+function ConditionsPaiement({ jours, finMois, onChange }) {
+  const actif = p => Number(jours) === p.jours && !!finMois === p.finMois
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Conditions de paiement</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {PRESETS_DELAI_PAIEMENT.map(p => (
+          <button key={p.label} type="button" onClick={() => onChange(p.jours, p.finMois)}
+            style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid ' + (actif(p) ? '#2563EB' : '#E5E7EB'), background: actif(p) ? '#EFF6FF' : '#fff', color: actif(p) ? '#2563EB' : '#374151', cursor: 'pointer', fontSize: 12 }}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <input type="number" min="0" value={jours ?? 30} onChange={e => onChange(parseInt(e.target.value, 10) || 0, !!finMois)}
+          style={{ width: 70, padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+        <span style={{ fontSize: 13, color: '#6B7280' }}>jours</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer' }}>
+          <input type="checkbox" checked={!!finMois} onChange={e => onChange(Number(jours) || 0, e.target.checked)} />
+          Fin de mois
+        </label>
+      </div>
+    </div>
+  )
+}
 
 export default function Fournisseurs() {
   const location = useLocation()
@@ -15,14 +48,14 @@ export default function Fournisseurs() {
   const [editingId, setEditingId] = useState(null) // id du fournisseur en cours de modification, null = création
   const [fournisseurOuvert, setFournisseurOuvert] = useState(null)
   const [commandes, setCommandes] = useState([])
-  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' })
+  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false })
   const [error, setError] = useState('')
   const [savingFournisseur, setSavingFournisseur] = useState(false) // garde-fou anti double-clic
   // true = le champ Métier est en saisie libre (nouveau métier hors liste),
   // false = choix dans la liste déroulante existante.
   const [metierLibre, setMetierLibre] = useState(false)
 
-  const FORM_VIDE = { nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR' }
+  const FORM_VIDE = { nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false }
 
   useEffect(() => { fetchFournisseurs() }, [])
 
@@ -66,7 +99,7 @@ export default function Fournisseurs() {
   }
 
   function ouvrirEdition(f) {
-    setForm({ nom: f.nom || '', contact: f.contact || '', email: f.email || '', telephone: f.telephone || '', metier: f.metier || '', rue: f.rue || '', code_postal: f.code_postal || '', ville: f.ville || '', pays: f.pays || 'FR' })
+    setForm({ nom: f.nom || '', contact: f.contact || '', email: f.email || '', telephone: f.telephone || '', metier: f.metier || '', rue: f.rue || '', code_postal: f.code_postal || '', ville: f.ville || '', pays: f.pays || 'FR', delai_paiement_jours: f.delai_paiement_jours ?? 30, delai_paiement_fin_mois: f.delai_paiement_fin_mois ?? false })
     setEditingId(f.id)
     setError('')
     // Si son métier actuel n'est pas dans la liste connue, on ouvre directement en saisie libre.
@@ -115,6 +148,8 @@ export default function Fournisseurs() {
               style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
           </div>
         ))}
+        <ConditionsPaiement jours={form.delai_paiement_jours} finMois={form.delai_paiement_fin_mois}
+          onChange={(j, f) => setForm(p => ({ ...p, delai_paiement_jours: j, delai_paiement_fin_mois: f }))} />
         <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Métier</label>
         {metierLibre ? (
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
@@ -192,6 +227,12 @@ export default function Fournisseurs() {
                   <span style={{ fontSize: 13, color: '#111827', fontWeight: 500 }}>{val}</span>
                 </div>
               ) : null)}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <span style={{ fontSize: 13, color: '#6B7280', minWidth: 100 }}>💳 Conditions</span>
+                <span style={{ fontSize: 13, color: '#111827', fontWeight: 500 }}>
+                  {(fournisseurOuvert.delai_paiement_jours ?? 30) === 0 ? 'Comptant' : (fournisseurOuvert.delai_paiement_jours ?? 30) + ' jours' + (fournisseurOuvert.delai_paiement_fin_mois ? ' fin de mois' : '')}
+                </span>
+              </div>
             </div>
           </div>
 

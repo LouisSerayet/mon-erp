@@ -106,3 +106,43 @@ export function calculerMarge(ca, cout) {
   const taux = chiffreAffaires > 0 ? Number(((marge / chiffreAffaires) * 100).toFixed(1)) : 0
   return { marge, taux }
 }
+
+// ── Échéance de facture (conditions de paiement client/fournisseur) ────
+// Calcule la date d'échéance d'une facture à partir de sa date d'émission
+// et des conditions de paiement du tiers (client ou fournisseur) : un délai
+// en jours net, éventuellement reporté au dernier jour du mois obtenu
+// ("30 jours fin de mois"). Voir ProjetDetail.jsx, qui pré-remplit
+// automatiquement date_echeance avec ce calcul dès que date_facture (ou le
+// tiers sélectionné) change, tant que le champ n'a pas été déverrouillé
+// manuellement.
+// `dateFacture` doit être une chaîne 'YYYY-MM-DD' (format natif d'un
+// <input type="date">). Renvoie la même chaîne en sortie, ou '' si
+// `dateFacture` est vide/invalide — un import ou une saisie incomplète ne
+// doit jamais faire planter le calcul.
+export function calculerEcheance(dateFacture, delaiJours, finDeMois) {
+  if (!dateFacture) return ''
+  const d = new Date(dateFacture + 'T00:00:00')
+  if (Number.isNaN(d.getTime())) return ''
+  d.setDate(d.getDate() + (parseInt(delaiJours, 10) || 0))
+  if (finDeMois) {
+    // Le jour 0 d'un mois = le dernier jour du mois précédent, donc
+    // "mois suivant, jour 0" = dernier jour du mois courant de `d`.
+    d.setMonth(d.getMonth() + 1, 0)
+  }
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// Raccourcis proposés dans les formulaires (Clients/Fournisseurs et les
+// formulaires de facture de ProjetDetail.jsx) — couvrent les conditions de
+// paiement les plus courantes sans empêcher une saisie libre à côté.
+export const PRESETS_DELAI_PAIEMENT = [
+  { label: 'Comptant', jours: 0, finMois: false },
+  { label: '30 jours', jours: 30, finMois: false },
+  { label: '30 jours fin de mois', jours: 30, finMois: true },
+  { label: '45 jours', jours: 45, finMois: false },
+  { label: '45 jours fin de mois', jours: 45, finMois: true },
+  { label: '60 jours', jours: 60, finMois: false },
+]

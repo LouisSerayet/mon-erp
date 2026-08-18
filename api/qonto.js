@@ -7,8 +7,14 @@ export default async function handler(req, res) {
   const user = await requireAuth(req, res)
   if (!user) return
 
-  const slug = process.env.VITE_QONTO_SLUG
-  const key = process.env.VITE_QONTO_KEY
+  // Préfère les noms sans préfixe VITE_ (QONTO_SLUG/QONTO_KEY) — un nom en
+  // VITE_ est automatiquement inclus par Vite dans le JS envoyé au
+  // navigateur dès qu'il est référencé côté client ; ces variables ne le
+  // sont pas aujourd'hui (lues uniquement ici, côté serveur), mais le
+  // nommage restait un piège pour une future modification. Garde l'ancien
+  // nom en repli le temps de renommer les variables dans Vercel.
+  const slug = process.env.QONTO_SLUG || process.env.VITE_QONTO_SLUG
+  const key = process.env.QONTO_KEY || process.env.VITE_QONTO_KEY
 
   if (!slug || !key) {
     return res.status(500).json({ error: 'Qonto credentials manquantes' })
