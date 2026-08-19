@@ -102,7 +102,10 @@ export default function ProjetDetail() {
   const [validationDate, setValidationDate] = useState('') // date de début
   const [validationError, setValidationError] = useState('')
   const [validating, setValidating] = useState(false)
-  const [formLigne, setFormLigne] = useState({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne', nature: 'negoce' })
+  // prix_vente_ht : saisi uniquement pour la nature "Honoraire" (vente
+  // seule, sans achat) — voir le formulaire "Nouvelle ligne" et
+  // ajouterLigne, qui l'utilise à la place de prix_achat_ht × coeff.
+  const [formLigne, setFormLigne] = useState({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', prix_vente_ht: '', type: 'ligne', nature: 'negoce' })
   const [savingLigne, setSavingLigne] = useState(false)
   const [modeLignes, setModeLignes] = useState({}) // { [ligneId]: 'ac' | 'vc' | 'av' }
   // Garde-fous anti double-clic : sans ça, un clic rapide en double (ou un
@@ -143,7 +146,23 @@ export default function ProjetDetail() {
 
   function editLigneNature(ligneId, nature) {
     const champs = natureLigneVersChamps(nature)
-    setLignesEditees(prev => ({ ...prev, [ligneId]: { ...(prev[ligneId] || {}), ...champs } }))
+    setLignesEditees(prev => {
+      const enCours = { ...(prev[ligneId] || {}), ...champs }
+      if (nature === 'honoraire') {
+        // Bascule vers "Honoraire" (vente seule) : force achat et coeff à
+        // vide/zéro et recalcule le total à partir du prix de vente actuel
+        // — même logique que calculerLigne (mode 'honoraire'), pour qu'un
+        // achat déjà saisi avant la bascule ne reste pas compté.
+        const ligne = lignes.find(l => l.id === ligneId)
+        const qte = parseFloat(enCours.qte ?? ligne?.qte) || 0
+        const puVente = parseFloat(enCours.prix_unit_ht ?? ligne?.prix_unit_ht) || 0
+        enCours.prix_achat_ht = '0'
+        enCours.coeff = ''
+        enCours.total_ht = qte * puVente
+        enCours.total_achat = 0
+      }
+      return { ...prev, [ligneId]: enCours }
+    })
   }
   function generateDevisPDF(lang = 'fr') {
     const t = L[lang]
@@ -506,12 +525,16 @@ export default function ProjetDetail() {
   }
 
   function editLigne(ligneId, champ, valeur, ligne) {
-    // Mode propre à la ligne (ac / vc / av), fallback sur 'ac'
-    const modeLocal = modeLignes[ligneId] || 'ac'
     setLignesEditees(prev => {
+      const enCours = prev[ligneId] || {}
+      // Une ligne Honoraire (vente seule, sans achat) ignore le mode local
+      // ac/vc/av choisi par l'utilisateur — voir calculerLigne (mode
+      // 'honoraire') et NATURE_LIGNE_OPTIONS.
+      const categorieLigne = enCours.categorie_ligne ?? ligne.categorie_ligne ?? 'negoce'
+      const modeLocal = categorieLigne === 'honoraire' ? 'honoraire' : (modeLignes[ligneId] || 'ac')
       // Logique de calcul extraite dans lib/calculs.js (calculerLigne) pour
       // être testable indépendamment de React — voir calculs.test.js.
-      const current = calculerLigne({ modeLocal, champ, valeur, current: prev[ligneId] || {}, ligne })
+      const current = calculerLigne({ modeLocal, champ, valeur, current: enCours, ligne })
       return { ...prev, [ligneId]: current }
     })
   }
@@ -575,11 +598,16 @@ export default function ProjetDetail() {
     setLigneError('')
     setSavingLigne(true)
     const qte = parseFloat(formLigne.qte) || 0
-    const prixAchat = parseFloat(formLigne.prix_achat_ht) || 0
-    const coeff = parseFloat(formLigne.coeff) || 1
-    const prixVente = prixAchat * coeff
+    const estHonoraire = formLigne.nature === 'honoraire'
+    // Une ligne Honoraire n'a pas d'achat : le prix de vente est saisi
+    // directement (formLigne.prix_vente_ht) plutôt que dérivé d'un achat ×
+    // coefficient — voir le formulaire "Nouvelle ligne" et calculerLigne
+    // (mode 'honoraire') pour la même logique côté édition inline.
+    const prixAchat = estHonoraire ? 0 : (parseFloat(formLigne.prix_achat_ht) || 0)
+    const coeff = estHonoraire ? 0 : (parseFloat(formLigne.coeff) || 1)
+    const prixVente = estHonoraire ? (parseFloat(formLigne.prix_vente_ht) || 0) : prixAchat * coeff
     const totalHt = qte * prixVente
-    const totalAchat = qte * prixAchat
+    const totalAchat = estHonoraire ? 0 : qte * prixAchat
     const maxOrdre = Math.max(...lignes.map(l => l.ordre || 0), 0)
     const { categorie_ligne, variante_active } = natureLigneVersChamps(formLigne.nature || 'negoce')
     const { error } = await supabase.from('projet_lignes').insert([{
@@ -604,7 +632,7 @@ export default function ProjetDetail() {
       setLignes(lg)
       await syncMontantHtProjet(lg)
       setShowAddLigne(false)
-      setFormLigne({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', type: 'ligne', nature: 'negoce' })
+      setFormLigne({ lot: '', descriptif: '', unite: '', qte: '', prix_achat_ht: '', coeff: '1.30', prix_vente_ht: '', type: 'ligne', nature: 'negoce' })
     } else {
       // Avant ce correctif, une erreur ici (ex. colonne manquante si
       // categorie_ligne_migration.sql n'a pas été exécuté) refermait
@@ -2076,16 +2104,24 @@ export default function ProjetDetail() {
                     <input type="number" value={formLigne.qte} onChange={e => setFormLigne(p => ({ ...p, qte: e.target.value }))} placeholder="1"
                       style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                   </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Prix achat HT (€)</label>
-                    <input type="number" value={formLigne.prix_achat_ht} onChange={e => setFormLigne(p => ({ ...p, prix_achat_ht: e.target.value }))} placeholder="0"
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Coefficient</label>
-                    <input type="number" value={formLigne.coeff} onChange={e => setFormLigne(p => ({ ...p, coeff: e.target.value }))} placeholder="1.30"
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
-                  </div>
+                  {formLigne.nature === 'honoraire' ? (
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Prix de vente HT (€) — sans achat</label>
+                      <input type="number" value={formLigne.prix_vente_ht} onChange={e => setFormLigne(p => ({ ...p, prix_vente_ht: e.target.value }))} placeholder="0"
+                        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                  ) : (<>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Prix achat HT (€)</label>
+                      <input type="number" value={formLigne.prix_achat_ht} onChange={e => setFormLigne(p => ({ ...p, prix_achat_ht: e.target.value }))} placeholder="0"
+                        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Coefficient</label>
+                      <input type="number" value={formLigne.coeff} onChange={e => setFormLigne(p => ({ ...p, coeff: e.target.value }))} placeholder="1.30"
+                        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                  </>)}
                   <div>
                     <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Nature</label>
                     <select value={formLigne.nature} onChange={e => setFormLigne(p => ({ ...p, nature: e.target.value }))}
@@ -2095,11 +2131,20 @@ export default function ProjetDetail() {
                   </div>
                 </div>
                 {/* Preview du prix vente */}
-                {formLigne.prix_achat_ht && formLigne.coeff && (
-                  <div style={{ fontSize: 12, color: '#059669', marginBottom: 12, fontWeight: 500 }}>
-                    → Prix vente HT : {(parseFloat(formLigne.prix_achat_ht) * parseFloat(formLigne.coeff)).toFixed(2)} € 
-                    {formLigne.qte ? ` · Total : ${(parseFloat(formLigne.qte) * parseFloat(formLigne.prix_achat_ht) * parseFloat(formLigne.coeff)).toFixed(2)} €` : ''}
-                  </div>
+                {formLigne.nature === 'honoraire' ? (
+                  formLigne.prix_vente_ht && (
+                    <div style={{ fontSize: 12, color: '#059669', marginBottom: 12, fontWeight: 500 }}>
+                      → Prix vente HT : {parseFloat(formLigne.prix_vente_ht).toFixed(2)} €
+                      {formLigne.qte ? ` · Total : ${(parseFloat(formLigne.qte) * parseFloat(formLigne.prix_vente_ht)).toFixed(2)} €` : ''} · sans achat (honoraire)
+                    </div>
+                  )
+                ) : (
+                  formLigne.prix_achat_ht && formLigne.coeff && (
+                    <div style={{ fontSize: 12, color: '#059669', marginBottom: 12, fontWeight: 500 }}>
+                      → Prix vente HT : {(parseFloat(formLigne.prix_achat_ht) * parseFloat(formLigne.coeff)).toFixed(2)} €
+                      {formLigne.qte ? ` · Total : ${(parseFloat(formLigne.qte) * parseFloat(formLigne.prix_achat_ht) * parseFloat(formLigne.coeff)).toFixed(2)} €` : ''}
+                    </div>
+                  )
                 )}
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => setShowAddLigne(false)}
@@ -2228,8 +2273,12 @@ export default function ProjetDetail() {
                         const puAchat = parseFloat(getLigneVal(l, 'prix_achat_ht')) || 0
                         const totalVente = qte * puVente
                         const totalAchat = qte * puAchat
-                        const modeLocal = modeLignes[l.id] || 'ac'
                         const nature = getNatureEff(l)
+                        // Une ligne Honoraire (vente seule) n'a pas de notion
+                        // d'achat/coeff — le mode ac/vc/av choisi par
+                        // l'utilisateur est ignoré, voir editLigne.
+                        const estHonoraire = nature === 'honoraire'
+                        const modeLocal = estHonoraire ? 'honoraire' : (modeLignes[l.id] || 'ac')
                         const compteDansTotal = nature !== 'option' && nature !== 'texte' && nature !== 'variante_inactive'
                         return (
                           <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : !compteDansTotal ? '#FAFAF9' : i % 2 === 0 ? '#fff' : '#FAFAFA', opacity: compteDansTotal ? 1 : 0.7 }}>
@@ -2269,8 +2318,10 @@ export default function ProjetDetail() {
                               {totalVente > 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
-                              {/* Coeff — bloqué en mode V÷A (calculé) */}
-                              {modeLocal === 'av' ? (
+                              {/* Coeff — sans objet pour une ligne Honoraire, bloqué en mode V÷A (calculé) */}
+                              {estHonoraire ? (
+                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
+                              ) : modeLocal === 'av' ? (
                                 <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>
                                   {getLigneVal(l, 'coeff') || '—'}
                                 </div>
@@ -2280,8 +2331,10 @@ export default function ProjetDetail() {
                               )}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
-                              {/* P.U. Achat — bloqué en mode V÷C (calculé) */}
-                              {modeLocal === 'vc' ? (
+                              {/* P.U. Achat — sans objet pour une ligne Honoraire, bloqué en mode V÷C (calculé) */}
+                              {estHonoraire ? (
+                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
+                              ) : modeLocal === 'vc' ? (
                                 <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>
                                   {getLigneVal(l, 'prix_achat_ht') || '—'}
                                 </div>
@@ -2291,19 +2344,23 @@ export default function ProjetDetail() {
                               )}
                             </td>
                             <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? '#2563EB' : '#9CA3AF' }}>
-                              {totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                              {estHonoraire ? '—' : totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px', whiteSpace: 'nowrap' }}>
-                              <div style={{ display: 'flex', gap: 2 }}>
-                                {[['ac', 'A×C'], ['vc', 'V÷C'], ['av', 'V÷A']].map(([mode, label]) => (
-                                  <button key={mode} onClick={() => setModeLignes(prev => ({ ...prev, [l.id]: mode }))}
-                                    style={{ padding: '2px 5px', borderRadius: 4, border: '1px solid ' + (modeLocal === mode ? '#7C3AED' : '#E5E7EB'),
-                                      background: modeLocal === mode ? '#F5F3FF' : '#fff', color: modeLocal === mode ? '#7C3AED' : '#9CA3AF',
-                                      cursor: 'pointer', fontSize: 10, fontWeight: modeLocal === mode ? 600 : 400 }}>
-                                    {label}
-                                  </button>
-                                ))}
-                              </div>
+                              {estHonoraire ? (
+                                <span style={{ fontSize: 10, color: '#9CA3AF' }} title="Ligne Honoraire : vente seule, sans achat">vente seule</span>
+                              ) : (
+                                <div style={{ display: 'flex', gap: 2 }}>
+                                  {[['ac', 'A×C'], ['vc', 'V÷C'], ['av', 'V÷A']].map(([mode, label]) => (
+                                    <button key={mode} onClick={() => setModeLignes(prev => ({ ...prev, [l.id]: mode }))}
+                                      style={{ padding: '2px 5px', borderRadius: 4, border: '1px solid ' + (modeLocal === mode ? '#7C3AED' : '#E5E7EB'),
+                                        background: modeLocal === mode ? '#F5F3FF' : '#fff', color: modeLocal === mode ? '#7C3AED' : '#9CA3AF',
+                                        cursor: 'pointer', fontSize: 10, fontWeight: modeLocal === mode ? 600 : 400 }}>
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               <select value={nature} onChange={e => editLigneNature(l.id, e.target.value)} title="Nature de la ligne — pilote si elle compte dans le total du devis"
@@ -2347,7 +2404,6 @@ export default function ProjetDetail() {
                     <tbody>
                       {(lignesParLot['sans'] || []).map((l, i) => {
                         const isEdited = !!lignesEditees[l.id]
-                        const modeLocal = modeLignes[l.id] || 'ac'
                         const inputStyle = { width: '100%', padding: '3px 6px', borderRadius: 4, border: '1px solid #BFDBFE', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: '#EFF6FF' }
                         if (l.type === 'titre') return (
                           <tr key={i} style={{ background: '#F1F5F9' }}>
@@ -2361,6 +2417,11 @@ export default function ProjetDetail() {
                         const totalVente = qte * puVente
                         const totalAchat = qte * puAchat
                         const nature = getNatureEff(l)
+                        // Une ligne Honoraire (vente seule) n'a pas de notion
+                        // d'achat/coeff — le mode ac/vc/av choisi par
+                        // l'utilisateur est ignoré, voir editLigne.
+                        const estHonoraire = nature === 'honoraire'
+                        const modeLocal = estHonoraire ? 'honoraire' : (modeLignes[l.id] || 'ac')
                         const compteDansTotal = nature !== 'option' && nature !== 'texte' && nature !== 'variante_inactive'
                         return (
                           <>
@@ -2392,25 +2453,31 @@ export default function ProjetDetail() {
                               {totalVente > 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
-                              {modeLocal === 'av' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'coeff') || '—'}</div>
+                              {estHonoraire ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
+                              : modeLocal === 'av' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'coeff') || '—'}</div>
                               : <input type="number" value={getLigneVal(l, 'coeff')} onChange={e => editLigne(l.id, 'coeff', e.target.value, l)} style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #E9D5FF' : '1px solid transparent', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: isEdited ? '#F5F3FF' : 'transparent', color: '#7C3AED' }} />}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
-                              {modeLocal === 'vc' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'prix_achat_ht') || '—'}</div>
+                              {estHonoraire ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
+                              : modeLocal === 'vc' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'prix_achat_ht') || '—'}</div>
                               : <input type="number" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)} style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent', color: '#2563EB' }} />}
                             </td>
                             <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? '#2563EB' : '#9CA3AF' }}>
-                              {totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                              {estHonoraire ? '—' : totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px', whiteSpace: 'nowrap' }}>
-                              <div style={{ display: 'flex', gap: 2 }}>
-                                {[['ac', 'A×C'], ['vc', 'V÷C'], ['av', 'V÷A']].map(([mode, label]) => (
-                                  <button key={mode} onClick={() => setModeLignes(prev => ({ ...prev, [l.id]: mode }))}
-                                    style={{ padding: '2px 5px', borderRadius: 4, border: '1px solid ' + (modeLocal === mode ? '#7C3AED' : '#E5E7EB'), background: modeLocal === mode ? '#F5F3FF' : '#fff', color: modeLocal === mode ? '#7C3AED' : '#9CA3AF', cursor: 'pointer', fontSize: 10, fontWeight: modeLocal === mode ? 600 : 400 }}>
-                                    {label}
-                                  </button>
-                                ))}
-                              </div>
+                              {estHonoraire ? (
+                                <span style={{ fontSize: 10, color: '#9CA3AF' }} title="Ligne Honoraire : vente seule, sans achat">vente seule</span>
+                              ) : (
+                                <div style={{ display: 'flex', gap: 2 }}>
+                                  {[['ac', 'A×C'], ['vc', 'V÷C'], ['av', 'V÷A']].map(([mode, label]) => (
+                                    <button key={mode} onClick={() => setModeLignes(prev => ({ ...prev, [l.id]: mode }))}
+                                      style={{ padding: '2px 5px', borderRadius: 4, border: '1px solid ' + (modeLocal === mode ? '#7C3AED' : '#E5E7EB'), background: modeLocal === mode ? '#F5F3FF' : '#fff', color: modeLocal === mode ? '#7C3AED' : '#9CA3AF', cursor: 'pointer', fontSize: 10, fontWeight: modeLocal === mode ? 600 : 400 }}>
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               <select value={nature} onChange={e => editLigneNature(l.id, e.target.value)} title="Nature de la ligne — pilote si elle compte dans le total du devis"

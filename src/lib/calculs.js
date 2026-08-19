@@ -3,10 +3,25 @@
 
 // Une ligne de projet peut être pilotée par 3 modes selon quel champ on
 // considère "fixe" : Achat×Coeff→Vente, Vente÷Coeff→Achat, Vente÷Achat→Coeff.
+// Un 4e mode virtuel 'honoraire' (voir NATURE_LIGNE_OPTIONS) n'a pas
+// d'achat du tout : le prix de vente est toujours saisi directement, achat
+// et coefficient restent forcés à vide/zéro.
 // Étant donné le champ qui vient de changer, dérive le(s) champ(s)
 // manquant(s) puis recalcule les totaux (qté × prix).
 export function calculerLigne({ modeLocal, champ, valeur, current, ligne }) {
   const resultat = { ...current, [champ]: valeur }
+
+  if (modeLocal === 'honoraire') {
+    // Ligne "vente seule" (ex: honoraires) : pas de notion d'achat/coeff —
+    // seuls la quantité et le prix de vente déterminent le total.
+    resultat.prix_achat_ht = '0'
+    resultat.coeff = ''
+    const qte = parseFloat(resultat.qte ?? ligne.qte) || 0
+    const puV = parseFloat(resultat.prix_unit_ht ?? ligne.prix_unit_ht) || 0
+    resultat.total_ht = qte * puV
+    resultat.total_achat = 0
+    return resultat
+  }
 
   const puA = parseFloat(champ === 'prix_achat_ht' ? valeur : (resultat.prix_achat_ht ?? ligne.prix_achat_ht)) || 0
   const puV = parseFloat(champ === 'prix_unit_ht' ? valeur : (resultat.prix_unit_ht ?? ligne.prix_unit_ht)) || 0
@@ -38,7 +53,7 @@ export function calculerLigne({ modeLocal, champ, valeur, current, ligne }) {
   return resultat
 }
 
-// ── Nature d'une ligne (négoce / option / variante / texte) ────────────
+// ── Nature d'une ligne (négoce / option / variante / texte / honoraire) ──
 // Une ligne "classique" (négoce, valeur par défaut) compte normalement dans
 // les totaux. Une "Option" est une proposition facultative pour le client :
 // elle reste visible (devis PDF, onglet Lignes) mais hors du total principal
@@ -47,14 +62,19 @@ export function calculerLigne({ modeLocal, champ, valeur, current, ligne }) {
 // B) : seule celle marquée `variante_active` compte dans les totaux et
 // apparaît sur le devis envoyé au client, l'autre reste en base pour
 // comparaison mais n'a aucun impact chiffré. "Texte" est une note sans
-// montant (comme un titre, mais au milieu d'une liste de lignes).
+// montant (comme un titre, mais au milieu d'une liste de lignes). "Honoraire"
+// est une ligne de vente pure (ex: honoraires, frais de gestion) : elle
+// compte normalement dans le total comme une ligne négoce, mais n'a pas
+// d'achat associé — voir calculerLigne (mode 'honoraire') qui force achat
+// et coefficient à vide/zéro pour ce type de ligne.
 //
-// L'UI n'expose qu'un seul sélecteur "Nature" à 5 choix (fusionnant
+// L'UI n'expose qu'un seul sélecteur "Nature" à 6 choix (fusionnant
 // categorie_ligne + variante_active en une seule valeur composite) pour
 // rester simple à l'usage — ces deux fonctions font l'aller-retour entre
 // la valeur affichée et les deux colonnes réellement stockées en base.
 export const NATURE_LIGNE_OPTIONS = [
   { value: 'negoce', shortLabel: 'Négoce', label: 'Négoce (ligne classique)' },
+  { value: 'honoraire', shortLabel: 'Honoraire', label: 'Honoraire (vente seule, sans achat)' },
   { value: 'option', shortLabel: 'Option', label: 'Option (hors total, proposée à part)' },
   { value: 'variante_active', shortLabel: 'Variante retenue', label: 'Variante — retenue (compte)' },
   { value: 'variante_inactive', shortLabel: 'Variante alt.', label: 'Variante — alternative (ne compte pas)' },
@@ -74,9 +94,11 @@ export function natureLigneVersChamps(nature) {
 }
 
 // Une ligne compte dans les totaux (vente/achat, lot, devis, rentabilité)
-// sauf si elle est une Option, une Variante non retenue, ou du Texte.
-// N'examine pas `type` — l'appelant doit déjà avoir filtré les lignes de
-// type 'ligne' (lots, titres... ne passent pas par cette fonction).
+// sauf si elle est une Option, une Variante non retenue, ou du Texte — une
+// ligne Honoraire compte normalement (comme une ligne négoce), seul son
+// achat est nul. N'examine pas `type` — l'appelant doit déjà avoir filtré
+// les lignes de type 'ligne' (lots, titres... ne passent pas par cette
+// fonction).
 export function ligneCompteDansTotal(l) {
   const cat = l?.categorie_ligne || 'negoce'
   if (cat === 'option' || cat === 'texte') return false

@@ -48,6 +48,24 @@ describe('calculerLigne', () => {
     expect(r.total_ht).toBe(390)   // 3 * 130
     expect(r.total_achat).toBe(300) // 3 * 100
   })
+
+  it('mode honoraire : le prix de vente est saisi directement, achat et coeff forcés à vide/zéro', () => {
+    const r = calculerLigne({ modeLocal: 'honoraire', champ: 'prix_unit_ht', valeur: '500', current: {}, ligne: ligneBase })
+    expect(r.prix_unit_ht).toBe('500')
+    expect(r.prix_achat_ht).toBe('0')
+    expect(r.coeff).toBe('')
+    expect(r.total_ht).toBe(1000) // qte(2) * 500
+    expect(r.total_achat).toBe(0)
+  })
+
+  it('mode honoraire : ignore un éventuel achat/coeff déjà présent sur la ligne d\'origine', () => {
+    // Une ligne qui avait un achat avant de basculer en Honoraire ne doit
+    // plus jamais faire réapparaître ce coût dans le total.
+    const r = calculerLigne({ modeLocal: 'honoraire', champ: 'qte', valeur: '3', current: {}, ligne: ligneBase })
+    expect(r.prix_achat_ht).toBe('0')
+    expect(r.total_achat).toBe(0)
+    expect(r.total_ht).toBe(390) // 3 * 130 (prix vente ligne d'origine, inchangé)
+  })
 })
 
 describe('calculerMarge', () => {
@@ -104,7 +122,7 @@ describe('getNatureLigne / natureLigneVersChamps (aller-retour valeur composite 
   })
 
   it('natureLigneVersChamps fait l\'aller-retour exact avec getNatureLigne', () => {
-    for (const nature of ['negoce', 'option', 'texte', 'variante_active', 'variante_inactive']) {
+    for (const nature of ['negoce', 'honoraire', 'option', 'texte', 'variante_active', 'variante_inactive']) {
       const { categorie_ligne, variante_active } = natureLigneVersChamps(nature)
       expect(getNatureLigne(categorie_ligne, variante_active)).toBe(nature)
     }
@@ -130,11 +148,16 @@ describe('ligneCompteDansTotal', () => {
     expect(ligneCompteDansTotal({ categorie_ligne: 'variante' })).toBe(true) // undefined -> considérée active
     expect(ligneCompteDansTotal({ categorie_ligne: 'variante', variante_active: false })).toBe(false)
   })
+
+  it('une ligne honoraire compte normalement, comme une ligne négoce', () => {
+    expect(ligneCompteDansTotal({ categorie_ligne: 'honoraire' })).toBe(true)
+  })
 })
 
 describe('natureLigneDepuisTexte (colonne "Nature" de l\'import Excel)', () => {
   it('reconnaît chaque libellé exact du sélecteur', () => {
     expect(natureLigneDepuisTexte('Négoce')).toBe('negoce')
+    expect(natureLigneDepuisTexte('Honoraire')).toBe('honoraire')
     expect(natureLigneDepuisTexte('Option')).toBe('option')
     expect(natureLigneDepuisTexte('Variante retenue')).toBe('variante_active')
     expect(natureLigneDepuisTexte('Variante alt.')).toBe('variante_inactive')
