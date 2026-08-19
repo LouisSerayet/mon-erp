@@ -71,6 +71,7 @@ export default function ProjetDetail() {
   const [error, setError] = useState('')
   const [editInfos, setEditInfos] = useState(false)
   const [formInfos, setFormInfos] = useState({})
+  const [infosError, setInfosError] = useState('')
   const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
   const [formFfrs, setFormFfrs] = useState({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' })
   const [formFcli, setFormFcli] = useState({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' })
@@ -933,8 +934,17 @@ export default function ProjetDetail() {
 
   // ── Save infos ────────────────────────────────────────────────
   async function saveInfos() {
-    await supabase.from('projets').update(formInfos).eq('id', id)
-    setProjet(prev => ({ ...prev, ...formInfos }))
+    setInfosError('')
+    // .select().single() force la requête à renvoyer la ligne mise à jour
+    // (ou une erreur explicite si aucune ligne n'a été affectée, ex. policy
+    // RLS qui bloque silencieusement) — avant ce correctif, une erreur ici
+    // (contrainte invalide sur un des champs, etc.) refermait le formulaire
+    // sans rien enregistrer ni expliquer pourquoi : l'ancien nom (et les
+    // autres champs) réapparaissait dès le prochain chargement de la page,
+    // sans aucun indice sur la cause.
+    const { data, error } = await supabase.from('projets').update(formInfos).eq('id', id).select().single()
+    if (error) { setInfosError(error.message); return }
+    setProjet(prev => ({ ...prev, ...data }))
     setEditInfos(false)
   }
 
@@ -1770,7 +1780,7 @@ export default function ProjetDetail() {
               <div style={{ padding: '16px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Informations du projet</div>
                 {!editInfos && (
-                  <button onClick={() => { setEditInfos(true); setFormInfos({ nom: projet.nom, statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20 }) }}
+                  <button onClick={() => { setEditInfos(true); setInfosError(''); setFormInfos({ nom: projet.nom, statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20 }) }}
                     style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 12 }}>✏️ Modifier</button>
                 )}
               </div>
@@ -1938,6 +1948,7 @@ export default function ProjetDetail() {
 
             {editInfos ? (
                 <div style={{ padding: isMobile ? 14 : 20 }}>
+                  {infosError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{infosError}</div>}
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14, marginBottom: 14 }}>
                     <div style={{ gridColumn: '1 / -1' }}>
                       <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Nom du projet</label>
@@ -1990,7 +2001,7 @@ export default function ProjetDetail() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 10 }}>
-                    <button onClick={() => setEditInfos(false)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                    <button onClick={() => { setEditInfos(false); setInfosError('') }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
                     <button onClick={saveInfos} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Sauvegarder</button>
                   </div>
                 </div>
