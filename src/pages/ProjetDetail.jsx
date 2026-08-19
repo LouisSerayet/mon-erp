@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
@@ -56,8 +56,19 @@ const STATUT_ICON = {
 export default function ProjetDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const isMobile = useIsMobile()
-  const [tab, setTab] = useState('infos')
+  // Un lien depuis le Dashboard (ex: "Factures clients à encaisser") peut
+  // demander d'arriver directement sur le bon onglet — et sur la bonne
+  // ligne (focusId, voir plus bas) — plutôt que sur "Infos" par défaut, ce
+  // qui évitait de devoir rechercher la facture à la main pour la
+  // télécharger. `tab` n'est lu qu'à l'ouverture (état initial) : changer
+  // d'onglet ensuite ne dépend plus de location.state.
+  const [tab, setTab] = useState(location.state?.tab || 'infos')
+  // Ligne à mettre en évidence/scroller au chargement (commande, facture
+  // frs ou cli) — voir l'useEffect de scroll plus bas et les `id`
+  // `row-<id>` posés sur les <tr> correspondants.
+  const focusId = location.state?.focusId || null
   const [projet, setProjet] = useState(null)
   const [loading, setLoading] = useState(true)
   const [fournisseurs, setFournisseurs] = useState([])
@@ -508,6 +519,14 @@ export default function ProjetDetail() {
   const [expandedCmd, setExpandedCmd] = useState(null) // commande ouverte pour voir ses docs
 
   useEffect(() => { fetchAll() }, [id])
+
+  // Une fois les données chargées, scrolle jusqu'à la ligne visée par
+  // focusId (arrivée depuis un lien du Dashboard) et la met en évidence.
+  useEffect(() => {
+    if (!focusId || loading) return
+    const el = document.getElementById('row-' + focusId)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [focusId, loading])
 
   // Échéance de la nouvelle facture fournisseur recalculée à la volée
   // (pas via useEffect+setState pour éviter un rendu en cascade — voir
@@ -2699,7 +2718,7 @@ export default function ProjetDetail() {
                       const inStyle = { padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, background: isEdited ? '#EFF6FF' : 'transparent', boxSizing: 'border-box', width: '100%' }
                       return (
                         <>
-                        <tr key={c.id} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                        <tr key={c.id} id={'row-' + c.id} style={{ borderBottom: '1px solid #F3F4F6', background: c.id === focusId ? '#FEF9C3' : isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                           <td style={{ padding: '8px 14px', fontWeight: 600, color: '#2563EB', fontSize: 12, whiteSpace: 'nowrap' }}>
                             <input value={getCmdVal(c, 'numero')} onChange={e => editCmd(c.id, 'numero', e.target.value)}
                               style={{ ...inStyle, width: 140, fontWeight: 600, color: '#2563EB' }} />
@@ -2909,7 +2928,7 @@ export default function ProjetDetail() {
                     const isEdited = !!facFrsEditees[f.id]
                     const inStyle = { padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #FED7AA' : '1px solid transparent', fontSize: 12, background: isEdited ? '#FFF7ED' : 'transparent', boxSizing: 'border-box', width: '100%' }
                     return (
-                    <tr key={f.id} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                    <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid #F3F4F6', background: f.id === focusId ? '#FEF9C3' : isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                       <td style={{ padding: '8px 14px', fontWeight: 500 }}>
                         <input value={getFacFrsVal(f, 'numero')} onChange={e => editFacFrs(f.id, 'numero', e.target.value)} style={{ ...inStyle, width: 110, fontWeight: 600 }} />
                       </td>
@@ -3102,7 +3121,7 @@ export default function ProjetDetail() {
                     const isEdited = !!facCliEditees[f.id]
                     const inStyle = { padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #BBF7D0' : '1px solid transparent', fontSize: 12, background: isEdited ? '#F0FDF4' : 'transparent', boxSizing: 'border-box', width: '100%' }
                     return (
-                    <tr key={f.id} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                    <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid #F3F4F6', background: f.id === focusId ? '#FEF9C3' : isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                       <td style={{ padding: '8px 14px', fontWeight: 600, color: '#111827' }} title="Numéro non modifiable (obligation légale de numérotation séquentielle)">
                         {f.numero}
                       </td>

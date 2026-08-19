@@ -11,9 +11,9 @@ const STATUTS_ORDRE = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours',
 // Raccourcis de filtrage courants pour le widget — l'utilisateur peut aussi
 // cocher/décocher chaque statut à la main pour composer sa propre vue.
 const PRESETS_STATUTS = [
-  { label: 'Prévisionnel', statuts: ['Brouillon', 'Devis envoyé', 'Devis signé'] },
-  { label: 'Signés & actifs', statuts: ['Devis signé', 'En cours', 'Finalisation'] },
-  { label: 'Clôturés', statuts: ['Clôturé'] },
+  { label: 'Prévisionnel', statuts: ['Brouillon', 'Devis envoyé'] },
+  { label: 'Signés & actifs', statuts: ['Devis signé', 'En cours'] },
+  { label: 'Clôturés', statuts: ['Finalisation', 'Clôturé'] },
   { label: 'Tout (hors perdus)', statuts: ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé'] },
   { label: 'Tout', statuts: STATUTS_ORDRE },
 ]
@@ -340,7 +340,7 @@ export default function Dashboard() {
               const joursRetard = f.date_echeance ? Math.floor((new Date() - new Date(f.date_echeance)) / 86400000) : null
               return (
                 <div key={f.id} style={{ padding: '12px 18px', borderBottom: i < relances.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate('/projets/' + f.projet_id)}>
+                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_cli', focusId: f.id } })}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: '#111827' }}>{f.clients?.nom || 'Client inconnu'} · {f.numero}</div>
                     <div style={{ fontSize: 11, color: '#DC2626' }}>
                       {f.projets?.nom ? f.projets.nom + ' · ' : ''}Échue depuis {joursRetard} jour(s) ({fmtDate(f.date_echeance)})
@@ -502,7 +502,7 @@ export default function Dashboard() {
           ) : (
             <div>
               {cmdEnAttente.map((c, i) => (
-                <div key={c.id} onClick={() => navigate('/projets/' + c.projet_id)}
+                <div key={c.id} onClick={() => navigate('/projets/' + c.projet_id, { state: { tab: 'commandes', focusId: c.id } })}
                   style={{ padding: '12px 18px', borderBottom: i < cmdEnAttente.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
@@ -536,7 +536,7 @@ export default function Dashboard() {
               {facturesFrsAPayer.map((f, i) => {
                 const enRetard = f.date_echeance && new Date(f.date_echeance) < new Date()
                 return (
-                  <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id)}
+                  <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_frs', focusId: f.id } })}
                     style={{ padding: '12px 18px', borderBottom: i < facturesFrsAPayer.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
                     onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
                     onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
@@ -567,7 +567,7 @@ export default function Dashboard() {
               {facturesCliAEncaisser.map((f, i) => {
                 const enRetard = f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date()
                 return (
-                  <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id)}
+                  <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_cli', focusId: f.id } })}
                     style={{ padding: '12px 18px', borderBottom: i < facturesCliAEncaisser.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
                     onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
                     onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
