@@ -3,6 +3,11 @@ import { supabase } from '../lib/supabase'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { PRESETS_DELAI_PAIEMENT } from '../lib/calculs'
 
+// Suggestions de types de contact (voir client_contacts_migration.sql) — le
+// champ reste du texte libre en base, ces valeurs ne sont qu'une <datalist>
+// pour accélérer la saisie des cas courants.
+const TYPES_CONTACT_SUGGERES = ['Facturation', 'Livraison', 'Personnel', 'Général', 'Technique', 'Direction']
+
 // Sélecteur "Conditions de paiement" (délai en jours + case "fin de mois"),
 // partagé entre le formulaire de création et le formulaire d'édition — sert
 // à pré-remplir automatiquement l'échéance des factures de ce client (voir
@@ -52,6 +57,16 @@ export default function Clients() {
   const [formEdit, setFormEdit] = useState({})
   const [error, setError] = useState('')
   const [savingClient, setSavingClient] = useState(false) // garde-fou anti double-clic
+  // Contacts multiples du client ouvert (Facturation, Livraison, Personnel...)
+  // — voir client_contacts_migration.sql, distincts du champ "contact" unique
+  // historique conservé ci-dessus pour compatibilité avec les PDF/Pennylane.
+  const [contacts, setContacts] = useState([])
+  const [showContactForm, setShowContactForm] = useState(false)
+  const [contactForm, setContactForm] = useState({ type: 'Facturation', nom: '', email: '', telephone: '' })
+  const [contactEnEdition, setContactEnEdition] = useState(null)
+  const [contactEditForm, setContactEditForm] = useState({})
+  const [contactError, setContactError] = useState('')
+  const [savingContact, setSavingContact] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => { fetchClients() }, [])
@@ -68,6 +83,52 @@ export default function Clients() {
     setProjets(p || [])
     setClientOuvert(c)
     setEditMode(false)
+    setShowContactForm(false)
+    setContactEnEdition(null)
+    setContactError('')
+    fetchContacts(c.id)
+  }
+
+  async function fetchContacts(clientId) {
+    const { data } = await supabase.from('client_contacts').select('*').eq('client_id', clientId).is('deleted_at', null).order('created_at')
+    setContacts(data || [])
+  }
+
+  async function ajouterContact() {
+    if (savingContact) return
+    setContactError('')
+    if (!contactForm.type.trim()) { setContactError('Le type de contact est obligatoire.'); return }
+    setSavingContact(true)
+    const { data, error } = await supabase.from('client_contacts')
+      .insert([{ client_id: clientOuvert.id, type: contactForm.type.trim(), nom: contactForm.nom.trim() || null, email: contactForm.email.trim() || null, telephone: contactForm.telephone.trim() || null }])
+      .select().single()
+    setSavingContact(false)
+    if (error) { setContactError('Erreur : ' + error.message); return }
+    setContacts(prev => [...prev, data])
+    setContactForm({ type: 'Facturation', nom: '', email: '', telephone: '' })
+    setShowContactForm(false)
+  }
+
+  function commencerEditionContact(c) {
+    setContactEnEdition(c.id)
+    setContactEditForm({ type: c.type || '', nom: c.nom || '', email: c.email || '', telephone: c.telephone || '' })
+    setContactError('')
+  }
+
+  async function sauvegarderContact() {
+    if (!contactEditForm.type?.trim()) { setContactError('Le type de contact est obligatoire.'); return }
+    const champs = { type: contactEditForm.type.trim(), nom: contactEditForm.nom?.trim() || null, email: contactEditForm.email?.trim() || null, telephone: contactEditForm.telephone?.trim() || null }
+    const { data, error } = await supabase.from('client_contacts').update(champs).eq('id', contactEnEdition).select().single()
+    if (error) { setContactError('Erreur : ' + error.message); return }
+    setContacts(prev => prev.map(c => c.id === contactEnEdition ? data : c))
+    setContactEnEdition(null)
+  }
+
+  async function supprimerContact(contactId) {
+    if (!confirm('Supprimer ce contact ? (récupérable depuis la Corbeille)')) return
+    const { error } = await supabase.from('client_contacts').update({ deleted_at: new Date().toISOString() }).eq('id', contactId)
+    if (error) { alert('Erreur lors de la suppression du contact : ' + error.message); return }
+    setContacts(prev => prev.filter(c => c.id !== contactId))
   }
 
   async function creerClient() {
@@ -187,6 +248,87 @@ export default function Clients() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Contacts multiples (facturation, livraison, personnel...) */}
+            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+              <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>📇 Contacts</span>
+                <button onClick={() => { setShowContactForm(v => !v); setContactError('') }}
+                  style={{ fontSize: 12, color: '#2563EB', background: 'none', border: 'none', cursor: 'pointer' }}>{showContactForm ? 'Annuler' : '+ Ajouter'}</button>
+              </div>
+              <div style={{ padding: 16 }}>
+                <datalist id="types-contact-suggeres">
+                  {TYPES_CONTACT_SUGGERES.map(t => <option key={t} value={t} />)}
+                </datalist>
+
+                {contactError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{contactError}</div>}
+
+                {showContactForm && (
+                  <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ display: 'block', fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Type</label>
+                      <input list="types-contact-suggeres" value={contactForm.type} onChange={e => setContactForm(p => ({ ...p, type: e.target.value }))}
+                        placeholder="Ex : Facturation, Livraison..."
+                        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                    {[['nom', 'Nom'], ['email', 'Email'], ['telephone', 'Téléphone']].map(([key, label]) => (
+                      <div key={key} style={{ marginBottom: 8 }}>
+                        <label style={{ display: 'block', fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{label}</label>
+                        <input value={contactForm[key]} onChange={e => setContactForm(p => ({ ...p, [key]: e.target.value }))}
+                          style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+                      <button onClick={() => { setShowContactForm(false); setContactError('') }}
+                        style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 12 }}>Annuler</button>
+                      <button onClick={ajouterContact} disabled={savingContact}
+                        style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingContact ? 'default' : 'pointer', fontWeight: 500, fontSize: 12, opacity: savingContact ? 0.7 : 1 }}>{savingContact ? 'Ajout...' : 'Ajouter'}</button>
+                    </div>
+                  </div>
+                )}
+
+                {contacts.length === 0 && !showContactForm ? (
+                  <div style={{ fontSize: 13, color: '#9CA3AF', fontStyle: 'italic' }}>Aucun contact secondaire</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {contacts.map(c => (
+                      contactEnEdition === c.id ? (
+                        <div key={c.id} style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 10, padding: 12 }}>
+                          <input list="types-contact-suggeres" value={contactEditForm.type} onChange={e => setContactEditForm(p => ({ ...p, type: e.target.value }))}
+                            placeholder="Type"
+                            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 8 }} />
+                          {[['nom', 'Nom'], ['email', 'Email'], ['telephone', 'Téléphone']].map(([key, label]) => (
+                            <input key={key} value={contactEditForm[key] || ''} onChange={e => setContactEditForm(p => ({ ...p, [key]: e.target.value }))}
+                              placeholder={label}
+                              style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 8 }} />
+                          ))}
+                          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <button onClick={() => setContactEnEdition(null)}
+                              style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 12 }}>Annuler</button>
+                            <button onClick={sauvegarderContact}
+                              style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 12 }}>Enregistrer</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div key={c.id} style={{ border: '1px solid #F3F4F6', borderRadius: 10, padding: '10px 12px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6, background: '#EFF6FF', color: '#2563EB', fontWeight: 600 }}>{c.type}</span>
+                            <div style={{ fontSize: 13, color: '#111827', fontWeight: 500, marginTop: 4 }}>{c.nom || '—'}</div>
+                            <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{[c.email, c.telephone].filter(Boolean).join(' · ') || '—'}</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                            <button onClick={() => commencerEditionContact(c)} title="Modifier"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#6B7280' }}>✏️</button>
+                            <button onClick={() => supprimerContact(c.id)} title="Supprimer"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#DC2626' }}>✕</button>
+                          </div>
+                        </div>
+                      )
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Stats */}

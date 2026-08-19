@@ -24,6 +24,12 @@ const SECTIONS_ENFANTS = [
   { table: 'factures_cli', label: 'Factures clients', icon: '💶', nomChamp: f => f.numero || '(sans numéro)' },
 ]
 
+// Même principe que SECTIONS_ENFANTS mais pour les tables "enfants" d'un
+// client plutôt que d'un projet (voir client_contacts_migration.sql).
+const SECTIONS_ENFANTS_CLIENT = [
+  { table: 'client_contacts', label: 'Contacts clients', icon: '📇', nomChamp: c => (c.type ? c.type + ' — ' : '') + (c.nom || '(sans nom)') },
+]
+
 export default function Corbeille() {
   const [data, setData] = useState({})
   const [loading, setLoading] = useState(true)
@@ -34,7 +40,7 @@ export default function Corbeille() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: projets }, { data: clients }, { data: fournisseurs }, { data: depenses },
-      { data: lignes }, { data: commandes }, { data: ffrs }, { data: fcli }] = await Promise.all([
+      { data: lignes }, { data: commandes }, { data: ffrs }, { data: fcli }, { data: contactsClients }] = await Promise.all([
       supabase.from('projets').select('id, nom, deleted_at, clients(nom)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       supabase.from('clients').select('id, nom, email, deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       supabase.from('fournisseurs').select('id, nom, metier, deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
@@ -43,6 +49,7 @@ export default function Corbeille() {
       supabase.from('commandes').select('id, description, numero, deleted_at, projet_id, projets(nom)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       supabase.from('factures_frs').select('id, numero, deleted_at, projet_id, projets(nom)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       supabase.from('factures_cli').select('id, numero, deleted_at, projet_id, projets(nom)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+      supabase.from('client_contacts').select('id, type, nom, deleted_at, client_id, clients(nom)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
     ])
 
     const idsProjetsSupprimes = new Set((projets || []).map(p => p.id))
@@ -50,6 +57,11 @@ export default function Corbeille() {
     // lui-même dans la corbeille — ils réapparaîtront automatiquement en
     // restaurant le projet, les lister à part serait redondant.
     const filtreEnfant = arr => (arr || []).filter(x => !idsProjetsSupprimes.has(x.projet_id))
+
+    const idsClientsSupprimes = new Set((clients || []).map(c => c.id))
+    // Même logique côté client : un contact dont le client est déjà dans la
+    // corbeille réapparaîtra avec lui, pas besoin de le lister à part.
+    const filtreEnfantClient = arr => (arr || []).filter(x => !idsClientsSupprimes.has(x.client_id))
 
     setData({
       projets: projets || [],
@@ -60,6 +72,7 @@ export default function Corbeille() {
       commandes: filtreEnfant(commandes),
       factures_frs: filtreEnfant(ffrs),
       factures_cli: filtreEnfant(fcli),
+      client_contacts: filtreEnfantClient(contactsClients),
     })
     setLoading(false)
   }
@@ -171,6 +184,34 @@ export default function Corbeille() {
                         Voir le projet
                       </button>
                     )}
+                    <button onClick={() => restaurer(table, item.id)}
+                      style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
+                      ↺ Restaurer
+                    </button>
+                    <button onClick={() => purgerDefinitivement(table, item.id, nomChamp(item))}
+                      style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>
+                      Supprimer déf.
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
+          ))}
+
+          {SECTIONS_ENFANTS_CLIENT.map(({ table, label, icon, nomChamp }) => (
+            data[table]?.length > 0 && (
+              <div key={table} style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+                <div style={{ padding: '12px 18px', borderBottom: '1px solid #F3F4F6', fontSize: 13, fontWeight: 600 }}>
+                  {icon} {label} ({data[table].length})
+                </div>
+                {data[table].map(item => (
+                  <div key={item.id} style={{ padding: '10px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nomChamp(item)}</div>
+                      <div style={{ fontSize: 11, color: '#9CA3AF' }}>
+                        {item.clients?.nom ? 'Client : ' + item.clients.nom + ' · ' : ''}Supprimé le {fmtDate(item.deleted_at)}
+                      </div>
+                    </div>
                     <button onClick={() => restaurer(table, item.id)}
                       style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
                       ↺ Restaurer
