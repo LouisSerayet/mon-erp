@@ -686,6 +686,27 @@ export default function ProjetDetail() {
     await syncMontantHtProjet(lg)
   }
 
+  async function supprimerLot(lot) {
+    // Les lignes rattachées à ce lot (l.lot === lot.numero) ne sont
+    // rattachables à aucun autre groupe si on ne supprime que la ligne
+    // "lot" elle-même : elles resteraient en base avec un `lot` pointant
+    // vers un numéro qui n'existe plus, invisibles nulle part dans l'UI (ni
+    // dans un lot, ni dans "Lignes sans lot"). On supprime donc le lot et
+    // toutes ses lignes ensemble — tout reste récupérable depuis la
+    // Corbeille pendant 30 jours, comme une suppression de ligne classique.
+    const enfants = lignes.filter(l => l.type !== 'lot' && l.lot === lot.numero)
+    const message = enfants.length > 0
+      ? `Supprimer le lot "LOT ${lot.numero} — ${lot.categorie}" et ses ${enfants.length} ligne(s) ? (récupérables depuis la Corbeille)`
+      : `Supprimer le lot "LOT ${lot.numero} — ${lot.categorie}" ? (récupérable depuis la Corbeille)`
+    if (!confirm(message)) return
+    const ids = [lot.id, ...enfants.map(l => l.id)]
+    const { error } = await supabase.from('projet_lignes').update({ deleted_at: new Date().toISOString() }).in('id', ids)
+    if (error) { alert('Erreur lors de la suppression du lot : ' + error.message); return }
+    const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+    setLignes(lg || [])
+    await syncMontantHtProjet(lg || [])
+  }
+
   async function saveLignes() {
     setSavingLignes(true)
     const updates = Object.entries(lignesEditees)
@@ -2240,6 +2261,10 @@ export default function ProjetDetail() {
                       <span style={{ fontSize: 12, color: '#86EFAC' }}>Vente : {Number(totalVenteLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                       <span style={{ fontSize: 12, color: '#93C5FD' }}>Achat : {Number(totalAchatLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                       <span style={{ fontSize: 12, color: margeLot >= 0 ? '#86EFAC' : '#FCA5A5', fontWeight: 600 }}>Marge : {Number(margeLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      <button onClick={e => { e.stopPropagation(); supprimerLot(lot) }} title="Supprimer ce lot"
+                        style={{ background: 'none', border: 'none', color: '#FCA5A5', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, opacity: 0.7 }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>✕</button>
                     </div>
                   </div>
                   {!estReduit && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
