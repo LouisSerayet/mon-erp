@@ -2949,6 +2949,11 @@ export default function ProjetDetail() {
                           style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer', background: f.statut === 'Payée' ? '#ECFDF5' : '#FFF7ED', color: f.statut === 'Payée' ? '#059669' : '#EA580C' }}>
                           {STATUTS_FFRS.map(s => <option key={s}>{s}</option>)}
                         </select>
+                        {f.statut !== 'Payée' && f.date_echeance && new Date(f.date_echeance) < new Date() && (
+                          <div style={{ fontSize: 10, marginTop: 4, color: '#DC2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
+                            ⚠️ Impayée (en retard)
+                          </div>
+                        )}
                         {f.qonto_transaction_id ? (
                           <div title={'Rapproché avec une transaction Qonto (' + (f.qonto_match_confiance === 'exact' ? 'numéro + montant' : 'montant seul') + '), le ' + (f.qonto_matched_at ? new Date(f.qonto_matched_at).toLocaleDateString('fr-FR') : '?')}
                             style={{ fontSize: 10, marginTop: 4, color: '#2563EB', display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -3129,7 +3134,8 @@ export default function ProjetDetail() {
                         <input type="date" value={getFacCliVal(f, 'date_facture')} onChange={e => editFacCli(f.id, 'date_facture', e.target.value)} style={{ ...inStyle, width: 130 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <input type="date" value={getFacCliVal(f, 'date_echeance')} onChange={e => editFacCliEcheance(f.id, e.target.value)} style={{ ...inStyle, width: 130 }} />
+                        <input type="date" value={getFacCliVal(f, 'date_echeance')} onChange={e => editFacCliEcheance(f.id, e.target.value)}
+                          style={{ ...inStyle, width: 130, color: f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date() ? '#DC2626' : '#374151' }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
                         <input type="number" value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: '#059669' }} />
@@ -3139,6 +3145,11 @@ export default function ProjetDetail() {
                           style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer', background: f.statut === 'Payée' ? '#ECFDF5' : f.statut === 'Envoyée' ? '#EFF6FF' : '#F9FAFB', color: f.statut === 'Payée' ? '#059669' : f.statut === 'Envoyée' ? '#2563EB' : '#6B7280' }}>
                           {STATUTS_FCLI.map(s => <option key={s}>{s}</option>)}
                         </select>
+                        {f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date() && (
+                          <div style={{ fontSize: 10, marginTop: 4, color: '#DC2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
+                            ⚠️ Impayée (en retard)
+                          </div>
+                        )}
                         {f.qonto_transaction_id ? (
                           <div title={'Rapproché avec une transaction Qonto (' + (f.qonto_match_confiance === 'exact' ? 'numéro + montant' : 'montant seul') + '), le ' + (f.qonto_matched_at ? new Date(f.qonto_matched_at).toLocaleDateString('fr-FR') : '?')}
                             style={{ fontSize: 10, marginTop: 4, color: '#2563EB', display: 'flex', alignItems: 'center', gap: 3 }}>
