@@ -4,6 +4,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
 import { CATEGORIES } from '../lib/depenses'
+import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 
 // Dépenses générales de la société : loyer, comptabilité, assurance,
 // abonnements... tout ce qui n'est pas lié à un projet client précis.
@@ -16,13 +17,9 @@ import { CATEGORIES } from '../lib/depenses'
 // Rapprochement.jsx) — voir l'import ci-dessus.
 const STATUTS = ['À payer', 'Payée']
 
-const fmt = n => n !== undefined && n !== null
-  ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
-  : '—'
 const fmtTx = cents => cents !== undefined && cents !== null
   ? (Number(cents) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
   : '—'
-const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
 
 const FORM_VIDE = { libelle: '', categorie: CATEGORIES[0], numero: '', fournisseur_id: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' }
 
@@ -302,7 +299,7 @@ export default function Depenses() {
               style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
 
             <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT</label>
-            <input type="number" value={form.montant_ht} onChange={e => setForm(p => ({ ...p, montant_ht: e.target.value }))}
+            <input type="number" min="0" value={form.montant_ht} onChange={e => setForm(p => ({ ...p, montant_ht: e.target.value }))}
               style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
 
             <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
@@ -387,7 +384,7 @@ export default function Depenses() {
                           style={{ ...inStyle, width: 130, color: d.statut === 'À payer' && d.date_echeance && new Date(d.date_echeance) < new Date() ? '#DC2626' : '#374151' }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" value={getVal(d, 'montant_ht')} onChange={e => editer(d.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600 }} />
+                        <input type="number" min="0" value={getVal(d, 'montant_ht')} onChange={e => editer(d.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <select value={getVal(d, 'statut')} onChange={e => editer(d.id, 'statut', e.target.value)}

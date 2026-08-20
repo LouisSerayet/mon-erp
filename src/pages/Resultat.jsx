@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
+import { fmtEUR as fmt } from '../lib/calculs'
 
 // Compte de résultat "en live" — vue d'ensemble de toute la société sur
 // une période donnée (par défaut l'année en cours), en comptabilité
@@ -17,10 +18,6 @@ import { useIsMobile } from '../lib/useIsMobile'
 // facture par facture, voir la page "Dépenses" ou l'onglet "Factures".
 
 const MOIS_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
-
-const fmt = n => n !== undefined && n !== null
-  ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
-  : '—'
 
 function anneeCourante() { return new Date().getFullYear() }
 

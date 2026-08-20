@@ -168,3 +168,24 @@ export const PRESETS_DELAI_PAIEMENT = [
   { label: '45 jours fin de mois', jours: 45, finMois: true },
   { label: '60 jours', jours: 60, finMois: false },
 ]
+
+// ── Formatage monnaie / date (FR) ───────────────────────────────────
+// Centralisé ici pour éviter les définitions locales divergentes qui se
+// sont accumulées page par page : plusieurs pages testaient `n ? ... : '—'`
+// (un test de "truthy"), ce qui traite un montant de 0 € — pourtant une
+// valeur parfaitement valide (ligne offerte, facture soldée...) — comme
+// une valeur absente et affiche "—" au lieu de "0,00 €". Le test correct
+// est `n !== undefined && n !== null`, déjà utilisé sur d'autres pages
+// (Depenses.jsx, Rapprochement.jsx...) — voir calculs.test.js.
+export function fmtEUR(n) {
+  return n !== undefined && n !== null
+    ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+    : '—'
+}
+
+// Date courte 'jj/mm/aaaa', sans l'heure — pour un format incluant
+// l'heure (ex : horodatage d'une suppression dans la Corbeille), voir les
+// fonctions locales dédiées de Corbeille.jsx / Historique.jsx.
+export function fmtDateFr(d) {
+  return d ? new Date(d).toLocaleDateString('fr-FR') : '—'
+}

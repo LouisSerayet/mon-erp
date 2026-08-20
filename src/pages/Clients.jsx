@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { PRESETS_DELAI_PAIEMENT } from '../lib/calculs'
+import { PRESETS_DELAI_PAIEMENT, fmtEUR as fmt } from '../lib/calculs'
+import { useIsMobile } from '../lib/useIsMobile'
 
 // Suggestions de types de contact (voir client_contacts_migration.sql) — le
 // champ reste du texte libre en base, ces valeurs ne sont qu'une <datalist>
@@ -42,6 +43,7 @@ function ConditionsPaiement({ jours, finMois, onChange }) {
 }
 
 export default function Clients() {
+  const isMobile = useIsMobile()
   const location = useLocation()
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
@@ -168,7 +170,6 @@ export default function Clients() {
     c.contact?.toLowerCase().includes(search.toLowerCase())
   )
 
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
   const STATUT_STYLE = {
     'En cours':    { bg: '#EFF6FF', color: '#2563EB' },
     'Finalisation':{ bg: '#FFF7ED', color: '#EA580C' },
@@ -179,14 +180,14 @@ export default function Clients() {
   if (clientOuvert) {
     const totalCA = projets.reduce((s, p) => s + (p.montant_ht || 0), 0)
     return (
-      <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: isMobile ? 16 : 24 }}>
           <button onClick={() => setClientOuvert(null)}
             style={{ background: 'none', border: '1px solid #E5E7EB', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
             ← Clients
           </button>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 160 }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{clientOuvert.nom}</h2>
             {clientOuvert.adresse && <div style={{ fontSize: 12, color: '#9CA3AF' }}>📍 {clientOuvert.adresse}</div>}
           </div>
@@ -198,7 +199,7 @@ export default function Clients() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 2fr', gap: 16 }}>
           {/* Colonne gauche — infos */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
@@ -397,8 +398,8 @@ export default function Clients() {
 
   // ── Liste clients ─────────────────────────────────────────────
   return (
-    <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 0, marginBottom: 20 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Clients</h2>
         <button onClick={() => { setShowForm(true); setError('') }}
           style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
@@ -411,8 +412,8 @@ export default function Clients() {
         style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 20, boxSizing: 'border-box' }} />
 
       {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 480, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
             <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Nouveau client</h3>
             {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
             {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['adresse', 'Adresse'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, label]) => (

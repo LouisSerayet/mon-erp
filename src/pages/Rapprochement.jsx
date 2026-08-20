@@ -4,19 +4,16 @@ import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQon
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
 import { useIsMobile } from '../lib/useIsMobile'
 import { CATEGORIES } from '../lib/depenses'
+import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 
 // Nombre max de transactions non rapprochées affichées (les plus récentes
 // d'abord) — au-delà, la liste serait juste noyée sous des mouvements
 // anciens déjà traités par ailleurs (retraits carte, virements internes...).
 const MAX_NON_RAPPROCHEES = 25
 
-const fmt = n => n !== undefined && n !== null
-  ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
-  : '—'
 const fmtTx = cents => cents !== undefined && cents !== null
   ? (Number(cents) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
   : '—'
-const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
 
 export default function Rapprochement() {
   const isMobile = useIsMobile()

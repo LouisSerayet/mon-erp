@@ -14,12 +14,16 @@
 // vérification du jeton compte ici.
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = 'https://mpxhdkhayoxjzqsagkhp.supabase.co'
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1weGhka2hheW94anpxc2Fna2hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTg4MjIsImV4cCI6MjA5NzQzNDgyMn0.ohbwRkOCazVHp007ZD01xq2RJn9gSkeEEMtaeMsmX68'
+export const supabaseUrl = 'https://mpxhdkhayoxjzqsagkhp.supabase.co'
+export const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1weGhka2hheW94anpxc2Fna2hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTg4MjIsImV4cCI6MjA5NzQzNDgyMn0.ohbwRkOCazVHp007ZD01xq2RJn9gSkeEEMtaeMsmX68'
+
+export function bearerToken(req) {
+  const authHeader = req.headers.authorization || ''
+  return authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+}
 
 export async function requireAuth(req, res) {
-  const authHeader = req.headers.authorization || ''
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+  const token = bearerToken(req)
   if (!token) {
     res.status(401).json({ error: 'Non autorisé — connecte-toi à l\'ERP.' })
     return null
@@ -31,4 +35,15 @@ export async function requireAuth(req, res) {
     return null
   }
   return data.user
+}
+
+// Client Supabase "au nom de" l'utilisateur appelant (son propre jeton de
+// session, pas une clé service-role) — les requêtes passées par ce client
+// respectent les policies RLS "authenticated" comme si elles venaient du
+// navigateur. Utilisé par api/outlook.js pour journaliser les envois
+// d'email dans email_send_log sans avoir besoin d'un accès élevé.
+export function authedClient(req) {
+  const token = bearerToken(req)
+  if (!token) return null
+  return createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: `Bearer ${token}` } } })
 }

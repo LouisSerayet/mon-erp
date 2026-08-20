@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../lib/useIsMobile'
+import { fmtEUR as fmt } from '../lib/calculs'
 
 // 'Brouillon' = devis en préparation (pas encore envoyé) ; 'Perdu' = devis
 // refusé / projet abandonné. Un projet démarre toujours en 'Brouillon' et
@@ -101,8 +102,6 @@ export default function Projets() {
     const matchSearch = p.nom?.toLowerCase().includes(search.toLowerCase()) || p.clients?.nom?.toLowerCase().includes(search.toLowerCase())
     return matchSearch && (filtreStatut === 'Tous' || p.statut === filtreStatut)
   })
-
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
 
   return (
     <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>

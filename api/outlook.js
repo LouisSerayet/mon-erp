@@ -1,4 +1,4 @@
-import { requireAuth } from './_auth.js'
+import { requireAuth, authedClient } from './_auth.js'
 
 // Envoi d'email via le compte Outlook (Microsoft 365) de Louis, utilisé par
 // les boutons "Relancer" du Dashboard (et plus tard, envoi de devis/factures)
@@ -10,6 +10,16 @@ import { requireAuth } from './_auth.js'
 // connexion interactive ni de jeton de rafraîchissement à renouveler. Voir
 // les instructions de configuration transmises séparément (App registration
 // Azure + variables d'environnement Vercel ci-dessous).
+//
+// Garde-fous anti-abus (voir sql/email_send_log_migration.sql) : toute
+// session connectée à l'ERP peut déclencher un envoi vers l'adresse de son
+// choix (le champ "à" reste éditable dans l'UI — on ne le restreint pas à
+// une liste de contacts connus, ça casserait des usages légitimes). Pour
+// borner l'impact d'une session compromise sans gêner l'usage normal, on
+// journalise chaque envoi/brouillon et on limite le débit par utilisateur.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const RATE_LIMIT_PAR_HEURE = 40
+
 export default async function handler(req, res) {
   // Seul un utilisateur connecté à l'ERP peut déclencher un envoi — sans ce
   // contrôle, l'URL publique du site suffirait à envoyer des emails depuis
@@ -45,6 +55,29 @@ export default async function handler(req, res) {
   if (!to || !subject || !body) {
     return res.status(400).json({ error: 'to, subject et body sont requis.' })
   }
+  if (!EMAIL_REGEX.test(String(to).trim()) || (cc && !EMAIL_REGEX.test(String(cc).trim()))) {
+    return res.status(400).json({ error: 'Adresse email invalide.' })
+  }
+  if (String(subject).length > 300 || String(body).length > 20000) {
+    return res.status(400).json({ error: 'Sujet ou message trop long.' })
+  }
+
+  // Limite de débit : compte les envois/brouillons de cet utilisateur sur
+  // la dernière heure via le journal email_send_log. En cas d'erreur sur
+  // cette vérification (ex. table pas encore créée), on ne bloque pas
+  // l'envoi — mieux vaut un garde-fou absent qu'un ERP qui ne peut plus
+  // envoyer de mail à cause d'un souci de journalisation.
+  const db = authedClient(req)
+  if (db) {
+    const uneHeureAvant = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const { count, error: countError } = await db.from('email_send_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', uneHeureAvant)
+    if (!countError && count >= RATE_LIMIT_PAR_HEURE) {
+      return res.status(429).json({ error: `Trop d'envois récents (${RATE_LIMIT_PAR_HEURE}/heure max) — réessaie plus tard.` })
+    }
+  }
 
   const messagePayload = {
     subject,
@@ -59,6 +92,16 @@ export default async function handler(req, res) {
         contentBytes: a.contentBytes,
       })),
     } : {}),
+  }
+
+  // Best-effort : une erreur de journalisation ne doit jamais empêcher un
+  // envoi par ailleurs réussi.
+  async function journaliserEnvoi() {
+    if (!db) return
+    const { error } = await db.from('email_send_log').insert([{
+      user_id: user.id, user_email: user.email, destinataire: to, sujet: subject, brouillon: !!draftOnly,
+    }])
+    if (error) console.error('email_send_log: échec de la journalisation', error.message)
   }
 
   try {
@@ -103,6 +146,7 @@ export default async function handler(req, res) {
         return res.status(502).json({ error: 'Microsoft Graph a refusé la création du brouillon.', details: messageDetaille })
       }
       const draftData = await draftRes.json()
+      await journaliserEnvoi()
       return res.status(200).json({ ok: true, webLink: draftData.webLink, id: draftData.id })
     }
 
@@ -128,6 +172,7 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'Microsoft Graph a refusé l\'envoi.', details: messageDetaille })
     }
 
+    await journaliserEnvoi()
     return res.status(200).json({ ok: true })
   } catch (err) {
     return res.status(500).json({ error: err.message })

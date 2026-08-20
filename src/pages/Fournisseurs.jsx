@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useLocation } from 'react-router-dom'
-import { PRESETS_DELAI_PAIEMENT } from '../lib/calculs'
+import { PRESETS_DELAI_PAIEMENT, fmtEUR as fmt } from '../lib/calculs'
+import { useIsMobile } from '../lib/useIsMobile'
 
 const METIERS = ['Électricité', 'Plomberie', 'CVC', 'Menuiserie', 'Cloisons', 'Sols', 'Peinture', 'Serrurerie', 'Informatique', 'Autre']
 
@@ -38,6 +39,7 @@ function ConditionsPaiement({ jours, finMois, onChange }) {
 }
 
 export default function Fournisseurs() {
+  const isMobile = useIsMobile()
   const location = useLocation()
   const [fournisseurs, setFournisseurs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -128,7 +130,6 @@ export default function Fournisseurs() {
     return matchSearch && (filtreMetier === 'Tous' || f.metier === filtreMetier)
   })
 
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
   const totalCommandes = commandes.reduce((s, c) => s + (c.montant_ht || 0), 0)
 
   // Modale de création/modification — partagée entre la vue liste et la vue
@@ -137,8 +138,8 @@ export default function Fournisseurs() {
   // composant déclaré dans le rendu) pour éviter que React ne le
   // recrée/réinitialise à chaque re-rendu (react-hooks/static-components).
   const modalFournisseur = showForm && (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
         <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>{editingId ? 'Modifier le fournisseur' : 'Nouveau fournisseur'}</h3>
         {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
         {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, label]) => (
@@ -183,14 +184,14 @@ export default function Fournisseurs() {
   // ── Vue détail fournisseur ────────────────────────────────────
   if (fournisseurOuvert) {
     return (
-      <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
         {modalFournisseur}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: isMobile ? 16 : 24 }}>
           <button onClick={() => setFournisseurOuvert(null)}
             style={{ background: 'none', border: '1px solid #E5E7EB', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
             ← Retour
           </button>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 160 }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{fournisseurOuvert.nom}</h2>
             {fournisseurOuvert.metier && (
               <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 6, background: '#EFF6FF', color: '#2563EB', fontWeight: 500 }}>
@@ -208,7 +209,7 @@ export default function Fournisseurs() {
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 24 }}>
           {/* Infos contact */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: 20 }}>
             <h3 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Contact</h3>
@@ -262,7 +263,8 @@ export default function Fournisseurs() {
               Aucune commande pour ce fournisseur
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <div style={{ overflowX: isMobile ? 'auto' : 'visible' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: isMobile ? 560 : 'auto' }}>
               <thead>
                 <tr style={{ background: '#F8FAFC' }}>
                   {['Projet', 'N°', 'Description', 'Date', 'Montant HT', 'Statut'].map(h => (
@@ -288,6 +290,7 @@ export default function Fournisseurs() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>
@@ -296,8 +299,8 @@ export default function Fournisseurs() {
 
   // ── Liste fournisseurs ────────────────────────────────────────
   return (
-    <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 0, marginBottom: 20 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Fournisseurs</h2>
         <button onClick={() => { setForm(FORM_VIDE); setEditingId(null); setMetierLibre(false); setShowForm(true); setError('') }}
           style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
@@ -306,7 +309,7 @@ export default function Fournisseurs() {
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         {[
           { label: 'Total fournisseurs', value: fournisseurs.length, color: '#2563EB', bg: '#EFF6FF' },
           { label: 'Métiers', value: metiersDispos.length - 1, color: '#7C3AED', bg: '#F5F3FF' },
@@ -320,9 +323,9 @@ export default function Fournisseurs() {
       </div>
 
       {/* Filtres */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10, marginBottom: 16 }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..."
-          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
+          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
         <select value={filtreMetier} onChange={e => setFiltreMetier(e.target.value)}
           style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
           {metiersDispos.map(m => <option key={m}>{m}</option>)}
@@ -338,6 +341,27 @@ export default function Fournisseurs() {
           <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>🏢</div>
             <div style={{ fontSize: 15, fontWeight: 500 }}>Aucun fournisseur</div>
+          </div>
+        ) : isMobile ? (
+          // Cartes empilées plutôt qu'un tableau large — un tableau à 5
+          // colonnes ne rentre pas sur un écran de téléphone, alors que
+          // c'est justement le cas d'usage principal ici (retrouver le
+          // téléphone d'un fournisseur depuis le chantier).
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {filtered.map(f => (
+              <div key={f.id} onClick={() => ouvrirFournisseur(f)}
+                style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 16px', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{f.nom}</span>
+                  {f.metier && (
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#EFF6FF', color: '#2563EB', fontWeight: 500, flexShrink: 0 }}>{f.metier}</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: '#6B7280' }}>
+                  {[f.contact, f.email, f.telephone].filter(Boolean).join(' · ') || '—'}
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
-import { calculerMarge, ligneCompteDansTotal } from '../lib/calculs'
+import { calculerMarge, ligneCompteDansTotal, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 
 // Ordre d'affichage des statuts dans le widget "Vue globale des projets"
@@ -220,8 +220,6 @@ export default function Dashboard() {
     setModalRelanceDraftBusy(false)
   }
 
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
-  const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
 
   // Coche/décoche un statut dans le widget "Vue globale des projets".
   function toggleStatutGlobal(s) {

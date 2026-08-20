@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { getBankAccounts, getTransactions } from '../lib/useQonto'
 import { useIsMobile } from '../lib/useIsMobile'
+import { fmtDateFr as fmtDate } from '../lib/calculs'
 
 export default function Tresorerie() {
   const isMobile = useIsMobile()
@@ -67,7 +68,6 @@ export default function Tresorerie() {
     ? (Number(n) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
     : '—'
 
-  const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
   const totalSolde = accounts.reduce((s, a) => s + (a.balance_cents || 0), 0)
 
   if (loading) return (

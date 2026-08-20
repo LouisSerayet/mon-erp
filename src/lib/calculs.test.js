@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, calculerEcheance } from './calculs'
+import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, calculerEcheance, fmtEUR, fmtDateFr } from './calculs'
 
 describe('calculerLigne', () => {
   const ligneBase = { qte: 2, prix_achat_ht: 100, prix_unit_ht: 130, coeff: 1.3 }
@@ -209,5 +209,37 @@ describe('calculerEcheance (échéance auto d\'une facture depuis les conditions
   it('traite un délai non numérique comme 0 jour', () => {
     expect(calculerEcheance('2026-08-18', undefined, false)).toBe('2026-08-18')
     expect(calculerEcheance('2026-08-18', '', false)).toBe('2026-08-18')
+  })
+})
+
+describe('fmtEUR (formatage monétaire centralisé)', () => {
+  it('formate un montant positif avec le symbole €', () => {
+    // Le séparateur de milliers fr-FR est une espace fine insécable
+    // (U+202F), pas une espace normale — on la construit ici plutôt que
+    // de la coller en dur dans le fichier source pour éviter tout souci
+    // d'encodage entre éditeurs.
+    const espaceFine = ' '
+    expect(fmtEUR(1234.5)).toBe(`1${espaceFine}234,50 €`)
+  })
+
+  it('affiche bien "0,00 €" pour un montant de zéro — pas "—" (régression : un montant à 0 est une valeur valide, pas une absence de valeur)', () => {
+    expect(fmtEUR(0)).toBe('0,00 €')
+  })
+
+  it('affiche "—" seulement pour undefined/null (valeur réellement absente)', () => {
+    expect(fmtEUR(undefined)).toBe('—')
+    expect(fmtEUR(null)).toBe('—')
+  })
+})
+
+describe('fmtDateFr (formatage date courte centralisé)', () => {
+  it('formate une date ISO en jj/mm/aaaa', () => {
+    expect(fmtDateFr('2026-08-20')).toBe('20/08/2026')
+  })
+
+  it('affiche "—" pour une date vide/absente', () => {
+    expect(fmtDateFr('')).toBe('—')
+    expect(fmtDateFr(undefined)).toBe('—')
+    expect(fmtDateFr(null)).toBe('—')
   })
 })

@@ -5,7 +5,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
-import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance } from '../lib/calculs'
+import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
@@ -1040,12 +1040,14 @@ export default function ProjetDetail() {
   // header). Réactivable ensuite vers "Brouillon" si besoin.
   async function marquerProjetPerdu() {
     if (!confirm('Marquer "' + projet.nom + '" comme perdu ? Le projet sortira du flux actif mais restera consultable.')) return
-    await supabase.from('projets').update({ statut: 'Perdu' }).eq('id', id)
+    const { error } = await supabase.from('projets').update({ statut: 'Perdu' }).eq('id', id)
+    if (error) { alert('Erreur lors du changement de statut : ' + error.message); return }
     setProjet(prev => ({ ...prev, statut: 'Perdu' }))
   }
 
   async function reactiverProjetPerdu() {
-    await supabase.from('projets').update({ statut: 'Brouillon' }).eq('id', id)
+    const { error } = await supabase.from('projets').update({ statut: 'Brouillon' }).eq('id', id)
+    if (error) { alert('Erreur lors du changement de statut : ' + error.message); return }
     setProjet(prev => ({ ...prev, statut: 'Brouillon' }))
   }
 
@@ -1655,8 +1657,6 @@ export default function ProjetDetail() {
     if (table === 'factures_cli') { const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }); setFacturesCli(data || []) }
   }
 
-  const fmt = n => n ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '—'
-  const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
   const totalCommandes = commandes.reduce((s, c) => s + (c.montant_ht || 0), 0)
   const totalFfrs = facturesFrs.reduce((s, f) => s + (f.montant_ht || 0), 0)
   const totalFcli = facturesCli.reduce((s, f) => s + (f.montant_ht || 0), 0)
@@ -1858,7 +1858,8 @@ export default function ProjetDetail() {
 
                 if (preuve?.type === 'date') {
                   if (!validationDate) { setValidationError('Veuillez renseigner la date de début.'); setValidating(false); return }
-                  await supabase.from('projets').update({ date_debut: validationDate }).eq('id', id)
+                  const { error: dateError } = await supabase.from('projets').update({ date_debut: validationDate }).eq('id', id)
+                  if (dateError) { setValidationError('Erreur : ' + dateError.message); setValidating(false); return }
                   setProjet(prev => ({ ...prev, date_debut: validationDate }))
                 }
 
@@ -1872,7 +1873,8 @@ export default function ProjetDetail() {
                   if (factNonPayees.length > 0) { setValidationError(factNonPayees.length + ' facture(s) client ne sont pas encore "Payées".'); setValidating(false); return }
                 }
 
-                await supabase.from('projets').update({ statut: nextStatut }).eq('id', id)
+                const { error: statutError } = await supabase.from('projets').update({ statut: nextStatut }).eq('id', id)
+                if (statutError) { setValidationError('Erreur : ' + statutError.message); setValidating(false); return }
                 setProjet(prev => ({ ...prev, statut: nextStatut }))
                 setShowValidation(false)
                 setValidationDoc(null)
@@ -1936,7 +1938,8 @@ export default function ProjetDetail() {
                       {prevStatut && (
                         <button onClick={async () => {
                           if (!confirm('Revenir à "' + prevStatut + '" ?')) return
-                          await supabase.from('projets').update({ statut: prevStatut }).eq('id', id)
+                          const { error } = await supabase.from('projets').update({ statut: prevStatut }).eq('id', id)
+                          if (error) { alert('Erreur lors du changement de statut : ' + error.message); return }
                           setProjet(prev => ({ ...prev, statut: prevStatut }))
                         }}
                           style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#6B7280', cursor: 'pointer', fontSize: 12 }}>
@@ -2169,24 +2172,24 @@ export default function ProjetDetail() {
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Quantité</label>
-                    <input type="number" value={formLigne.qte} onChange={e => setFormLigne(p => ({ ...p, qte: e.target.value }))} placeholder="1"
+                    <input type="number" min="0" value={formLigne.qte} onChange={e => setFormLigne(p => ({ ...p, qte: e.target.value }))} placeholder="1"
                       style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                   </div>
                   {formLigne.nature === 'honoraire' ? (
                     <div>
                       <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Prix de vente HT (€) — sans achat</label>
-                      <input type="number" value={formLigne.prix_vente_ht} onChange={e => setFormLigne(p => ({ ...p, prix_vente_ht: e.target.value }))} placeholder="0"
+                      <input type="number" min="0" value={formLigne.prix_vente_ht} onChange={e => setFormLigne(p => ({ ...p, prix_vente_ht: e.target.value }))} placeholder="0"
                         style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                     </div>
                   ) : (<>
                     <div>
                       <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Prix achat HT (€)</label>
-                      <input type="number" value={formLigne.prix_achat_ht} onChange={e => setFormLigne(p => ({ ...p, prix_achat_ht: e.target.value }))} placeholder="0"
+                      <input type="number" min="0" value={formLigne.prix_achat_ht} onChange={e => setFormLigne(p => ({ ...p, prix_achat_ht: e.target.value }))} placeholder="0"
                         style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Coefficient</label>
-                      <input type="number" value={formLigne.coeff} onChange={e => setFormLigne(p => ({ ...p, coeff: e.target.value }))} placeholder="1.30"
+                      <input type="number" min="0" value={formLigne.coeff} onChange={e => setFormLigne(p => ({ ...p, coeff: e.target.value }))} placeholder="1.30"
                         style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                     </div>
                   </>)}
@@ -2372,7 +2375,7 @@ export default function ProjetDetail() {
                                 style={{ width: 44, padding: '3px 4px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, textAlign: 'center', background: isEdited ? '#EFF6FF' : 'transparent' }} />
                             </td>
                             <td style={{ padding: '4px 4px' }}>
-                              <input type="number" value={getLigneVal(l, 'qte')} onChange={e => editLigne(l.id, 'qte', e.target.value, l)}
+                              <input type="number" min="0" value={getLigneVal(l, 'qte')} onChange={e => editLigne(l.id, 'qte', e.target.value, l)}
                                 style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent' }} />
                             </td>
                             <td style={{ padding: '4px 4px' }}>
@@ -2382,7 +2385,7 @@ export default function ProjetDetail() {
                                   {getLigneVal(l, 'prix_unit_ht') || '—'}
                                 </div>
                               ) : (
-                                <input type="number" value={getLigneVal(l, 'prix_unit_ht')} onChange={e => editLigne(l.id, 'prix_unit_ht', e.target.value, l)}
+                                <input type="number" min="0" value={getLigneVal(l, 'prix_unit_ht')} onChange={e => editLigne(l.id, 'prix_unit_ht', e.target.value, l)}
                                   style={{ ...inputStyle, border: isEdited ? '1px solid #BBF7D0' : '1px solid transparent', background: isEdited ? '#F0FDF4' : 'transparent', color: '#065F46' }} />
                               )}
                             </td>
@@ -2398,7 +2401,7 @@ export default function ProjetDetail() {
                                   {getLigneVal(l, 'coeff') || '—'}
                                 </div>
                               ) : (
-                                <input type="number" value={getLigneVal(l, 'coeff')} onChange={e => editLigne(l.id, 'coeff', e.target.value, l)}
+                                <input type="number" min="0" value={getLigneVal(l, 'coeff')} onChange={e => editLigne(l.id, 'coeff', e.target.value, l)}
                                   style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #E9D5FF' : '1px solid transparent', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: isEdited ? '#F5F3FF' : 'transparent', color: '#7C3AED' }} />
                               )}
                             </td>
@@ -2411,7 +2414,7 @@ export default function ProjetDetail() {
                                   {getLigneVal(l, 'prix_achat_ht') || '—'}
                                 </div>
                               ) : (
-                                <input type="number" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)}
+                                <input type="number" min="0" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)}
                                   style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent', color: '#2563EB' }} />
                               )}
                             </td>
@@ -2514,12 +2517,12 @@ export default function ProjetDetail() {
                                 style={{ width: 44, padding: '3px 4px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, textAlign: 'center', background: isEdited ? '#EFF6FF' : 'transparent' }} />
                             </td>
                             <td style={{ padding: '4px 4px' }}>
-                              <input type="number" value={getLigneVal(l, 'qte')} onChange={e => editLigne(l.id, 'qte', e.target.value, l)}
+                              <input type="number" min="0" value={getLigneVal(l, 'qte')} onChange={e => editLigne(l.id, 'qte', e.target.value, l)}
                                 style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent' }} />
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               {modeLocal === 'ac' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'prix_unit_ht') || '—'}</div>
-                              : <input type="number" value={getLigneVal(l, 'prix_unit_ht')} onChange={e => editLigne(l.id, 'prix_unit_ht', e.target.value, l)} style={{ ...inputStyle, border: isEdited ? '1px solid #BBF7D0' : '1px solid transparent', background: isEdited ? '#F0FDF4' : 'transparent', color: '#065F46' }} />}
+                              : <input type="number" min="0" value={getLigneVal(l, 'prix_unit_ht')} onChange={e => editLigne(l.id, 'prix_unit_ht', e.target.value, l)} style={{ ...inputStyle, border: isEdited ? '1px solid #BBF7D0' : '1px solid transparent', background: isEdited ? '#F0FDF4' : 'transparent', color: '#065F46' }} />}
                             </td>
                             <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente > 0 ? '#065F46' : '#9CA3AF' }}>
                               {totalVente > 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
@@ -2527,12 +2530,12 @@ export default function ProjetDetail() {
                             <td style={{ padding: '4px 4px' }}>
                               {estHonoraire ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
                               : modeLocal === 'av' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'coeff') || '—'}</div>
-                              : <input type="number" value={getLigneVal(l, 'coeff')} onChange={e => editLigne(l.id, 'coeff', e.target.value, l)} style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #E9D5FF' : '1px solid transparent', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: isEdited ? '#F5F3FF' : 'transparent', color: '#7C3AED' }} />}
+                              : <input type="number" min="0" value={getLigneVal(l, 'coeff')} onChange={e => editLigne(l.id, 'coeff', e.target.value, l)} style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #E9D5FF' : '1px solid transparent', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: isEdited ? '#F5F3FF' : 'transparent', color: '#7C3AED' }} />}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               {estHonoraire ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
                               : modeLocal === 'vc' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'prix_achat_ht') || '—'}</div>
-                              : <input type="number" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)} style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent', color: '#2563EB' }} />}
+                              : <input type="number" min="0" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)} style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent', color: '#2563EB' }} />}
                             </td>
                             <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? '#2563EB' : '#9CA3AF' }}>
                               {estHonoraire ? '—' : totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
@@ -2683,7 +2686,7 @@ export default function ProjetDetail() {
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
-                    <input type="number" value={formCmd.montant_ht} onChange={e => setFormCmd(p => ({ ...p, montant_ht: e.target.value }))}
+                    <input type="number" min="0" value={formCmd.montant_ht} onChange={e => setFormCmd(p => ({ ...p, montant_ht: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                   </div>
                   <div>
@@ -2765,7 +2768,7 @@ export default function ProjetDetail() {
                               style={{ ...inStyle, minWidth: 200 }} />
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                            <input type="number" value={getCmdVal(c, 'montant_ht')} onChange={e => editCmd(c.id, 'montant_ht', e.target.value)}
+                            <input type="number" min="0" value={getCmdVal(c, 'montant_ht')} onChange={e => editCmd(c.id, 'montant_ht', e.target.value)}
                               style={{ ...inStyle, width: 100, textAlign: 'right', fontWeight: 600, color: '#111827' }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
@@ -2894,7 +2897,7 @@ export default function ProjetDetail() {
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
                       <option value=''>— Aucune —</option>{commandes.map(c => <option key={c.id} value={c.id}>{c.numero || c.description}</option>)}</select></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
-                    <input type="number" value={formFfrs.montant_ht} onChange={e => setFormFfrs(p => ({ ...p, montant_ht: e.target.value }))}
+                    <input type="number" min="0" value={formFfrs.montant_ht} onChange={e => setFormFfrs(p => ({ ...p, montant_ht: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture</label>
                     <input type="date" value={formFfrs.date_facture} onChange={e => { const date_facture = e.target.value; setFormFfrs(p => ({ ...p, date_facture, date_echeance: echeanceFfrsVerrouillee ? echeanceFfrsAuto(date_facture, p.fournisseur_id) : p.date_echeance })) }}
@@ -2959,7 +2962,7 @@ export default function ProjetDetail() {
                           style={{ ...inStyle, width: 130, color: f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date() ? '#DC2626' : '#374151' }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" value={getFacFrsVal(f, 'montant_ht')} onChange={e => editFacFrs(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600 }} />
+                        <input type="number" min="0" value={getFacFrsVal(f, 'montant_ht')} onChange={e => editFacFrs(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <select value={getFacFrsVal(f, 'statut')} onChange={e => editFacFrs(f.id, 'statut', e.target.value)}
@@ -3085,11 +3088,11 @@ export default function ProjetDetail() {
                       Généré automatiquement à la création
                     </div></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
-                    <input type="number" value={formFcli.montant_ht} onChange={e => { setFormFcli(p => ({ ...p, montant_ht: e.target.value })); setFormFcliPct('') }}
+                    <input type="number" min="0" value={formFcli.montant_ht} onChange={e => { setFormFcli(p => ({ ...p, montant_ht: e.target.value })); setFormFcliPct('') }}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>— ou % du devis</label>
                     <div style={{ position: 'relative' }}>
-                      <input type="number" value={formFcliPct} placeholder="Ex: 30" disabled={totalVenteGlobal <= 0}
+                      <input type="number" min="0" max="100" value={formFcliPct} placeholder="Ex: 30" disabled={totalVenteGlobal <= 0}
                         onChange={e => {
                           const pct = e.target.value
                           setFormFcliPct(pct)
@@ -3155,7 +3158,7 @@ export default function ProjetDetail() {
                           style={{ ...inStyle, width: 130, color: f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date() ? '#DC2626' : '#374151' }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: '#059669' }} />
+                        <input type="number" min="0" value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: '#059669' }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <select value={getFacCliVal(f, 'statut')} onChange={e => editFacCli(f.id, 'statut', e.target.value)}
