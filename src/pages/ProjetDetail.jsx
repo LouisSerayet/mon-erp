@@ -29,6 +29,13 @@ const STATUTS_PROJET = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours'
 const STATUTS_CMD = ['Brouillon', 'Validée', 'Annulée']
 const STATUTS_FFRS = ['À payer', 'Payée']
 const STATUTS_FCLI = ['À envoyer', 'Envoyée', 'Payée']
+// Supabase Storage n'a pas de vrais dossiers : list('projets/<id>') renvoie
+// aussi "officiels" comme une entrée (c'est le sous-dossier utilisé par la
+// section "🔏 Documents officiels" juste au-dessus, voir uploads plus bas)
+// et les éventuels fichiers techniques (.emptyFolderPlaceholder...). Cette
+// fonction filtre ces entrées fantômes pour ne garder que les vrais
+// documents affichés dans "📁 Documents du projet".
+const estUnDocumentReel = d => !!d.name && !d.name.startsWith('.') && d.name !== 'officiels'
 // Taux de TVA sélectionnables sur un projet (devis + facture client — les
 // commandes fournisseurs ont leur propre régime, voir "regime_tva" et
 // generateCmdPDF, car un même projet peut mêler fournisseurs classiques et
@@ -808,7 +815,7 @@ export default function ProjetDetail() {
       supabase.storage.from('documents').list('projets/' + id, { sortBy: { column: 'created_at', order: 'desc' } }),
       supabase.storage.from('documents').list('projets/' + id + '/officiels', { sortBy: { column: 'created_at', order: 'desc' } }),
     ])
-    setDocuments({ projet: (docsProjet || []).filter(d => d.name && !d.name.startsWith('.')), officiels: docsOfficiels || [] })
+    setDocuments({ projet: (docsProjet || []).filter(estUnDocumentReel), officiels: docsOfficiels || [] })
     setLoading(false)
   }
 
@@ -829,7 +836,7 @@ export default function ProjetDetail() {
     if (!confirm('Supprimer ce document ?')) return
     await supabase.storage.from('documents').remove([path])
     const { data } = await supabase.storage.from('documents').list('projets/' + id, { sortBy: { column: 'created_at', order: 'desc' } })
-    setDocuments(prev => ({ ...prev, projet: (data || []).filter(d => d.name && !d.name.startsWith('.')) }))
+    setDocuments(prev => ({ ...prev, projet: (data || []).filter(estUnDocumentReel) }))
   }
 
   async function deleteCmdDoc(cmdId, path) {
@@ -3459,8 +3466,7 @@ export default function ProjetDetail() {
                       setUploadingDoc('projet')
                       await uploadDoc(file, 'projets/' + id, async () => {
                         const { data } = await supabase.storage.from('documents').list('projets/' + id)
-                        const docsProjet = (data || []).filter(d => !d.id || d.id !== '.emptyFolderPlaceholder')
-                        setDocuments(prev => ({ ...prev, projet: docsProjet }))
+                        setDocuments(prev => ({ ...prev, projet: (data || []).filter(estUnDocumentReel) }))
                       })
                       setUploadingDoc(null)
                       e.target.value = ''
@@ -3468,13 +3474,13 @@ export default function ProjetDetail() {
                 </label>
               </div>
               <div style={{ padding: 16 }}>
-                {(!documents.projet || documents.projet.filter(d => d.name && !d.name.startsWith('.')).length === 0) ? (
+                {(!documents.projet || documents.projet.filter(estUnDocumentReel).length === 0) ? (
                   <div style={{ textAlign: 'center', padding: '24px', color: '#9CA3AF', fontSize: 13 }}>
                     Plans, photos chantier, rapports...
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-                    {(documents.projet || []).filter(d => d.name && !d.name.startsWith('.')).map(doc => (
+                    {(documents.projet || []).filter(estUnDocumentReel).map(doc => (
                       <div key={doc.name} style={{ background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: 20 }}>{doc.name.includes('.pdf') ? '📄' : doc.name.match(/jpg|jpeg|png/i) ? '🖼' : doc.name.match(/xls/i) ? '📊' : '📎'}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
