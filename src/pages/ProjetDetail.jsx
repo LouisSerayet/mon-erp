@@ -1194,6 +1194,9 @@ export default function ProjetDetail() {
         [t.numeroFacture, f.numero || '—'],
         [t.date, f.date_facture ? fmtDatePdf(f.date_facture, lang) : fmtDatePdf(new Date(), lang)],
         [t.echeance, f.date_echeance ? fmtDatePdf(f.date_echeance, lang) : '—'],
+        // Réf. bon de commande client — un seul numéro par projet (voir
+        // onglet Infos), repris automatiquement quand il est renseigné.
+        ...(projet?.numero_bon_commande_client ? [[t.referenceBonCommandeClient, projet.numero_bon_commande_client]] : []),
       ],
       destinataire: { titre: t.client, lignes: [projet?.clients?.nom, ...lignesAdresse(projet?.clients, lang)] },
     })
@@ -1799,7 +1802,7 @@ export default function ProjetDetail() {
               <div style={{ padding: '16px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Informations du projet</div>
                 {!editInfos && (
-                  <button onClick={() => { setEditInfos(true); setInfosError(''); setFormInfos({ nom: projet.nom, statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20 }) }}
+                  <button onClick={() => { setEditInfos(true); setInfosError(''); setFormInfos({ nom: projet.nom, statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20, numero_bon_commande_client: projet.numero_bon_commande_client || '' }) }}
                     style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 12 }}>✏️ Modifier</button>
                 )}
               </div>
@@ -2014,6 +2017,12 @@ export default function ProjetDetail() {
                         style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° bon de commande client</label>
+                      <input value={formInfos.numero_bon_commande_client || ''} onChange={e => setFormInfos(p => ({ ...p, numero_bon_commande_client: e.target.value }))} placeholder="Ex : PO-2026-0142"
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }}>Repris automatiquement sur toutes les factures clients générées pour ce projet.</div>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
                       <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Notes</label>
                       <textarea value={formInfos.notes || ''} onChange={e => setFormInfos(p => ({ ...p, notes: e.target.value }))} rows={3}
                         style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', resize: 'vertical' }} />
@@ -2037,6 +2046,7 @@ export default function ProjetDetail() {
                       ['Date fin prévue', fmtDate(projet.date_fin_prevue)],
                       ['Adresse chantier', projet.adresse_chantier],
                       ['Accès / Livraison', projet.acces_livraison],
+                      ['N° bon de commande client', projet.numero_bon_commande_client],
                     ].map(([label, value]) => value ? (
                       <div key={label}>
                         <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{label}</div>
