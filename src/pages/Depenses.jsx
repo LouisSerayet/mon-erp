@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
@@ -25,6 +26,7 @@ const FORM_VIDE = { libelle: '', categorie: CATEGORIES[0], numero: '', fournisse
 
 export default function Depenses() {
   const isMobile = useIsMobile()
+  const location = useLocation()
   const [depenses, setDepenses] = useState([])
   const [fournisseurs, setFournisseurs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -34,7 +36,9 @@ export default function Depenses() {
   const [error, setError] = useState('')
   const [savingDepense, setSavingDepense] = useState(false) // garde-fou anti double-clic
   const [editees, setEditees] = useState({}) // édition inline { [id]: {champ: valeur} }
-  const [search, setSearch] = useState('')
+  // Pré-rempli si on arrive depuis la recherche avancée (state.q), même
+  // principe que Clients.jsx/Fournisseurs.jsx.
+  const [search, setSearch] = useState(location.state?.q || '')
   const [filtreCategorie, setFiltreCategorie] = useState('Toutes')
   const [filtreStatut, setFiltreStatut] = useState('Toutes')
   const [rapprochementBusy, setRapprochementBusy] = useState(false)

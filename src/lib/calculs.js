@@ -189,3 +189,21 @@ export function fmtEUR(n) {
 export function fmtDateFr(d) {
   return d ? new Date(d).toLocaleDateString('fr-FR') : '—'
 }
+
+// ── Recherche avancée (Recherche.jsx) ───────────────────────────────
+// Un terme contenant une virgule ou une parenthèse casserait la syntaxe des
+// filtres .or() de PostgREST (qui utilise la virgule comme séparateur) — on
+// les neutralise plutôt que de bloquer la recherche.
+export function termeNettoye(q) {
+  return q.replace(/[(),]/g, ' ').trim()
+}
+
+// Si le terme tapé ressemble à un montant ("1250", "1250.5", "1250,50"), on
+// le recherche aussi en correspondance exacte sur montant_ht, en plus de la
+// recherche textuelle habituelle — c'est ça qui rend la recherche "précise"
+// plutôt qu'un simple texte libre. Renvoie null si ce n'est pas un montant.
+export function montantSaisi(q) {
+  const norm = q.trim().replace(/\s/g, '').replace(',', '.')
+  if (!/^\d+(\.\d{1,2})?$/.test(norm)) return null
+  return parseFloat(norm)
+}

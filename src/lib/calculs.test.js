@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, calculerEcheance, fmtEUR, fmtDateFr } from './calculs'
+import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, calculerEcheance, fmtEUR, fmtDateFr, termeNettoye, montantSaisi } from './calculs'
 
 describe('calculerLigne', () => {
   const ligneBase = { qte: 2, prix_achat_ht: 100, prix_unit_ht: 130, coeff: 1.3 }
@@ -241,5 +241,39 @@ describe('fmtDateFr (formatage date courte centralisé)', () => {
     expect(fmtDateFr('')).toBe('—')
     expect(fmtDateFr(undefined)).toBe('—')
     expect(fmtDateFr(null)).toBe('—')
+  })
+})
+
+describe('termeNettoye (recherche avancée)', () => {
+  it('retire les virgules et parenthèses qui casseraient un filtre .or() PostgREST', () => {
+    expect(termeNettoye('Dupont, (SARL)')).toBe('Dupont   SARL')
+  })
+
+  it('laisse un terme normal inchangé (à part le trim)', () => {
+    expect(termeNettoye('  Aménagement bureaux  ')).toBe('Aménagement bureaux')
+  })
+})
+
+describe('montantSaisi (recherche avancée)', () => {
+  it('reconnaît un montant entier', () => {
+    expect(montantSaisi('1250')).toBe(1250)
+  })
+
+  it('reconnaît un montant avec virgule décimale (format FR)', () => {
+    expect(montantSaisi('1250,50')).toBe(1250.5)
+  })
+
+  it('reconnaît un montant avec point décimal', () => {
+    expect(montantSaisi('1250.5')).toBe(1250.5)
+  })
+
+  it('ignore les espaces (ex: séparateur de milliers)', () => {
+    expect(montantSaisi('1 250,50')).toBe(1250.5)
+  })
+
+  it('renvoie null pour un texte qui n\'est pas un montant', () => {
+    expect(montantSaisi('Dupont')).toBe(null)
+    expect(montantSaisi('FC-2026-014')).toBe(null)
+    expect(montantSaisi('')).toBe(null)
   })
 })

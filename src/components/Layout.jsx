@@ -14,6 +14,7 @@ const nav = [
   { section: 'Infos & Données' },
   { to: '/clients', label: 'Clients', icon: '👤' },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },
+  { to: '/recherche', label: 'Recherche avancée', icon: '🔎' },
   { to: '/corbeille', label: 'Corbeille', icon: '🗑' },
   { to: '/historique', label: 'Historique', icon: '🕓' },
   { to: '/exports', label: 'Exports', icon: '📤' },
@@ -74,7 +75,7 @@ function totalResultats(r) {
   return r.clients.length + r.fournisseurs.length + r.projets.length + r.facturesCli.length + r.facturesFrs.length
 }
 
-function ListeResultats({ resultats, onNavigerClient, onNavigerFournisseur, onNavigerProjet }) {
+function ListeResultats({ resultats, onNavigerClient, onNavigerFournisseur, onNavigerProjet, onRechercheAvancee }) {
   const GROUPES = [
     { items: resultats.projets, icon: '📋', rendu: p => ({ label: p.nom, onClick: () => onNavigerProjet(p.id) }) },
     { items: resultats.clients, icon: '👤', rendu: c => ({ label: c.nom, onClick: () => onNavigerClient(c.nom) }) },
@@ -83,24 +84,36 @@ function ListeResultats({ resultats, onNavigerClient, onNavigerFournisseur, onNa
     { items: resultats.facturesFrs, icon: '📄', rendu: f => ({ label: f.numero + (f.projets?.nom ? ' — ' + f.projets.nom : ''), onClick: () => onNavigerProjet(f.projet_id) }) },
   ]
 
-  if (totalResultats(resultats) === 0) {
-    return <div style={{ padding: '16px', fontSize: 13, color: '#9CA3AF', textAlign: 'center' }}>Aucun résultat</div>
-  }
+  const aucun = totalResultats(resultats) === 0
 
+  // Cette recherche rapide ne couvre que 5 types de données (5 résultats
+  // chacun) — le lien vers la recherche avancée reste utile même sans
+  // résultat ici, puisqu'elle cherche aussi dans les dépenses, commandes et
+  // contacts, avec des filtres période/montant en plus.
   return (
     <div>
-      {GROUPES.map((g, gi) => g.items.map((item, i) => {
-        const { label, onClick } = g.rendu(item)
-        return (
-          <div key={gi + '-' + i} onClick={onClick}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: '#111827' }}
-            onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-            <span style={{ fontSize: 14, flexShrink: 0 }}>{g.icon}</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-          </div>
-        )
-      }))}
+      {aucun ? (
+        <div style={{ padding: '16px', fontSize: 13, color: '#9CA3AF', textAlign: 'center' }}>Aucun résultat rapide</div>
+      ) : (
+        GROUPES.map((g, gi) => g.items.map((item, i) => {
+          const { label, onClick } = g.rendu(item)
+          return (
+            <div key={gi + '-' + i} onClick={onClick}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: '#111827' }}
+              onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <span style={{ fontSize: 14, flexShrink: 0 }}>{g.icon}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+            </div>
+          )
+        }))
+      )}
+      <div onClick={onRechercheAvancee}
+        style={{ borderTop: '1px solid #F3F4F6', padding: '10px 14px', fontSize: 12, color: '#2563EB', cursor: 'pointer', textAlign: 'center', fontWeight: 500 }}
+        onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+        🔎 Recherche avancée →
+      </div>
     </div>
   )
 }
@@ -131,6 +144,7 @@ export default function Layout() {
   function allerVersClient(nom) { fermerRecherche(); navigate('/clients', { state: { q: nom } }) }
   function allerVersFournisseur(nom) { fermerRecherche(); navigate('/fournisseurs', { state: { q: nom } }) }
   function allerVersProjet(id) { fermerRecherche(); navigate('/projets/' + id) }
+  function allerVersRechercheAvancee() { const terme = rechercheQ; fermerRecherche(); navigate('/recherche', { state: { q: terme } }) }
 
   if (isMobile) {
     const linkStyle = ({ isActive }) => ({
@@ -163,7 +177,7 @@ export default function Layout() {
               {rechercheEnCours ? (
                 <div style={{ padding: 16, fontSize: 13, color: '#9CA3AF', textAlign: 'center' }}>Recherche...</div>
               ) : resultats ? (
-                <ListeResultats resultats={resultats} onNavigerClient={allerVersClient} onNavigerFournisseur={allerVersFournisseur} onNavigerProjet={allerVersProjet} />
+                <ListeResultats resultats={resultats} onNavigerClient={allerVersClient} onNavigerFournisseur={allerVersFournisseur} onNavigerProjet={allerVersProjet} onRechercheAvancee={allerVersRechercheAvancee} />
               ) : (
                 <div style={{ padding: 16, fontSize: 13, color: '#9CA3AF', textAlign: 'center' }}>Tape au moins 2 caractères</div>
               )}
@@ -240,7 +254,7 @@ export default function Layout() {
               {rechercheEnCours ? (
                 <div style={{ padding: 16, fontSize: 13, color: '#9CA3AF', textAlign: 'center' }}>Recherche...</div>
               ) : resultats ? (
-                <ListeResultats resultats={resultats} onNavigerClient={allerVersClient} onNavigerFournisseur={allerVersFournisseur} onNavigerProjet={allerVersProjet} />
+                <ListeResultats resultats={resultats} onNavigerClient={allerVersClient} onNavigerFournisseur={allerVersFournisseur} onNavigerProjet={allerVersProjet} onRechercheAvancee={allerVersRechercheAvancee} />
               ) : null}
             </div>
           )}
