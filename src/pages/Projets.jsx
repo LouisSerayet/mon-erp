@@ -25,6 +25,11 @@ export default function Projets() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filtreStatut, setFiltreStatut] = useState('Tous')
+  // 'date' garde l'ordre naturel de fetchAll (created_at décroissant) ;
+  // 'statut' regroupe les projets par étape du cycle de vie (voir STATUTS
+  // plus haut, qui donne déjà l'ordre du workflow) — pratique pour voir
+  // d'un coup d'œil tous les devis envoyés, tous les chantiers en cours...
+  const [tri, setTri] = useState('date')
   const [showForm, setShowForm] = useState(false)
   const [clients, setClients] = useState([])
   const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
@@ -102,6 +107,16 @@ export default function Projets() {
     const matchSearch = p.nom?.toLowerCase().includes(search.toLowerCase()) || p.clients?.nom?.toLowerCase().includes(search.toLowerCase())
     return matchSearch && (filtreStatut === 'Tous' || p.statut === filtreStatut)
   })
+  // .filter() renvoie déjà un nouveau tableau — .sort() en place ici ne
+  // touche pas `projets` (l'ordre par date reste intact au prochain fetch).
+  // Un statut absent de STATUTS (ne devrait pas arriver) part en fin de
+  // liste plutôt que de planter le tri.
+  if (tri === 'statut') {
+    filtered.sort((a, b) => {
+      const ia = STATUTS.indexOf(a.statut), ib = STATUTS.indexOf(b.statut)
+      return (ia === -1 ? STATUTS.length : ia) - (ib === -1 ? STATUTS.length : ib)
+    })
+  }
 
   return (
     <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
@@ -120,6 +135,11 @@ export default function Projets() {
           style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
           <option>Tous</option>
           {STATUTS.map(s => <option key={s}>{s}</option>)}
+        </select>
+        <select value={tri} onChange={e => setTri(e.target.value)}
+          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+          <option value="date">Trier par date</option>
+          <option value="statut">Trier par statut</option>
         </select>
       </div>
 
@@ -191,10 +211,21 @@ export default function Projets() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filtered.map(p => {
+            {filtered.map((p, i) => {
               const st = STATUT_STYLE[p.statut] || {}
+              // En tri par statut, un petit intitulé au-dessus du premier
+              // projet de chaque groupe — sinon le regroupement n'est
+              // visible qu'au badge de statut de chaque ligne, facile à
+              // manquer en survolant vite la liste.
+              const nouveauGroupe = tri === 'statut' && (i === 0 || filtered[i - 1].statut !== p.statut)
               return (
-                <div key={p.id} onClick={() => navigate('/projets/' + p.id)}
+                <div key={p.id}>
+                  {nouveauGroupe && (
+                    <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, margin: i === 0 ? '0 0 2px' : '14px 0 2px' }}>
+                      {st.icon} {p.statut}
+                    </div>
+                  )}
+                <div onClick={() => navigate('/projets/' + p.id)}
                   style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: isMobile ? '14px 16px' : '16px 20px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 16, cursor: 'pointer' }}
                   onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'}
                   onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
@@ -216,6 +247,7 @@ export default function Projets() {
                       🗑
                     </button>
                   </div>
+                </div>
                 </div>
               )
             })}
