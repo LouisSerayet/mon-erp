@@ -29,7 +29,7 @@ export default function Projets() {
   // 'statut' regroupe les projets par étape du cycle de vie (voir STATUTS
   // plus haut, qui donne déjà l'ordre du workflow) — pratique pour voir
   // d'un coup d'œil tous les devis envoyés, tous les chantiers en cours...
-  const [tri, setTri] = useState('date')
+  const [tri, setTri] = useState('statut')
   const [showForm, setShowForm] = useState(false)
   const [clients, setClients] = useState([])
   const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
