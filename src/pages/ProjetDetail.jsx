@@ -292,51 +292,102 @@ export default function ProjetDetail() {
     }
     y += 4
 
-    // ── SYNTHÈSE DES LOTS ─────────────────────────────────────
-    // Récap "un lot = une ligne = un prix" avant le total général et avant
-    // le détail page par page qui suit — pour que le client voie d'un coup
-    // d'œil la répartition du prix par lot sans avoir à feuilleter tout le
-    // devis. Ne liste que les lots qui ont effectivement une page détail
-    // plus bas (même filtre que lignesReellesLot dans la boucle "PAGES
-    // DÉTAIL PAR LOT" ci-dessous) — un lot vide ou uniquement composé
-    // d'Options n'apparaît pas ici non plus.
+    // ── SYNTHÈSE DES LOTS (page dédiée, juste après la page 1) ────────
+    // Récap "un lot = une ligne = un prix" avant le détail page par page
+    // qui suit — pour que le client voie d'un coup d'œil la répartition du
+    // prix par lot sans avoir à feuilleter tout le devis. Ne liste que les
+    // lots qui ont effectivement une page détail plus bas (même filtre que
+    // lignesReellesLot dans la boucle "PAGES DÉTAIL PAR LOT" ci-dessous) —
+    // un lot vide ou uniquement composé d'Options n'apparaît pas ici non
+    // plus. Une couleur distincte par lot (texte + fond très légèrement
+    // teinté + barre de proportion) rend la page plus lisible qu'un simple
+    // tableau gris — le repère couleur se retrouve aussi en un coup d'œil
+    // sur les pages de détail juste après.
     const lotsAvecDetail = lotsData.filter(lot => {
       const lg = lignesParLot[lot.numero] || []
       return lg.some(l => l.type === 'ligne' && l.categorie_ligne !== 'option' && !(l.categorie_ligne === 'variante' && l.variante_active === false))
     })
     const totalSansLotSynthese = lignesSansLot.filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)
     if (lotsAvecDetail.length || totalSansLotSynthese > 0) {
-      if (y > 210) { doc.addPage(); y = 20 }
-      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
-      doc.text(t.syntheseLots, 14, y)
-      doc.setFontSize(7.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
-      doc.text(t.syntheseLotsNote, 14, y + 5)
-      y += 9
+      doc.addPage()
+      y = 26
 
-      const bodySynthese = lotsAvecDetail.map(lot => ([
-        t.lot(lot.numero),
-        lot.categorie || '',
-        lot.total_ht > 0 ? fmtMontant(lot.total_ht, lang) : '',
-      ]))
-      if (totalSansLotSynthese > 0) bodySynthese.push([t.horsLot, '', fmtMontant(totalSansLotSynthese, lang)])
+      // Bandeau de titre, même traitement visuel que les bandeaux des pages
+      // de détail par lot plus bas (fond marine, titre blanc) — cohérent
+      // avec le reste du document plutôt qu'un simple texte noir sur blanc.
+      doc.setFillColor(...NAVY); doc.rect(0, 0, 210, 18, 'F')
+      doc.setTextColor(255, 255, 255); doc.setFontSize(13); doc.setFont('helvetica', 'bold')
+      doc.text(t.syntheseLots, 14, 11)
+      doc.setFontSize(7.5); doc.setFont('helvetica', 'normal')
+      doc.text(t.syntheseLotsNote, 14, 15.5)
+      doc.setFontSize(12)
+      doc.text(fmtN(totalHT), 196, 11.5, { align: 'right' })
+      doc.setTextColor(...NAVY)
+
+      const PALETTE_LOTS = [
+        [37, 99, 235],   // bleu
+        [124, 58, 237],  // violet
+        [5, 150, 105],   // vert
+        [217, 119, 6],   // ambre
+        [220, 38, 38],   // rouge
+        [8, 145, 178],   // cyan
+        [219, 39, 119],  // rose
+      ]
+      const lignesSynthese = lotsAvecDetail.map((lot, i) => ({
+        label: t.lot(lot.numero),
+        categorie: lot.categorie || '',
+        montant: lot.total_ht || 0,
+        couleur: PALETTE_LOTS[i % PALETTE_LOTS.length],
+      }))
+      if (totalSansLotSynthese > 0) lignesSynthese.push({ label: t.horsLot, categorie: '', montant: totalSansLotSynthese, couleur: GRAY })
+      const totalPourParts = totalHT > 0 ? totalHT : 1
 
       autoTable(doc, {
         startY: y,
-        head: [[t.colNumero, t.colCategorie, t.colTotalHtEur]],
-        body: bodySynthese,
-        foot: [['', t.totalHtFoot, totalHT > 0 ? fmtMontant(totalHT, lang) : '']],
-        styles: { ...TABLE_STYLE, fontSize: 8, cellPadding: 2.5 },
-        headStyles: TABLE_HEAD_STYLE,
+        head: [[t.colNumero, t.colCategorie, t.colTotalHtEur, t.colPart]],
+        body: lignesSynthese.map(l => ([l.label, l.categorie, l.montant > 0 ? fmtMontant(l.montant, lang) : '', ''])),
+        foot: [['', t.totalHtFoot, totalHT > 0 ? fmtMontant(totalHT, lang) : '', '100%']],
+        styles: { ...TABLE_STYLE, fontSize: 9, cellPadding: 3.5 },
+        headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
         footStyles: TABLE_FOOT_STYLE,
         columnStyles: {
-          0: { cellWidth: 30 },
+          0: { cellWidth: 24, fontStyle: 'bold' },
           1: { cellWidth: 'auto' },
-          2: { cellWidth: 40, halign: 'right', fontStyle: 'bold' },
+          2: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
+          3: { cellWidth: 46 },
         },
-        alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14 },
+        // Colore le libellé du lot et teinte très légèrement le fond de sa
+        // ligne (mélange à 88% avec du blanc, pour rester lisible) — repère
+        // visuel immédiat, plus vivant qu'un simple alternateRowStyles gris.
+        didParseCell: data => {
+          if (data.section !== 'body') return
+          const ligne = lignesSynthese[data.row.index]
+          if (data.column.index === 0) data.cell.styles.textColor = ligne.couleur
+          const [r, g, b] = ligne.couleur
+          const eclaircir = c => Math.round(c + (255 - c) * 0.88)
+          data.cell.styles.fillColor = [eclaircir(r), eclaircir(g), eclaircir(b)]
+        },
+        // Barre de proportion + pourcentage, dessinées à la main dans la
+        // colonne "Part du total" (jspdf-autotable ne sait pas rendre de
+        // mini-graphique nativement).
+        didDrawCell: data => {
+          if (data.section !== 'body' || data.column.index !== 3) return
+          const ligne = lignesSynthese[data.row.index]
+          const pct = ligne.montant > 0 ? ligne.montant / totalPourParts : 0
+          const { x, y: cy, width, height } = data.cell
+          const barX = x + 2, barW = width - 14, barY = cy + height / 2 - 1.6, barH = 3.2
+          doc.setFillColor(241, 245, 249)
+          doc.roundedRect(barX, barY, barW, barH, 1.2, 1.2, 'F')
+          if (pct > 0) {
+            doc.setFillColor(...ligne.couleur)
+            doc.roundedRect(barX, barY, Math.max(barW * pct, 2), barH, 1.2, 1.2, 'F')
+          }
+          doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
+          doc.text(Math.round(pct * 100) + '%', x + width - 2, cy + height / 2 + 1.1, { align: 'right' })
+        },
       })
-      y = doc.lastAutoTable.finalY + 8
+      y = doc.lastAutoTable.finalY + 10
     }
 
     if (y > 220) { doc.addPage(); y = 20 }
