@@ -292,6 +292,53 @@ export default function ProjetDetail() {
     }
     y += 4
 
+    // ── SYNTHÈSE DES LOTS ─────────────────────────────────────
+    // Récap "un lot = une ligne = un prix" avant le total général et avant
+    // le détail page par page qui suit — pour que le client voie d'un coup
+    // d'œil la répartition du prix par lot sans avoir à feuilleter tout le
+    // devis. Ne liste que les lots qui ont effectivement une page détail
+    // plus bas (même filtre que lignesReellesLot dans la boucle "PAGES
+    // DÉTAIL PAR LOT" ci-dessous) — un lot vide ou uniquement composé
+    // d'Options n'apparaît pas ici non plus.
+    const lotsAvecDetail = lotsData.filter(lot => {
+      const lg = lignesParLot[lot.numero] || []
+      return lg.some(l => l.type === 'ligne' && l.categorie_ligne !== 'option' && !(l.categorie_ligne === 'variante' && l.variante_active === false))
+    })
+    const totalSansLotSynthese = lignesSansLot.filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)
+    if (lotsAvecDetail.length || totalSansLotSynthese > 0) {
+      if (y > 210) { doc.addPage(); y = 20 }
+      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
+      doc.text(t.syntheseLots, 14, y)
+      doc.setFontSize(7.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
+      doc.text(t.syntheseLotsNote, 14, y + 5)
+      y += 9
+
+      const bodySynthese = lotsAvecDetail.map(lot => ([
+        t.lot(lot.numero),
+        lot.categorie || '',
+        lot.total_ht > 0 ? fmtMontant(lot.total_ht, lang) : '',
+      ]))
+      if (totalSansLotSynthese > 0) bodySynthese.push([t.horsLot, '', fmtMontant(totalSansLotSynthese, lang)])
+
+      autoTable(doc, {
+        startY: y,
+        head: [[t.colNumero, t.colCategorie, t.colTotalHtEur]],
+        body: bodySynthese,
+        foot: [['', t.totalHtFoot, totalHT > 0 ? fmtMontant(totalHT, lang) : '']],
+        styles: { ...TABLE_STYLE, fontSize: 8, cellPadding: 2.5 },
+        headStyles: TABLE_HEAD_STYLE,
+        footStyles: TABLE_FOOT_STYLE,
+        columnStyles: {
+          0: { cellWidth: 30 },
+          1: { cellWidth: 'auto' },
+          2: { cellWidth: 40, halign: 'right', fontStyle: 'bold' },
+        },
+        alternateRowStyles: TABLE_ALT_ROW_STYLE,
+        margin: { left: 14, right: 14 },
+      })
+      y = doc.lastAutoTable.finalY + 8
+    }
+
     if (y > 220) { doc.addPage(); y = 20 }
     y = blocTotaux(doc, y, { totalHt: totalHT, totalTva: totalTVA, totalTtc: totalTTC, tauxTva, lang })
     if (y > 250) { doc.addPage(); y = 20 }
