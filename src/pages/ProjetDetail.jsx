@@ -256,12 +256,16 @@ export default function ProjetDetail() {
       destinataire: { titre: t.client, lignes: [projet.clients?.nom, ...lignesAdresse(projet.clients, lang)] },
     })
 
-    // Nom du projet
+    // Nom du projet — retour à la ligne automatique si le nom est long,
+    // sinon il continuait hors de la page (texte coupé sur le bord droit)
+    // au lieu de passer à la ligne.
     doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
-    doc.text(projet.nom, 14, y); y += 6
+    const nomLignes = doc.splitTextToSize(projet.nom, 182)
+    doc.text(nomLignes, 14, y); y += nomLignes.length * 5.5 + 0.5
     if (projet.adresse_chantier) {
       doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
-      doc.text(projet.adresse_chantier, 14, y); y += 6
+      const adresseLignes = doc.splitTextToSize(projet.adresse_chantier, 182)
+      doc.text(adresseLignes, 14, y); y += adresseLignes.length * 4.5 + 1.5
     }
     y += 2
 
@@ -283,12 +287,19 @@ export default function ProjetDetail() {
       y += 6
     }
     if (projet.notes) {
-      doc.setFillColor(255, 251, 235)
-      doc.roundedRect(14, y, 182, 20, 2, 2, 'F')
-      doc.setFontSize(8); doc.setFont('helvetica', 'italic'); doc.setTextColor(120, 80, 0)
+      // Hauteur du cadre calculée sur le nombre réel de lignes après
+      // retour à la ligne automatique — avant, le cadre avait une hauteur
+      // fixe (20mm, ~2 lignes) : une note un peu longue (3 lignes ou plus)
+      // débordait hors du cadre jaune et venait chevaucher le texte suivant
+      // (synthèse des lots / nom du projet suivant selon les cas).
+      doc.setFontSize(8); doc.setFont('helvetica', 'italic')
       const notesLines = doc.splitTextToSize(projet.notes, 174)
+      const notesBoxH = Math.max(20, notesLines.length * 4 + 10)
+      doc.setFillColor(255, 251, 235)
+      doc.roundedRect(14, y, 182, notesBoxH, 2, 2, 'F')
+      doc.setTextColor(120, 80, 0)
       doc.text(notesLines, 18, y + 7)
-      y += 26
+      y += notesBoxH + 6
     }
     y += 4
 
@@ -299,10 +310,9 @@ export default function ProjetDetail() {
     // lots qui ont effectivement une page détail plus bas (même filtre que
     // lignesReellesLot dans la boucle "PAGES DÉTAIL PAR LOT" ci-dessous) —
     // un lot vide ou uniquement composé d'Options n'apparaît pas ici non
-    // plus. Une couleur distincte par lot (texte + fond très légèrement
-    // teinté + barre de proportion) rend la page plus lisible qu'un simple
-    // tableau gris — le repère couleur se retrouve aussi en un coup d'œil
-    // sur les pages de détail juste après.
+    // plus. Tableau sobre (mêmes styles que les tableaux détaillés plus
+    // bas) — pas de couleurs par lot ni de pourcentage, juste le nom du lot
+    // et son prix.
     const lotsAvecDetail = lotsData.filter(lot => {
       const lg = lignesParLot[lot.numero] || []
       return lg.some(l => l.type === 'ligne' && l.categorie_ligne !== 'option' && !(l.categorie_ligne === 'variante' && l.variante_active === false))
@@ -314,78 +324,40 @@ export default function ProjetDetail() {
 
       // Bandeau de titre, même traitement visuel que les bandeaux des pages
       // de détail par lot plus bas (fond marine, titre blanc) — cohérent
-      // avec le reste du document plutôt qu'un simple texte noir sur blanc.
+      // avec le reste du document. Marge verticale généreuse entre le
+      // titre et la note en dessous pour ne jamais laisser les deux se
+      // toucher, même sur un petit écran/export basse résolution.
       doc.setFillColor(...NAVY); doc.rect(0, 0, 210, 18, 'F')
-      doc.setTextColor(255, 255, 255); doc.setFontSize(13); doc.setFont('helvetica', 'bold')
-      doc.text(t.syntheseLots, 14, 11)
-      doc.setFontSize(7.5); doc.setFont('helvetica', 'normal')
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+      doc.text(t.syntheseLots, 14, 10.5)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
       doc.text(t.syntheseLotsNote, 14, 15.5)
-      doc.setFontSize(12)
-      doc.text(fmtN(totalHT), 196, 11.5, { align: 'right' })
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+      doc.text(fmtN(totalHT), 196, 11, { align: 'right' })
       doc.setTextColor(...NAVY)
 
-      const PALETTE_LOTS = [
-        [37, 99, 235],   // bleu
-        [124, 58, 237],  // violet
-        [5, 150, 105],   // vert
-        [217, 119, 6],   // ambre
-        [220, 38, 38],   // rouge
-        [8, 145, 178],   // cyan
-        [219, 39, 119],  // rose
-      ]
-      const lignesSynthese = lotsAvecDetail.map((lot, i) => ({
-        label: t.lot(lot.numero),
-        categorie: lot.categorie || '',
-        montant: lot.total_ht || 0,
-        couleur: PALETTE_LOTS[i % PALETTE_LOTS.length],
-      }))
-      if (totalSansLotSynthese > 0) lignesSynthese.push({ label: t.horsLot, categorie: '', montant: totalSansLotSynthese, couleur: GRAY })
-      const totalPourParts = totalHT > 0 ? totalHT : 1
+      const bodySynthese = lotsAvecDetail.map(lot => ([
+        t.lot(lot.numero),
+        lot.categorie || '',
+        lot.total_ht > 0 ? fmtMontant(lot.total_ht, lang) : '',
+      ]))
+      if (totalSansLotSynthese > 0) bodySynthese.push([t.horsLot, '', fmtMontant(totalSansLotSynthese, lang)])
 
       autoTable(doc, {
         startY: y,
-        head: [[t.colNumero, t.colCategorie, t.colTotalHtEur, t.colPart]],
-        body: lignesSynthese.map(l => ([l.label, l.categorie, l.montant > 0 ? fmtMontant(l.montant, lang) : '', ''])),
-        foot: [['', t.totalHtFoot, totalHT > 0 ? fmtMontant(totalHT, lang) : '', '100%']],
-        styles: { ...TABLE_STYLE, fontSize: 9, cellPadding: 3.5 },
-        headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+        head: [[t.colNumero, t.colCategorie, t.colTotalHtEur]],
+        body: bodySynthese,
+        foot: [['', t.totalHtFoot, totalHT > 0 ? fmtMontant(totalHT, lang) : '']],
+        styles: { ...TABLE_STYLE, fontSize: 9, cellPadding: 3 },
+        headStyles: TABLE_HEAD_STYLE,
         footStyles: TABLE_FOOT_STYLE,
         columnStyles: {
-          0: { cellWidth: 24, fontStyle: 'bold' },
+          0: { cellWidth: 30 },
           1: { cellWidth: 'auto' },
-          2: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
-          3: { cellWidth: 46 },
+          2: { cellWidth: 40, halign: 'right', fontStyle: 'bold' },
         },
+        alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14 },
-        // Colore le libellé du lot et teinte très légèrement le fond de sa
-        // ligne (mélange à 88% avec du blanc, pour rester lisible) — repère
-        // visuel immédiat, plus vivant qu'un simple alternateRowStyles gris.
-        didParseCell: data => {
-          if (data.section !== 'body') return
-          const ligne = lignesSynthese[data.row.index]
-          if (data.column.index === 0) data.cell.styles.textColor = ligne.couleur
-          const [r, g, b] = ligne.couleur
-          const eclaircir = c => Math.round(c + (255 - c) * 0.88)
-          data.cell.styles.fillColor = [eclaircir(r), eclaircir(g), eclaircir(b)]
-        },
-        // Barre de proportion + pourcentage, dessinées à la main dans la
-        // colonne "Part du total" (jspdf-autotable ne sait pas rendre de
-        // mini-graphique nativement).
-        didDrawCell: data => {
-          if (data.section !== 'body' || data.column.index !== 3) return
-          const ligne = lignesSynthese[data.row.index]
-          const pct = ligne.montant > 0 ? ligne.montant / totalPourParts : 0
-          const { x, y: cy, width, height } = data.cell
-          const barX = x + 2, barW = width - 14, barY = cy + height / 2 - 1.6, barH = 3.2
-          doc.setFillColor(241, 245, 249)
-          doc.roundedRect(barX, barY, barW, barH, 1.2, 1.2, 'F')
-          if (pct > 0) {
-            doc.setFillColor(...ligne.couleur)
-            doc.roundedRect(barX, barY, Math.max(barW * pct, 2), barH, 1.2, 1.2, 'F')
-          }
-          doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
-          doc.text(Math.round(pct * 100) + '%', x + width - 2, cy + height / 2 + 1.1, { align: 'right' })
-        },
       })
       y = doc.lastAutoTable.finalY + 10
     }
