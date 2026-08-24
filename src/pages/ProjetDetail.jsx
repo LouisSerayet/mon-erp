@@ -117,6 +117,13 @@ export default function ProjetDetail() {
   // le moindre message ni erreur. Une modale intégrée à l'ERP ne dépend
   // plus de cette fonctionnalité navigateur.
   const [confirmDupliquerOuvert, setConfirmDupliquerOuvert] = useState(false)
+  // Sélection multiple de lignes de devis (onglet Lignes) pour suppression
+  // groupée — voir supprimerLignesSelectionnees. Une modale "maison" est
+  // utilisée pour la confirmation, comme pour la duplication de projet
+  // ci-dessus (même raison : éviter tout window.confirm()).
+  const [lignesSelectionnees, setLignesSelectionnees] = useState(() => new Set())
+  const [confirmSuppressionLignesOuvert, setConfirmSuppressionLignesOuvert] = useState(false)
+  const [suppressionLignesBusy, setSuppressionLignesBusy] = useState(false)
   const [lotsReduits, setLotsReduits] = useState({}) // { [lotNumero]: true/false }
   const [showAddLigne, setShowAddLigne] = useState(false)
   const [ligneError, setLigneError] = useState('')
@@ -789,6 +796,64 @@ export default function ProjetDetail() {
     lg = await resynchroniserLot(lg || [], ligneSupprimee?.lot || null)
     setLignes(lg)
     await syncMontantHtProjet(lg)
+    // Si cette ligne était cochée pour une suppression groupée en cours de
+    // préparation, on la retire de la sélection (elle n'existe plus).
+    setLignesSelectionnees(prev => {
+      if (!prev.has(ligneId)) return prev
+      const next = new Set(prev); next.delete(ligneId); return next
+    })
+  }
+
+  // Sélection multiple de lignes (checkboxes, onglet Lignes) → suppression
+  // groupée en un seul appel Supabase (`.in('id', ids)`), même principe que
+  // supprimerLot pour ses lignes enfants. Une ligne peut appartenir à
+  // plusieurs lots différents à la fois dans la sélection : on resynchronise
+  // donc chaque lot concerné après coup, pas un seul.
+  async function supprimerLignesSelectionnees() {
+    if (suppressionLignesBusy) return // garde-fou anti double-clic
+    const ids = Array.from(lignesSelectionnees)
+    if (ids.length === 0) { setConfirmSuppressionLignesOuvert(false); return }
+    setSuppressionLignesBusy(true)
+    const lotsAffectes = new Set(lignes.filter(l => ids.includes(l.id) && l.lot).map(l => l.lot))
+    const { error } = await supabase.from('projet_lignes').update({ deleted_at: new Date().toISOString() }).in('id', ids)
+    if (error) {
+      alert('Erreur lors de la suppression : ' + error.message)
+      setSuppressionLignesBusy(false)
+      return
+    }
+    let { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+    lg = lg || []
+    for (const numeroLot of lotsAffectes) {
+      lg = await resynchroniserLot(lg, numeroLot)
+    }
+    setLignes(lg)
+    await syncMontantHtProjet(lg)
+    setLignesSelectionnees(new Set())
+    setConfirmSuppressionLignesOuvert(false)
+    setSuppressionLignesBusy(false)
+  }
+
+  function toggleLigneSelection(ligneId) {
+    setLignesSelectionnees(prev => {
+      const next = new Set(prev)
+      if (next.has(ligneId)) next.delete(ligneId)
+      else next.add(ligneId)
+      return next
+    })
+  }
+
+  // Coche/décoche en une fois toutes les lignes d'un groupe (un lot, ou les
+  // lignes sans lot) — utilisé par la case "tout sélectionner" de chaque
+  // tableau. `idsGroupe` est déjà filtré aux lignes réelles (type 'ligne'),
+  // les titres ne sont jamais sélectionnables.
+  function toggleSelectionGroupe(idsGroupe) {
+    const tousDejaSelectionnes = idsGroupe.length > 0 && idsGroupe.every(i => lignesSelectionnees.has(i))
+    setLignesSelectionnees(prev => {
+      const next = new Set(prev)
+      if (tousDejaSelectionnes) idsGroupe.forEach(i => next.delete(i))
+      else idsGroupe.forEach(i => next.add(i))
+      return next
+    })
   }
 
   async function supprimerLot(lot) {
@@ -810,6 +875,10 @@ export default function ProjetDetail() {
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
     setLignes(lg || [])
     await syncMontantHtProjet(lg || [])
+    setLignesSelectionnees(prev => {
+      if (!ids.some(i => prev.has(i))) return prev
+      const next = new Set(prev); ids.forEach(i => next.delete(i)); return next
+    })
   }
 
   async function saveLignes() {
@@ -1895,7 +1964,13 @@ export default function ProjetDetail() {
       {/* Onglets */}
       <div style={{ background: '#fff', borderBottom: '1px solid #E5E7EB', display: 'flex', paddingLeft: 16, overflowX: 'auto', flexShrink: 0 }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id); setShowForm(false); setError('') }}
+          <button key={t.id} onClick={() => {
+              setTab(t.id); setShowForm(false); setError('')
+              // Vide la sélection de lignes en quittant l'onglet Lignes,
+              // pour ne pas retrouver une sélection obsolète (voire des id
+              // de lignes qui n'existent plus) en y revenant plus tard.
+              if (t.id !== 'lignes') setLignesSelectionnees(new Set())
+            }}
             style={{ padding: '11px 16px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap',
               fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? '#2563EB' : '#6B7280',
               borderBottom: tab === t.id ? '2px solid #2563EB' : '2px solid transparent' }}>
@@ -2214,6 +2289,51 @@ export default function ProjetDetail() {
 
             {importError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{importError}</div>}
 
+            {/* Barre d'action groupée — apparaît dès qu'au moins une ligne
+                est cochée (checkbox dans la colonne N° de chaque tableau
+                ci-dessous). Suppression groupée en un seul appel plutôt
+                qu'un clic sur ✕ par ligne. */}
+            {lignesSelectionnees.size > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '9px 14px', marginBottom: 16, position: 'sticky', top: 0, zIndex: 5 }}>
+                <span style={{ fontSize: 13, color: '#1E3A8A', fontWeight: 500 }}>
+                  {lignesSelectionnees.size} ligne{lignesSelectionnees.size > 1 ? 's' : ''} sélectionnée{lignesSelectionnees.size > 1 ? 's' : ''}
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setLignesSelectionnees(new Set())}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+                    Annuler
+                  </button>
+                  <button onClick={() => setConfirmSuppressionLignesOuvert(true)}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+                    🗑 Supprimer
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Confirmation "maison" (voir confirmDupliquerOuvert plus haut
+                pour la même logique anti-Safari) avant suppression groupée. */}
+            {confirmSuppressionLignesOuvert && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: 14 }}>
+                <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 460, maxWidth: '100%', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+                  <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>🗑 Supprimer {lignesSelectionnees.size} ligne{lignesSelectionnees.size > 1 ? 's' : ''} ?</h3>
+                  <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+                    Les lignes sélectionnées seront supprimées (récupérables depuis la Corbeille pendant 30 jours).
+                  </p>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                    <button onClick={() => setConfirmSuppressionLignesOuvert(false)} disabled={suppressionLignesBusy}
+                      style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+                      Annuler
+                    </button>
+                    <button onClick={supprimerLignesSelectionnees} disabled={suppressionLignesBusy}
+                      style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, opacity: suppressionLignesBusy ? 0.7 : 1 }}>
+                      {suppressionLignesBusy ? 'Suppression...' : 'Supprimer'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Formulaire nouveau lot — saisie libre (numéro + catégorie),
                 utile quand le projet n'a pas encore de lots (ex. pas
                 d'import Excel) et qu'il n'y a donc rien à choisir dans le
@@ -2404,6 +2524,11 @@ export default function ProjetDetail() {
                 const totalVenteLot = lot.total_ht || 0
                 const totalAchatLot = lot.total_achat || 0
                 const margeLot = totalVenteLot - totalAchatLot
+                // Lignes réellement sélectionnables de ce lot (les titres
+                // n'ont pas de checkbox) — sert à la case "tout cocher" de
+                // l'en-tête du tableau.
+                const idsGroupeLot = (lignesParLot[lot.numero] || []).filter(l => l.type === 'ligne').map(l => l.id)
+                const toutSelectionneLot = idsGroupeLot.length > 0 && idsGroupeLot.every(i => lignesSelectionnees.has(i))
                 return (
                 <div key={lot.numero} style={{ marginBottom: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
                   <div onClick={() => setLotsReduits(prev => ({ ...prev, [lot.numero]: !prev[lot.numero] }))}
@@ -2425,7 +2550,15 @@ export default function ProjetDetail() {
                   {!estReduit && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                        <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500, width: 50 }}>N°</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500, width: 50 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            {idsGroupeLot.length > 0 && (
+                              <input type="checkbox" checked={toutSelectionneLot} onChange={() => toggleSelectionGroupe(idsGroupeLot)}
+                                title="Tout sélectionner dans ce lot" style={{ cursor: 'pointer' }} />
+                            )}
+                            N°
+                          </div>
+                        </th>
                         <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500 }}>Désignation</th>
                         <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 50 }}>Unité</th>
                         <th style={{ padding: '7px 10px', textAlign: 'right', color: '#6B7280', fontWeight: 500, width: 50 }}>Qté</th>
@@ -2464,6 +2597,8 @@ export default function ProjetDetail() {
                           <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : !compteDansTotal ? '#FAFAF9' : i % 2 === 0 ? '#fff' : '#FAFAFA', opacity: compteDansTotal ? 1 : 0.7 }}>
                             <td style={{ padding: '4px 6px', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <input type="checkbox" checked={lignesSelectionnees.has(l.id)} onChange={() => toggleLigneSelection(l.id)}
+                                  style={{ cursor: 'pointer' }} />
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
                                 <button onClick={() => supprimerLigne(l.id)}
                                   style={{ background: 'none', border: 'none', color: '#FCA5A5', cursor: 'pointer', fontSize: 11, padding: '0 2px', lineHeight: 1, opacity: 0.6 }}
@@ -2568,7 +2703,18 @@ export default function ProjetDetail() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                        <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500, width: 50 }}>N°</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500, width: 50 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            {(() => {
+                              const idsGroupeSansLot = (lignesParLot['sans'] || []).filter(l => l.type === 'ligne').map(l => l.id)
+                              if (idsGroupeSansLot.length === 0) return null
+                              const toutSelectionne = idsGroupeSansLot.every(i => lignesSelectionnees.has(i))
+                              return <input type="checkbox" checked={toutSelectionne} onChange={() => toggleSelectionGroupe(idsGroupeSansLot)}
+                                title="Tout sélectionner" style={{ cursor: 'pointer' }} />
+                            })()}
+                            N°
+                          </div>
+                        </th>
                         <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500 }}>Désignation</th>
                         <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 50 }}>Unité</th>
                         <th style={{ padding: '7px 10px', textAlign: 'right', color: '#6B7280', fontWeight: 500, width: 50 }}>Qté</th>
@@ -2608,6 +2754,8 @@ export default function ProjetDetail() {
                           <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : !compteDansTotal ? '#FAFAF9' : i % 2 === 0 ? '#fff' : '#FAFAFA', opacity: compteDansTotal ? 1 : 0.7 }}>
                             <td style={{ padding: '4px 6px', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <input type="checkbox" checked={lignesSelectionnees.has(l.id)} onChange={() => toggleLigneSelection(l.id)}
+                                  style={{ cursor: 'pointer' }} />
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
                                 <button onClick={() => supprimerLigne(l.id)} style={{ background: 'none', border: 'none', color: '#FCA5A5', cursor: 'pointer', fontSize: 11, padding: '0 2px', opacity: 0.6 }}
                                   onMouseEnter={e => e.currentTarget.style.opacity='1'} onMouseLeave={e => e.currentTarget.style.opacity='0.6'}>✕</button>
