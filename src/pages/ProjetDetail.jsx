@@ -109,6 +109,14 @@ export default function ProjetDetail() {
   const [lignesEditees, setLignesEditees] = useState({}) // { [id]: {champ: valeur} }
   const [savingLignes, setSavingLignes] = useState(false)
   const [dupliquerBusy, setDupliquerBusy] = useState(false) // duplication du projet (devis + lignes) en cours
+  // Fenêtre de confirmation "maison" plutôt que window.confirm() : sur
+  // Safari, si l'utilisateur a un jour coché « Empêcher cette page de
+  // créer d'autres boîtes de dialogue » (proposé par Safari après une
+  // confirm()/alert() quelconque), TOUTES les confirm()/alert() suivantes
+  // de la page sont bloquées silencieusement — clic sur "Dupliquer" sans
+  // le moindre message ni erreur. Une modale intégrée à l'ERP ne dépend
+  // plus de cette fonctionnalité navigateur.
+  const [confirmDupliquerOuvert, setConfirmDupliquerOuvert] = useState(false)
   const [lotsReduits, setLotsReduits] = useState({}) // { [lotNumero]: true/false }
   const [showAddLigne, setShowAddLigne] = useState(false)
   const [ligneError, setLigneError] = useState('')
@@ -1051,9 +1059,13 @@ export default function ProjetDetail() {
   // nouveau) et copie toutes les lignes du devis (lots, lignes, titres)
   // dessus. Ne duplique volontairement ni les commandes, ni les factures,
   // ni les documents — seulement le chiffrage.
-  async function dupliquerProjet() {
+  // Le bouton "Dupliquer" du header ouvre juste la modale de confirmation
+  // (setConfirmDupliquerOuvert(true)) ; c'est son bouton "Dupliquer" à
+  // elle qui appelle confirmerDuplication() ci-dessous.
+  async function confirmerDuplication() {
+    if (dupliquerBusy) return // garde-fou anti double-clic
+    setConfirmDupliquerOuvert(false)
     const nomCopie = projet.nom + ' (copie)'
-    if (!confirm('Dupliquer "' + projet.nom + '" ? Une nouvelle fiche "' + nomCopie + '" sera créée avec les mêmes lignes de devis (hors commandes/factures).')) return
     setDupliquerBusy(true)
     try {
       const { data: nouveauProjet, error } = await supabase.from('projets').insert([{
@@ -1789,7 +1801,7 @@ export default function ProjetDetail() {
               style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
               ⬇ Devis EN
             </button>
-            <button onClick={dupliquerProjet} disabled={dupliquerBusy} title="Dupliquer ce projet (devis + lignes) pour en repartir"
+            <button onClick={() => setConfirmDupliquerOuvert(true)} disabled={dupliquerBusy} title="Dupliquer ce projet (devis + lignes) pour en repartir"
               style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#F9FAFB', color: '#374151', cursor: dupliquerBusy ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, opacity: dupliquerBusy ? 0.6 : 1 }}>
               {dupliquerBusy ? '⏳ Duplication...' : '⧉ Dupliquer'}
             </button>
@@ -1802,6 +1814,29 @@ export default function ProjetDetail() {
           </div>
         </div>
       </div>
+
+      {/* Confirmation de duplication — modale "maison" plutôt que
+          window.confirm(), voir le commentaire sur confirmDupliquerOuvert
+          plus haut (contournement d'un blocage silencieux possible sous
+          Safari). */}
+      {confirmDupliquerOuvert && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 460, maxWidth: '100%', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>⧉ Dupliquer ce projet ?</h3>
+            <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+              Une nouvelle fiche « {projet.nom} (copie) » sera créée avec les mêmes lignes de devis (lots, lignes, titres) — hors commandes et factures.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmDupliquerOuvert(false)}
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={confirmerDuplication} disabled={dupliquerBusy}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: dupliquerBusy ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: dupliquerBusy ? 0.7 : 1 }}>
+                {dupliquerBusy ? 'Duplication...' : 'Dupliquer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modale d'aperçu/édition avant envoi d'un email (facture client ou
           commande fournisseur, PDF joint) — voir ouvrirEnvoiFactureCli() /
