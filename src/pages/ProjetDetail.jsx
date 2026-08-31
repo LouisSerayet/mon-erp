@@ -92,7 +92,10 @@ export default function ProjetDetail() {
   const [infosError, setInfosError] = useState('')
   const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
   const [formFfrs, setFormFfrs] = useState({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' })
-  const [formFcli, setFormFcli] = useState({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' })
+  // type_facture / paiement_comptant : voir sql/facture_cli_type_migration.sql
+  // — choisis une seule fois à la création, non modifiables ensuite (comme
+  // le numéro). paiement_comptant n'a de sens que pour une facture d'acompte.
+  const [formFcli, setFormFcli] = useState({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '', type_facture: 'avancement', paiement_comptant: false })
   // Saisie auxiliaire "% du devis" pour la nouvelle facture client — ne va
   // pas en base (seul montant_ht est stocké), sert juste à calculer le
   // montant HT à partir d'un pourcentage d'avancement (situation de travaux).
@@ -631,8 +634,12 @@ export default function ProjetDetail() {
     return calculerEcheance(dateFacture, frs?.delai_paiement_jours ?? 30, frs?.delai_paiement_fin_mois ?? false)
   }
   // Même logique pour la nouvelle facture client, à partir des conditions
-  // de paiement du client du projet.
-  function echeanceFcliAuto(dateFacture) {
+  // de paiement du client du projet — sauf si `comptant` est vrai (facture
+  // d'acompte avec la case "Paiement comptant" cochée), auquel cas
+  // l'échéance est calculée à 0 jour (= date de facture), quel que soit le
+  // délai de paiement habituel du client. Voir formFcli.paiement_comptant.
+  function echeanceFcliAuto(dateFacture, comptant = false) {
+    if (comptant) return calculerEcheance(dateFacture, 0, false)
     return calculerEcheance(dateFacture, projet?.clients?.delai_paiement_jours ?? 30, projet?.clients?.delai_paiement_fin_mois ?? false)
   }
 
@@ -1347,8 +1354,13 @@ export default function ProjetDetail() {
     const totalTva = totalHt * (tauxTva / 100)
     const totalTtc = totalHt + totalTva
     const description = t.prestations + (projet?.nom || '')
+    // Facture d'acompte : titre distinct ("FACTURE D'ACOMPTE") et, si réglée
+    // comptant, conditions de paiement sans mention de délai de 30 jours —
+    // voir sql/facture_cli_type_migration.sql et lib/pdfI18n.js.
+    const titreDoc = f.type_facture === 'acompte' ? t.titreFactureAcompte : t.titreFacture
+    const bullets = f.paiement_comptant ? t.bulletsFactureComptant(tauxTva) : t.bulletsFacture(tauxTva)
 
-    let y = enTeteDocument(doc, { titre: t.titreFacture, lang })
+    let y = enTeteDocument(doc, { titre: titreDoc, lang })
     y = blocMetaEtDestinataire(doc, y, {
       metaGauche: [
         [t.numeroFacture, f.numero || '—'],
@@ -1376,7 +1388,7 @@ export default function ProjetDetail() {
     if (y > 220) { doc.addPage(); y = 20 }
     y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, tauxTva, lang })
     if (y > 250) { doc.addPage(); y = 20 }
-    y = blocConditionsEtSignature(doc, y, { bullets: t.bulletsFacture(tauxTva), avecSignature: false, lang })
+    y = blocConditionsEtSignature(doc, y, { bullets, avecSignature: false, lang })
     if (y > 260) { doc.addPage(); y = 20 }
     blocCoordonneesBancaires(doc, y, { lang })
 
@@ -1399,10 +1411,16 @@ export default function ProjetDetail() {
     if (!email) { alert('Ce client n\'a pas d\'adresse email enregistrée.'); return }
     const doc = generateFactureCliPDF(f, 'fr')
     const sujet = 'Facture ' + (f.numero || '') + (projet?.nom ? ' — ' + projet.nom : '')
+    // Une facture d'acompte réglée comptant a une échéance = date de
+    // facture (voir echeanceFcliAuto) : "à régler avant le [aujourd'hui]"
+    // serait trompeur, on préfère l'annoncer explicitement comme comptant.
+    const mentionEcheance = f.paiement_comptant
+      ? ', à régler comptant dès réception'
+      : (f.date_echeance ? ', à régler avant le ' + new Date(f.date_echeance).toLocaleDateString('fr-FR') : '')
     const corps = 'Bonjour,\n\nVeuillez trouver ci-joint la facture ' + (f.numero || '') +
       (projet?.nom ? ' relative au projet ' + projet.nom : '') +
       ', d\'un montant de ' + Number(f.montant_ht || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' € HT' +
-      (f.date_echeance ? ', à régler avant le ' + new Date(f.date_echeance).toLocaleDateString('fr-FR') : '') +
+      mentionEcheance +
       '.\n\nN\'hésitez pas à revenir vers nous pour toute question.\n\nCordialement'
     setEnvoiEmailModal({
       type: 'facture_cli',
@@ -1684,7 +1702,7 @@ export default function ProjetDetail() {
     if (errNumero) { setError('Impossible de générer le numéro de facture : ' + errNumero.message); setSavingFactureCli(false); return }
     const { error } = await supabase.from('factures_cli').insert([{ ...formFcli, numero: numeroGenere, projet_id: id, client_id: projet?.client_id || null, montant_ht: parseFloat(formFcli.montant_ht) || 0 }])
     if (error) { setError(error.message); setSavingFactureCli(false); return }
-    setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '' }); setFormFcliPct(''); setEcheanceFcliVerrouillee(true)
+    setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '', type_facture: 'avancement', paiement_comptant: false }); setFormFcliPct(''); setEcheanceFcliVerrouillee(true)
     const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
     setSavingFactureCli(false)
@@ -1697,14 +1715,19 @@ export default function ProjetDetail() {
     if (facCliEditees[f.id] && facCliEditees[f.id][champ] !== undefined) return facCliEditees[f.id][champ]
     return f[champ] ?? ''
   }
-  function editFacCli(fId, champ, valeur) {
+  function editFacCli(fId, champ, valeur, facture) {
     setFacCliEditees(prev => {
       const courant = { ...(prev[fId] || {}), [champ]: valeur }
       // Modifier la date de facture recalcule l'échéance dans la foulée,
       // tant que cette facture n'a pas été déverrouillée pour une échéance
-      // manuelle (voir editFacCliEcheance).
+      // manuelle (voir editFacCliEcheance) — en respectant le paiement
+      // comptant de cette facture si c'est une facture d'acompte réglée
+      // comptant (voir formFcli.paiement_comptant / echeanceFcliAuto).
       if (champ === 'date_facture' && !echeanceCliDeverrouillees.has(fId)) {
-        courant.date_echeance = calculerEcheance(valeur, projet?.clients?.delai_paiement_jours ?? 30, projet?.clients?.delai_paiement_fin_mois ?? false)
+        const comptant = facture?.type_facture === 'acompte' && facture?.paiement_comptant
+        courant.date_echeance = comptant
+          ? calculerEcheance(valeur, 0, false)
+          : calculerEcheance(valeur, projet?.clients?.delai_paiement_jours ?? 30, projet?.clients?.delai_paiement_fin_mois ?? false)
       }
       return { ...prev, [fId]: courant }
     })
@@ -3356,7 +3379,7 @@ export default function ProjetDetail() {
                       <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#9CA3AF' }}>%</span>
                     </div></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture</label>
-                    <input type="date" value={formFcli.date_facture} onChange={e => { const date_facture = e.target.value; setFormFcli(p => ({ ...p, date_facture, date_echeance: echeanceFcliVerrouillee ? echeanceFcliAuto(date_facture) : p.date_echeance })) }}
+                    <input type="date" value={formFcli.date_facture} onChange={e => { const date_facture = e.target.value; setFormFcli(p => ({ ...p, date_facture, date_echeance: echeanceFcliVerrouillee ? echeanceFcliAuto(date_facture, p.type_facture === 'acompte' && p.paiement_comptant) : p.date_echeance })) }}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
                   <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date échéance {echeanceFcliVerrouillee && <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(auto)</span>}</label>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -3367,7 +3390,7 @@ export default function ProjetDetail() {
                           onClick={() => { if (confirm('L\'échéance est calculée automatiquement à partir des conditions de paiement du client. La modifier manuellement ?')) setEcheanceFcliVerrouillee(false) }}
                           style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>🔓</button>
                       ) : (
-                        <button type="button" title="Revenir au calcul automatique" onClick={() => { setEcheanceFcliVerrouillee(true); setFormFcli(p => ({ ...p, date_echeance: echeanceFcliAuto(p.date_facture) })) }}
+                        <button type="button" title="Revenir au calcul automatique" onClick={() => { setEcheanceFcliVerrouillee(true); setFormFcli(p => ({ ...p, date_echeance: echeanceFcliAuto(p.date_facture, p.type_facture === 'acompte' && p.paiement_comptant) })) }}
                           style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>↺</button>
                       )}
                     </div></div>
@@ -3375,6 +3398,30 @@ export default function ProjetDetail() {
                     <select value={formFcli.statut} onChange={e => setFormFcli(p => ({ ...p, statut: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
                       {STATUTS_FCLI.map(s => <option key={s}>{s}</option>)}</select></div>
+                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Type de facture</label>
+                    <select value={formFcli.type_facture} onChange={e => {
+                        const type_facture = e.target.value
+                        // La case "paiement comptant" n'a de sens que pour une
+                        // facture d'acompte — on la réinitialise en repassant
+                        // sur "avancement" pour ne pas garder un état caché.
+                        const paiement_comptant = type_facture === 'acompte' ? formFcli.paiement_comptant : false
+                        setFormFcli(p => ({ ...p, type_facture, paiement_comptant, date_echeance: echeanceFcliVerrouillee ? echeanceFcliAuto(p.date_facture, type_facture === 'acompte' && paiement_comptant) : p.date_echeance }))
+                      }}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      <option value="avancement">Facture d'avancement</option>
+                      <option value="acompte">Facture d'acompte</option>
+                    </select></div>
+                  {formFcli.type_facture === 'acompte' && (
+                    <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 8 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: '#374151', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={formFcli.paiement_comptant} onChange={e => {
+                            const paiement_comptant = e.target.checked
+                            setFormFcli(p => ({ ...p, paiement_comptant, date_echeance: echeanceFcliVerrouillee ? echeanceFcliAuto(p.date_facture, paiement_comptant) : p.date_echeance }))
+                          }} />
+                        Paiement comptant <span style={{ color: '#9CA3AF' }}>(pas de délai de 30 jours — échéance = date de facture)</span>
+                      </label>
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => { setShowForm(false); setError('') }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
@@ -3402,9 +3449,14 @@ export default function ProjetDetail() {
                     <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid #F3F4F6', background: f.id === focusId ? '#FEF9C3' : isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
                       <td style={{ padding: '8px 14px', fontWeight: 600, color: '#111827' }} title="Numéro non modifiable (obligation légale de numérotation séquentielle)">
                         {f.numero}
+                        {f.type_facture === 'acompte' && (
+                          <div style={{ marginTop: 3, fontSize: 10, fontWeight: 500, color: '#7C3AED' }}>
+                            Acompte{f.paiement_comptant ? ' · comptant' : ''}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '8px 14px', color: '#9CA3AF' }}>
-                        <input type="date" value={getFacCliVal(f, 'date_facture')} onChange={e => editFacCli(f.id, 'date_facture', e.target.value)} style={{ ...inStyle, width: 130 }} />
+                        <input type="date" value={getFacCliVal(f, 'date_facture')} onChange={e => editFacCli(f.id, 'date_facture', e.target.value, f)} style={{ ...inStyle, width: 130 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <input type="date" value={getFacCliVal(f, 'date_echeance')} onChange={e => editFacCliEcheance(f.id, e.target.value)}

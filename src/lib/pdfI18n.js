@@ -10,6 +10,7 @@ export const L = {
   fr: {
     titreDevis: 'DEVIS',
     titreFacture: 'FACTURE',
+    titreFactureAcompte: 'FACTURE D’ACOMPTE',
     titreCommande: 'BON DE COMMANDE',
     contact: 'Contact : ',
     siret: 'SIRET : ',
@@ -92,10 +93,21 @@ export const L = {
       taux > 0 ? `Montants exprimés en euros HT, TVA au taux de ${taux} % en sus.` : 'Montants exprimés en euros HT — TVA non applicable sur cette facture.',
       'Tout retard de paiement entraîne l’application d’intérêts de retard et d’une indemnité forfaitaire de 40 € pour frais de recouvrement (art. L441-10 et D441-5 du Code de commerce). Aucun escompte pour paiement anticipé.',
     ],
+    // Variante utilisée quand une facture d'acompte est réglée comptant
+    // (paiement_comptant, voir sql/facture_cli_type_migration.sql) : pas de
+    // délai de 30 jours, la facture est payable immédiatement. Seule la
+    // première puce change ; la mention légale sur les pénalités de retard
+    // reste affichée (elle s'applique quel que soit le délai convenu).
+    bulletsFactureComptant: taux => [
+      'Facture payable comptant, dès réception de la présente facture, par virement bancaire.',
+      taux > 0 ? `Montants exprimés en euros HT, TVA au taux de ${taux} % en sus.` : 'Montants exprimés en euros HT — TVA non applicable sur cette facture.',
+      'Tout retard de paiement entraîne l’application d’intérêts de retard et d’une indemnité forfaitaire de 40 € pour frais de recouvrement (art. L441-10 et D441-5 du Code de commerce). Aucun escompte pour paiement anticipé.',
+    ],
   },
   en: {
     titreDevis: 'QUOTE',
     titreFacture: 'INVOICE',
+    titreFactureAcompte: 'DEPOSIT INVOICE',
     titreCommande: 'PURCHASE ORDER',
     contact: 'Contact: ',
     siret: 'SIRET: ',
@@ -169,6 +181,11 @@ export const L = {
     ],
     bulletsFacture: taux => [
       'This invoice is payable on receipt, within 30 days of the invoice date (see due date above), by bank transfer.',
+      taux > 0 ? `Amounts are shown in euros excluding VAT; VAT applies at a rate of ${taux}% in addition.` : 'Amounts are shown in euros excluding VAT — VAT does not apply to this invoice.',
+      'Late payment automatically incurs late-payment interest and a flat-rate compensation of €40 for collection costs (Articles L441-10 and D441-5 of the French Commercial Code). No discount is granted for early payment.',
+    ],
+    bulletsFactureComptant: taux => [
+      'This invoice is payable in cash, immediately upon receipt, by bank transfer.',
       taux > 0 ? `Amounts are shown in euros excluding VAT; VAT applies at a rate of ${taux}% in addition.` : 'Amounts are shown in euros excluding VAT — VAT does not apply to this invoice.',
       'Late payment automatically incurs late-payment interest and a flat-rate compensation of €40 for collection costs (Articles L441-10 and D441-5 of the French Commercial Code). No discount is granted for early payment.',
     ],
