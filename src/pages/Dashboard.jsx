@@ -158,9 +158,13 @@ export default function Dashboard() {
     })
     setProjets(projetsData.filter(p => p.statut !== 'Clôturé' && p.statut !== 'Perdu').slice(0, 6))
     setCmdEnAttente(cmdData.slice(0, 5))
-    setFacturesFrsAPayer(ffrsData.slice(0, 5))
-    setFacturesCliAEncaisser(fcliData.slice(0, 5))
-    setDepensesAPayer(depData.slice(0, 5))
+    // Pas de slice(0, 5) sur ces trois listes : au-delà de 5 éléments, la
+    // carte devient défilante (voir le style maxHeight/overflowY plus bas)
+    // plutôt que de cacher silencieusement le reste — avec un lien "Voir
+    // tout" vers Recherche avancée, préfiltrée sur le même statut.
+    setFacturesFrsAPayer(ffrsData)
+    setFacturesCliAEncaisser(fcliData)
+    setDepensesAPayer(depData)
     // Liste complète (pas limitée à 5) pour la section "Relances à faire" —
     // c'est celle-là qu'on veut pouvoir suivre jusqu'au bout, pas un aperçu.
     setRelances(fcliEnRetard)
@@ -530,25 +534,28 @@ export default function Dashboard() {
           {facturesFrsAPayer.length === 0 ? (
             <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune facture à payer ✓</div>
           ) : (
-            <div>
-              {facturesFrsAPayer.map((f, i) => {
-                const enRetard = f.date_echeance && new Date(f.date_echeance) < new Date()
-                return (
-                  <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_frs', focusId: f.id } })}
-                    style={{ padding: '12px 18px', borderBottom: i < facturesFrsAPayer.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
-                    onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
-                    onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2 }}>{f.fournisseurs?.nom || '—'}</div>
-                      <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
-                        {enRetard ? '⚠️ En retard · ' : ''}Échéance : {fmtDate(f.date_echeance)}
+            <>
+              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                {facturesFrsAPayer.map((f, i) => {
+                  const enRetard = f.date_echeance && new Date(f.date_echeance) < new Date()
+                  return (
+                    <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_frs', focusId: f.id } })}
+                      style={{ padding: '12px 18px', borderBottom: i < facturesFrsAPayer.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
+                      onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
+                      onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2 }}>{f.fournisseurs?.nom || '—'}</div>
+                        <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
+                          {enRetard ? '⚠️ En retard · ' : ''}Échéance : {fmtDate(f.date_echeance)}
+                        </div>
                       </div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#EA580C', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
                     </div>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#EA580C', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+              <VoirTout count={facturesFrsAPayer.length} onClick={() => navigate('/recherche', { state: { types: ['facturesFrs'], statuts: ['À payer'] } })} />
+            </>
           )}
         </div>
 
@@ -561,25 +568,28 @@ export default function Dashboard() {
           {facturesCliAEncaisser.length === 0 ? (
             <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune facture en attente ✓</div>
           ) : (
-            <div>
-              {facturesCliAEncaisser.map((f, i) => {
-                const enRetard = f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date()
-                return (
-                  <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_cli', focusId: f.id } })}
-                    style={{ padding: '12px 18px', borderBottom: i < facturesCliAEncaisser.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
-                    onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
-                    onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2 }}>{f.projets?.nom || '—'}</div>
-                      <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
-                        {f.numero} · {enRetard ? '⚠️ En retard · ' : ''}{f.statut === 'À envoyer' ? 'À envoyer' : 'Échéance : ' + fmtDate(f.date_echeance)}
+            <>
+              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                {facturesCliAEncaisser.map((f, i) => {
+                  const enRetard = f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date()
+                  return (
+                    <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_cli', focusId: f.id } })}
+                      style={{ padding: '12px 18px', borderBottom: i < facturesCliAEncaisser.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
+                      onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
+                      onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2 }}>{f.projets?.nom || '—'}</div>
+                        <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
+                          {f.numero} · {enRetard ? '⚠️ En retard · ' : ''}{f.statut === 'À envoyer' ? 'À envoyer' : 'Échéance : ' + fmtDate(f.date_echeance)}
+                        </div>
                       </div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#059669', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
                     </div>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#059669', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+              <VoirTout count={facturesCliAEncaisser.length} onClick={() => navigate('/recherche', { state: { types: ['facturesCli'], statuts: ['À envoyer', 'Envoyée'] } })} />
+            </>
           )}
         </div>
 
@@ -592,28 +602,45 @@ export default function Dashboard() {
           {depensesAPayer.length === 0 ? (
             <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune dépense à payer ✓</div>
           ) : (
-            <div>
-              {depensesAPayer.map((d, i) => {
-                const enRetard = d.date_echeance && new Date(d.date_echeance) < new Date()
-                return (
-                  <div key={d.id} onClick={() => navigate('/depenses')}
-                    style={{ padding: '12px 18px', borderBottom: i < depensesAPayer.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
-                    onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
-                    onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.libelle}</div>
-                      <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
-                        {enRetard ? '⚠️ En retard · ' : ''}{d.categorie}
+            <>
+              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                {depensesAPayer.map((d, i) => {
+                  const enRetard = d.date_echeance && new Date(d.date_echeance) < new Date()
+                  return (
+                    <div key={d.id} onClick={() => navigate('/depenses')}
+                      style={{ padding: '12px 18px', borderBottom: i < depensesAPayer.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
+                      onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
+                      onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.libelle}</div>
+                        <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
+                          {enRetard ? '⚠️ En retard · ' : ''}{d.categorie}
+                        </div>
                       </div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#EA580C', flexShrink: 0 }}>{fmt(d.montant_ht)}</div>
                     </div>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#EA580C', flexShrink: 0 }}>{fmt(d.montant_ht)}</div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+              <VoirTout count={depensesAPayer.length} onClick={() => navigate('/recherche', { state: { types: ['depenses'], statuts: ['À payer'] } })} />
+            </>
           )}
         </div>
       </div>
     </div>
+  )
+}
+
+// Lien "Voir tout (N) →" affiché au pied d'une carte du Dashboard quand elle
+// contient plus d'éléments que ce qui tient sans défiler (voir maxHeight sur
+// le conteneur juste au-dessus) — renvoie vers Recherche avancée, préfiltrée
+// sur le même type/statut que la carte, pour une vue complète et filtrable.
+function VoirTout({ count, onClick }) {
+  if (count <= 5) return null
+  return (
+    <button onClick={onClick}
+      style={{ display: 'block', width: '100%', padding: '10px 18px', background: '#F9FAFB', border: 'none', borderTop: '1px solid #F3F4F6', color: '#2563EB', cursor: 'pointer', fontSize: 12, fontWeight: 500, textAlign: 'center' }}>
+      Voir tout ({count}) →
+    </button>
   )
 }

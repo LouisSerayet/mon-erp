@@ -28,22 +28,28 @@ const TYPES = [
 ]
 const TOUS_TYPES_ACTIFS = Object.fromEntries(TYPES.map(t => [t.key, true]))
 
-async function chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montantMax }) {
+async function chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montantMax, statuts }) {
   const qNet = termeNettoye(q)
   const hasTexte = qNet.length >= 2
   const like = '%' + qNet + '%'
   const montant = hasTexte ? montantSaisi(qNet) : null
-  const filtreFinancierActif = hasTexte || dateDebut || dateFin || montantMin !== '' || montantMax !== ''
+  // `statuts` (ex. ['À envoyer', 'Envoyée']) arrive depuis un lien "Voir
+  // tout" d'une carte du Dashboard (voir Dashboard.jsx, VoirTout) : il
+  // permet de lister TOUTES les factures/dépenses d'un statut donné même
+  // sans texte ni période/montant saisis, ce que ces filtres seuls ne
+  // permettent pas.
+  const filtreFinancierActif = hasTexte || dateDebut || dateFin || montantMin !== '' || montantMax !== '' || (statuts && statuts.length > 0)
 
-  // Applique les filtres période/montant communs aux entités "financières"
-  // (celles avec un montant_ht et une date de facture/commande) — les
-  // autres colonnes ne sont pas filtrables par ces critères, elles ne sont
-  // interrogées que si l'utilisateur a tapé du texte.
+  // Applique les filtres période/montant/statut communs aux entités
+  // "financières" (celles avec un montant_ht et une date de facture/
+  // commande) — les autres colonnes ne sont pas filtrables par ces
+  // critères, elles ne sont interrogées que si l'utilisateur a tapé du texte.
   function avecFiltresFinanciers(query, colDate) {
     if (dateDebut) query = query.gte(colDate, dateDebut)
     if (dateFin) query = query.lte(colDate, dateFin)
     if (montantMin !== '') query = query.gte('montant_ht', parseFloat(montantMin) || 0)
     if (montantMax !== '') query = query.lte('montant_ht', parseFloat(montantMax) || 0)
+    if (statuts && statuts.length > 0) query = query.in('statut', statuts)
     return query
   }
 
@@ -128,7 +134,16 @@ export default function Recherche() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [q, setQ] = useState(location.state?.q || '')
-  const [typesActifs, setTypesActifs] = useState(TOUS_TYPES_ACTIFS)
+  // Arrivée depuis un lien "Voir tout" d'une carte du Dashboard (Dashboard.jsx,
+  // VoirTout) : `types` isole un seul type (ex. ['facturesCli']) et `statuts`
+  // liste les statuts à afficher (ex. ['À envoyer', 'Envoyée']), pour
+  // retrouver exactement le contenu de la carte, en entier et filtrable.
+  const [typesActifs, setTypesActifs] = useState(() => (
+    location.state?.types
+      ? Object.fromEntries(TYPES.map(t => [t.key, location.state.types.includes(t.key)]))
+      : TOUS_TYPES_ACTIFS
+  ))
+  const [statutsFiltre, setStatutsFiltre] = useState(location.state?.statuts || null)
   const [dateDebut, setDateDebut] = useState('')
   const [dateFin, setDateFin] = useState('')
   const [montantMin, setMontantMin] = useState('')
@@ -139,12 +154,12 @@ export default function Recherche() {
   useEffect(() => {
     const timer = setTimeout(async () => {
       setLoading(true)
-      const r = await chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montantMax })
+      const r = await chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montantMax, statuts: statutsFiltre })
       setResultats(r)
       setLoading(false)
     }, 300)
     return () => clearTimeout(timer)
-  }, [q, typesActifs, dateDebut, dateFin, montantMin, montantMax])
+  }, [q, typesActifs, dateDebut, dateFin, montantMin, montantMax, statutsFiltre])
 
   function toggleType(key) {
     setTypesActifs(prev => ({ ...prev, [key]: !prev[key] }))
@@ -152,10 +167,10 @@ export default function Recherche() {
 
   function reinitialiserFiltres() {
     setTypesActifs(TOUS_TYPES_ACTIFS)
-    setDateDebut(''); setDateFin(''); setMontantMin(''); setMontantMax('')
+    setDateDebut(''); setDateFin(''); setMontantMin(''); setMontantMax(''); setStatutsFiltre(null)
   }
 
-  const filtresActifs = dateDebut || dateFin || montantMin !== '' || montantMax !== '' || TYPES.some(t => !typesActifs[t.key])
+  const filtresActifs = dateDebut || dateFin || montantMin !== '' || montantMax !== '' || !!statutsFiltre || TYPES.some(t => !typesActifs[t.key])
 
   const aucuneRequete = resultats === null && !loading
   const total = totalResultats(resultats)
@@ -168,6 +183,13 @@ export default function Recherche() {
       <p style={{ margin: '0 0 20px', fontSize: 12, color: '#9CA3AF' }}>
         Cherche sur tous les types de données à la fois — nom, email, numéro de facture/commande, montant exact, ou une période/fourchette de montant sans même taper de texte.
       </p>
+
+      {statutsFiltre && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#1E3A8A' }}>
+          <span>🔗 Filtre depuis le Dashboard — statut : {statutsFiltre.join(', ')}</span>
+          <button onClick={() => setStatutsFiltre(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#2563EB', cursor: 'pointer', fontSize: 12, fontWeight: 500, padding: 0 }}>✕ Retirer</button>
+        </div>
+      )}
 
       <input autoFocus value={q} onChange={e => setQ(e.target.value)}
         placeholder="Nom, email, numéro de facture/commande, montant (ex: 1250,00)..."
