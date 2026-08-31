@@ -134,6 +134,13 @@ export default function ProjetDetail() {
   const [formLot, setFormLot] = useState({ numero: '', categorie: '', descriptif: '' })
   const [savingLot, setSavingLot] = useState(false)
   const [lotError, setLotError] = useState('')
+  // Édition d'un lot existant (N°, catégorie, descriptif) — voir
+  // ouvrirEditionLot/enregistrerEditionLot. `lotEnEdition` retient le
+  // numéro du lot en cours d'édition (avant renommage éventuel), ou null.
+  const [lotEnEdition, setLotEnEdition] = useState(null)
+  const [formLotEdit, setFormLotEdit] = useState({ numero: '', categorie: '', descriptif: '' })
+  const [savingLotEdit, setSavingLotEdit] = useState(false)
+  const [lotEditError, setLotEditError] = useState('')
   const [showValidation, setShowValidation] = useState(false) // modale de validation étape
   const [validationDoc, setValidationDoc] = useState(null) // fichier uploadé
   const [validationDate, setValidationDate] = useState('') // date de début
@@ -792,6 +799,58 @@ export default function ProjetDetail() {
     setShowAddLot(false)
     setFormLot({ numero: '', categorie: '', descriptif: '' })
     setSavingLot(false)
+  }
+
+  function ouvrirEditionLot(lot) {
+    setLotEnEdition(lot.numero)
+    setFormLotEdit({ numero: lot.numero, categorie: lot.categorie || '', descriptif: lot.descriptif || '' })
+    setLotEditError('')
+  }
+
+  function annulerEditionLot() {
+    setLotEnEdition(null)
+    setLotEditError('')
+  }
+
+  // Modifie le texte d'un lot existant (N°, catégorie, descriptif). Le N°
+  // de lot sert de clé de rattachement aux lignes qu'il contient
+  // (projet_lignes.lot === lot.numero) : s'il change, on répercute le
+  // renommage sur toutes ses lignes enfants pour qu'elles restent
+  // rattachées au bon lot, et on fait suivre son état plié/déplié
+  // (lotsReduits) au nouveau numéro.
+  async function enregistrerEditionLot() {
+    if (savingLotEdit) return // garde-fou anti double-clic
+    setLotEditError('')
+    const ancienNumero = lotEnEdition
+    const numero = formLotEdit.numero.trim()
+    const categorie = formLotEdit.categorie.trim()
+    if (!numero) { setLotEditError('Le numéro de lot est obligatoire.'); return }
+    if (!categorie) { setLotEditError('La catégorie est obligatoire.'); return }
+    if (numero.toLowerCase() !== ancienNumero.toLowerCase() && lots.some(l => l.numero.toLowerCase() === numero.toLowerCase())) {
+      setLotEditError('Un lot avec ce numéro existe déjà.')
+      return
+    }
+    const lotLigne = lignes.find(l => l.type === 'lot' && l.numero === ancienNumero)
+    if (!lotLigne) { setLotEnEdition(null); return }
+    setSavingLotEdit(true)
+    const { error } = await supabase.from('projet_lignes').update({ numero, categorie, descriptif: formLotEdit.descriptif.trim() }).eq('id', lotLigne.id)
+    if (error) { setLotEditError(error.message); setSavingLotEdit(false); return }
+    if (numero !== ancienNumero) {
+      const enfants = lignes.filter(l => l.type !== 'lot' && l.lot === ancienNumero)
+      if (enfants.length > 0) {
+        const { error: errEnfants } = await supabase.from('projet_lignes').update({ lot: numero }).in('id', enfants.map(l => l.id))
+        if (errEnfants) { setLotEditError(errEnfants.message); setSavingLotEdit(false); return }
+      }
+      setLotsReduits(prev => {
+        if (!(ancienNumero in prev)) return prev
+        const { [ancienNumero]: valeurPliee, ...reste } = prev
+        return { ...reste, [numero]: valeurPliee }
+      })
+    }
+    const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+    setLignes(lg || [])
+    setLotEnEdition(null)
+    setSavingLotEdit(false)
   }
 
   async function supprimerLigne(ligneId) {
@@ -2564,12 +2623,46 @@ export default function ProjetDetail() {
                       <span style={{ fontSize: 12, color: '#86EFAC' }}>Vente : {Number(totalVenteLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                       <span style={{ fontSize: 12, color: '#93C5FD' }}>Achat : {Number(totalAchatLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                       <span style={{ fontSize: 12, color: margeLot >= 0 ? '#86EFAC' : '#FCA5A5', fontWeight: 600 }}>Marge : {Number(margeLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      <button onClick={e => { e.stopPropagation(); ouvrirEditionLot(lot) }} title="Modifier ce lot (N°, catégorie, descriptif)"
+                        style={{ background: 'none', border: 'none', color: '#93C5FD', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, opacity: 0.7 }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>✏️</button>
                       <button onClick={e => { e.stopPropagation(); supprimerLot(lot) }} title="Supprimer ce lot"
                         style={{ background: 'none', border: 'none', color: '#FCA5A5', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, opacity: 0.7 }}
                         onMouseEnter={e => e.currentTarget.style.opacity = '1'}
                         onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>✕</button>
                     </div>
                   </div>
+                  {lotEnEdition === lot.numero && (
+                    <div style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB', padding: 16 }}>
+                      {lotEditError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{lotEditError}</div>}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° Lot *</label>
+                          <input value={formLotEdit.numero} onChange={e => setFormLotEdit(p => ({ ...p, numero: e.target.value }))}
+                            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Catégorie *</label>
+                          <input value={formLotEdit.categorie} onChange={e => setFormLotEdit(p => ({ ...p, categorie: e.target.value }))}
+                            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Descriptif</label>
+                          <input value={formLotEdit.descriptif} onChange={e => setFormLotEdit(p => ({ ...p, descriptif: e.target.value }))} placeholder="Optionnel"
+                            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button onClick={annulerEditionLot} disabled={savingLotEdit}
+                          style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                        <button onClick={enregistrerEditionLot} disabled={savingLotEdit}
+                          style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingLotEdit ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingLotEdit ? 0.7 : 1 }}>
+                          {savingLotEdit ? 'Enregistrement...' : 'Enregistrer'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {!estReduit && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
