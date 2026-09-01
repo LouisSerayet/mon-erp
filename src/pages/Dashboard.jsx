@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { calculerMarge, ligneCompteDansTotal, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
+import { getBankAccounts } from '../lib/useQonto'
 
 // Ordre d'affichage des statuts dans le widget "Vue globale des projets"
 // ci-dessous — reprend exactement STATUTS_PROJET de ProjetDetail.jsx/Projets.jsx.
@@ -50,9 +51,29 @@ export default function Dashboard() {
   // Busy state séparé pour "créer un brouillon dans Outlook" (voir
   // creerBrouillonDepuisModal) — distinct de l'envoi direct ci-dessus.
   const [modalRelanceDraftBusy, setModalRelanceDraftBusy] = useState(false)
+  // Mini-widget "Solde bancaire" — appel Qonto séparé de fetchAll() (données
+  // Supabase) : un souci Qonto (clé absente/expirée, voir Tresorerie.jsx qui
+  // a le même appel) ne doit pas empêcher le reste du dashboard de
+  // s'afficher, d'où le try/catch dédié et son propre état de chargement.
+  const [soldeQonto, setSoldeQonto] = useState(null) // en centimes, ou null tant que pas chargé
+  const [soldeQontoError, setSoldeQontoError] = useState('')
+  const [loadingSoldeQonto, setLoadingSoldeQonto] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => { fetchAll() }, [])
+  useEffect(() => {
+    (async () => {
+      setLoadingSoldeQonto(true)
+      setSoldeQontoError('')
+      try {
+        const accs = await getBankAccounts()
+        setSoldeQonto(accs.reduce((s, a) => s + (a.balance_cents || 0), 0))
+      } catch (err) {
+        setSoldeQontoError(err.message)
+      }
+      setLoadingSoldeQonto(false)
+    })()
+  }, [])
 
   async function fetchAll() {
     setLoading(true)
@@ -269,6 +290,25 @@ export default function Dashboard() {
         <p style={{ color: '#9CA3AF', fontSize: 13, marginTop: 4 }}>
           {new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </p>
+      </div>
+
+      {/* Solde bancaire (Qonto) — mini-widget cliquable vers la page
+          Trésorerie complète (comptes détaillés + transactions). */}
+      <div onClick={() => navigate('/tresorerie')}
+        style={{ background: '#1E293B', borderRadius: 12, padding: '14px 20px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, cursor: 'pointer' }}
+        onMouseEnter={e => e.currentTarget.style.background = '#25324a'}
+        onMouseLeave={e => e.currentTarget.style.background = '#1E293B'}>
+        <div>
+          <div style={{ fontSize: 11, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>💳 Solde bancaire (Qonto)</div>
+          {loadingSoldeQonto ? (
+            <div style={{ fontSize: 13, color: '#94A3B8' }}>⏳ Chargement...</div>
+          ) : soldeQontoError ? (
+            <div style={{ fontSize: 12, color: '#FCA5A5' }} title={soldeQontoError}>⚠️ Indisponible — {soldeQontoError}</div>
+          ) : (
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#fff' }}>{fmt(soldeQonto / 100)}</div>
+          )}
+        </div>
+        <span style={{ fontSize: 12, color: '#93C5FD', fontWeight: 500, flexShrink: 0 }}>Voir la trésorerie →</span>
       </div>
 
       {/* Alertes */}
