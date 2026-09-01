@@ -4,28 +4,40 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { useIsMobile } from '../lib/useIsMobile'
 
+// Dashboard, Compte de résultat, Trésorerie et Rapprochement n'ont plus
+// d'entrée ici : le logo (desktop) / l'onglet Dashboard (mobile) ouvre
+// toujours le Dashboard, et les trois autres pages ne sont plus atteintes
+// que via leurs widgets sur le Dashboard (solde Qonto → Trésorerie +
+// Rapprochement, mini-widget compte de résultat → Compte de résultat).
 const nav = [
-  { to: '/dashboard', label: 'Dashboard', icon: '◻' },
   { to: '/projets', label: 'Projets', icon: '📋' },
-  { to: '/resultat', label: 'Compte de résultat', icon: '🧾' },
-  { to: '/tresorerie', label: 'Trésorerie', icon: '🏦' },
-  { to: '/rapprochement', label: 'Rapprochement', icon: '🔗' },
   { to: '/depenses', label: 'Dépenses', icon: '💸' },
-  { section: 'Infos & Données' },
+  { section: 'Comptes' },
   { to: '/clients', label: 'Clients', icon: '👤' },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },
-  { to: '/recherche', label: 'Recherche avancée', icon: '🔎' },
+  { section: 'Commandes / Factures' },
+  // Ces deux entrées ouvrent la Recherche avancée avec un type préfiltré
+  // (voir `state`) plutôt qu'une page dédiée — c'est ici qu'on vient
+  // chercher une facture client ou une facture/commande fournisseur.
+  { to: '/recherche', label: 'Clients', icon: '💶', state: { types: ['facturesCli'] } },
+  { to: '/recherche', label: 'Fournisseurs', icon: '📄', state: { types: ['facturesFrs', 'commandes'] } },
+  { section: 'Support' },
   { to: '/corbeille', label: 'Corbeille', icon: '🗑' },
+  { to: '/recherche', label: 'Recherche avancée', icon: '🔎' },
   { to: '/historique', label: 'Historique', icon: '🕓' },
   { to: '/exports', label: 'Exports', icon: '📤' },
 ]
 
-// Sur mobile, seuls les 3 usages "coup d'œil rapide" ont leur propre onglet
-// dans la barre du bas — le reste (Clients, Fournisseurs...) est regroupé
-// derrière "Plus" pour ne pas surcharger une barre pensée pour un pouce,
-// pas pour une souris.
-const NAV_MOBILE_PRINCIPALE = nav.filter(n => n.to && ['/dashboard', '/projets', '/tresorerie'].includes(n.to))
-const NAV_MOBILE_PLUS = nav.filter(n => n.to && !['/dashboard', '/projets', '/tresorerie'].includes(n.to))
+// Sur mobile, il n'y a pas de logo cliquable comme sur desktop pour revenir
+// au Dashboard — on lui garde donc son propre onglet dans la barre du bas,
+// à côté de Projets et Dépenses (les deux usages "coup d'œil rapide" du
+// haut du nouveau menu desktop). Le reste (Comptes, Commandes/Factures,
+// Support) est regroupé derrière "Plus".
+const NAV_MOBILE_PRINCIPALE = [
+  { to: '/dashboard', label: 'Dashboard', icon: '◻' },
+  ...nav.filter(n => n.to && ['/projets', '/depenses'].includes(n.to)),
+]
+const NAV_MOBILE_PLUS = nav.filter(n => n.section || (n.to && !['/projets', '/depenses'].includes(n.to)))
 
 // ── Recherche globale ────────────────────────────────────────────
 // Cherche un client/fournisseur/projet/facture par nom ou numéro depuis
@@ -191,12 +203,14 @@ export default function Layout() {
             <div onClick={e => e.stopPropagation()}
               style={{ background: '#fff', width: '100%', borderRadius: '16px 16px 0 0', padding: '10px 0 calc(10px + env(safe-area-inset-bottom))', boxShadow: '0 -4px 24px rgba(0,0,0,0.15)' }}>
               <div style={{ width: 36, height: 4, borderRadius: 2, background: '#E5E7EB', margin: '4px auto 12px' }} />
-              {NAV_MOBILE_PLUS.map(n => (
-                <NavLink key={n.to} to={n.to} onClick={() => setPlusOuvert(false)}
+              {NAV_MOBILE_PLUS.map((n, i) => n.section ? (
+                <div key={i} style={{ fontSize: 11, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '14px 20px 4px', fontWeight: 500 }}>{n.section}</div>
+              ) : (
+                <NavLink key={i} to={n.to} state={n.state} onClick={() => setPlusOuvert(false)}
                   style={({ isActive }) => ({
                     display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px',
-                    fontSize: 15, color: isActive ? '#185FA5' : '#1a1a1a', textDecoration: 'none',
-                    fontWeight: isActive ? 600 : 400,
+                    fontSize: 15, color: (isActive && !n.state) ? '#185FA5' : '#1a1a1a', textDecoration: 'none',
+                    fontWeight: (isActive && !n.state) ? 600 : 400,
                   })}>
                   {n.label}
                 </NavLink>
@@ -217,8 +231,8 @@ export default function Layout() {
           display: 'flex', background: '#fff', borderTop: '1px solid #e5e5e5',
           paddingBottom: 'env(safe-area-inset-bottom)', flexShrink: 0,
         }}>
-          {NAV_MOBILE_PRINCIPALE.map(n => (
-            <NavLink key={n.to} to={n.to} style={linkStyle}>
+          {NAV_MOBILE_PRINCIPALE.map((n, i) => (
+            <NavLink key={i} to={n.to} style={linkStyle}>
               {n.label}
             </NavLink>
           ))}
@@ -264,13 +278,13 @@ export default function Layout() {
           {nav.map((n, i) => n.section ? (
             <div key={i} style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '16px 10px 4px', fontWeight: 500 }}>{n.section}</div>
           ) : (
-            <NavLink key={n.to} to={n.to}
+            <NavLink key={i} to={n.to} state={n.state}
               style={({ isActive }) => ({
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '8px 10px', borderRadius: 6, fontSize: 13,
-                marginBottom: 1, color: isActive ? '#185FA5' : '#555',
-                background: isActive ? '#E6F1FB' : 'transparent',
-                fontWeight: isActive ? 500 : 400, textDecoration: 'none'
+                marginBottom: 1, color: (isActive && !n.state) ? '#185FA5' : '#555',
+                background: (isActive && !n.state) ? '#E6F1FB' : 'transparent',
+                fontWeight: (isActive && !n.state) ? 500 : 400, textDecoration: 'none'
               })}>
               {n.label}
             </NavLink>

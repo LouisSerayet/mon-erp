@@ -58,6 +58,15 @@ export default function Dashboard() {
   const [soldeQonto, setSoldeQonto] = useState(null) // en centimes, ou null tant que pas chargé
   const [soldeQontoError, setSoldeQontoError] = useState('')
   const [loadingSoldeQonto, setLoadingSoldeQonto] = useState(true)
+  // Mini-widget "Compte de résultat" — reprend une version simplifiée du
+  // calcul de Resultat.jsx (CA / marge brute / résultat net), uniquement
+  // pour l'année en cours et sans le détail par mois/catégorie, juste pour
+  // donner un chiffre d'ensemble cliquable vers la page complète. Même
+  // logique de try/catch séparé que le solde Qonto ci-dessus : un souci ici
+  // ne doit pas empêcher le reste du dashboard de s'afficher.
+  const [resultatAnnee, setResultatAnnee] = useState(null) // { totalCA, margeBrute, resultatNet } ou null
+  const [resultatError, setResultatError] = useState('')
+  const [loadingResultat, setLoadingResultat] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => { fetchAll() }, [])
@@ -72,6 +81,35 @@ export default function Dashboard() {
         setSoldeQontoError(err.message)
       }
       setLoadingSoldeQonto(false)
+    })()
+  }, [])
+  useEffect(() => {
+    (async () => {
+      setLoadingResultat(true)
+      setResultatError('')
+      try {
+        const annee = new Date().getFullYear()
+        const debut = annee + '-01-01'
+        const fin = annee + '-12-31'
+        const [{ data: fcli, error: fcliErr }, { data: ffrs, error: ffrsErr }, { data: dep }] = await Promise.all([
+          supabase.from('factures_cli').select('montant_ht').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+          supabase.from('factures_frs').select('montant_ht').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+          // depenses_generales peut ne pas encore exister (migration non
+          // exécutée) — ignoré silencieusement, comme dans Resultat.jsx.
+          supabase.from('depenses_generales').select('montant_ht').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+        ])
+        if (fcliErr) throw fcliErr
+        if (ffrsErr) throw ffrsErr
+        const totalCA = (fcli || []).reduce((s, f) => s + (f.montant_ht || 0), 0)
+        const totalAchats = (ffrs || []).reduce((s, f) => s + (f.montant_ht || 0), 0)
+        const totalDepenses = (dep || []).reduce((s, d) => s + (d.montant_ht || 0), 0)
+        const margeBrute = totalCA - totalAchats
+        const resultatNet = margeBrute - totalDepenses
+        setResultatAnnee({ totalCA, margeBrute, resultatNet })
+      } catch (err) {
+        setResultatError(err.message)
+      }
+      setLoadingResultat(false)
     })()
   }, [])
 
@@ -292,23 +330,65 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Solde bancaire (Qonto) — mini-widget cliquable vers la page
-          Trésorerie complète (comptes détaillés + transactions). */}
-      <div onClick={() => navigate('/tresorerie')}
-        style={{ background: '#1E293B', borderRadius: 12, padding: '14px 20px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, cursor: 'pointer' }}
-        onMouseEnter={e => e.currentTarget.style.background = '#25324a'}
-        onMouseLeave={e => e.currentTarget.style.background = '#1E293B'}>
-        <div>
-          <div style={{ fontSize: 11, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>💳 Solde bancaire (Qonto)</div>
-          {loadingSoldeQonto ? (
-            <div style={{ fontSize: 13, color: '#94A3B8' }}>⏳ Chargement...</div>
-          ) : soldeQontoError ? (
-            <div style={{ fontSize: 12, color: '#FCA5A5' }} title={soldeQontoError}>⚠️ Indisponible — {soldeQontoError}</div>
-          ) : (
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#fff' }}>{fmt(soldeQonto / 100)}</div>
-          )}
+      {/* Solde bancaire (Qonto) + Compte de résultat — mini-widgets cliquables
+          vers Trésorerie/Rapprochement et Compte de résultat, seules portes
+          d'entrée vers ces pages maintenant qu'elles n'ont plus d'onglet
+          dans le menu (voir Layout.jsx). */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+        <div onClick={() => navigate('/tresorerie')}
+          style={{ background: '#1E293B', borderRadius: 12, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, cursor: 'pointer' }}
+          onMouseEnter={e => e.currentTarget.style.background = '#25324a'}
+          onMouseLeave={e => e.currentTarget.style.background = '#1E293B'}>
+          <div>
+            <div style={{ fontSize: 11, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>💳 Solde bancaire (Qonto)</div>
+            {loadingSoldeQonto ? (
+              <div style={{ fontSize: 13, color: '#94A3B8' }}>⏳ Chargement...</div>
+            ) : soldeQontoError ? (
+              <div style={{ fontSize: 12, color: '#FCA5A5' }} title={soldeQontoError}>⚠️ Indisponible — {soldeQontoError}</div>
+            ) : (
+              <div style={{ fontSize: 24, fontWeight: 800, color: '#fff' }}>{fmt(soldeQonto / 100)}</div>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+            <span style={{ fontSize: 12, color: '#93C5FD', fontWeight: 500 }}>Voir la trésorerie →</span>
+            <span onClick={e => { e.stopPropagation(); navigate('/rapprochement') }}
+              style={{ fontSize: 11, color: '#CBD5E1', fontWeight: 500 }}
+              onMouseEnter={e => e.currentTarget.style.color = '#fff'}
+              onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>
+              🔗 Rapprocher →
+            </span>
+          </div>
         </div>
-        <span style={{ fontSize: 12, color: '#93C5FD', fontWeight: 500, flexShrink: 0 }}>Voir la trésorerie →</span>
+
+        <div onClick={() => navigate('/resultat')}
+          style={{ background: '#1E293B', borderRadius: 12, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, cursor: 'pointer' }}
+          onMouseEnter={e => e.currentTarget.style.background = '#25324a'}
+          onMouseLeave={e => e.currentTarget.style.background = '#1E293B'}>
+          <div>
+            <div style={{ fontSize: 11, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>🧾 Compte de résultat {new Date().getFullYear()}</div>
+            {loadingResultat ? (
+              <div style={{ fontSize: 13, color: '#94A3B8' }}>⏳ Chargement...</div>
+            ) : resultatError ? (
+              <div style={{ fontSize: 12, color: '#FCA5A5' }} title={resultatError}>⚠️ Indisponible — {resultatError}</div>
+            ) : (
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 10, color: '#64748B' }}>CA HT</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{fmt(resultatAnnee.totalCA)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: '#64748B' }}>Marge brute</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: resultatAnnee.margeBrute >= 0 ? '#6EE7B7' : '#FCA5A5' }}>{fmt(resultatAnnee.margeBrute)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: '#64748B' }}>Résultat net</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: resultatAnnee.resultatNet >= 0 ? '#6EE7B7' : '#FCA5A5' }}>{fmt(resultatAnnee.resultatNet)}</div>
+                </div>
+              </div>
+            )}
+          </div>
+          <span style={{ fontSize: 12, color: '#93C5FD', fontWeight: 500, flexShrink: 0 }}>Voir le détail →</span>
+        </div>
       </div>
 
       {/* Alertes */}
