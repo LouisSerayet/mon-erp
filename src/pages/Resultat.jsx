@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt } from '../lib/calculs'
+import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 
 // Compte de résultat "en live" — vue d'ensemble de toute la société sur
 // une période donnée (par défaut l'année en cours), en comptabilité
@@ -18,6 +19,11 @@ import { fmtEUR as fmt } from '../lib/calculs'
 // facture par facture, voir la page "Dépenses" ou l'onglet "Factures".
 
 const MOIS_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
+const inputUnderline = {
+  padding: '7px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
+}
 
 function anneeCourante() { return new Date().getFullYear() }
 
@@ -147,54 +153,50 @@ export default function Resultat() {
   const maxMois = data ? Math.max(1, ...data.parMois.flatMap(m => [m.ca, m.charges])) : 1
 
   return (
-    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 10, flexWrap: 'wrap' }}>
+    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1280, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Compte de résultat</h2>
-          <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
+          <p style={eyebrow}>Partenaires Particuliers</p>
+          <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Compte de résultat</h1>
+          <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0', maxWidth: 480 }}>
             Vue d'ensemble en direct — CA, achats, dépenses générales, à partir des factures émises/reçues (payées ou non)
-          </div>
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
           {!periodePerso && (
-            <select value={annee} onChange={e => setAnnee(Number(e.target.value))}
-              style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+            <select value={annee} onChange={e => setAnnee(Number(e.target.value))} style={{ ...inputUnderline, cursor: 'pointer' }}>
               {anneesDispos.map(a => <option key={a} value={a}>{a}</option>)}
             </select>
           )}
           {periodePerso && (
             <>
-              <input type="date" value={debutPerso} onChange={e => setDebutPerso(e.target.value)}
-                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
-              <span style={{ color: '#9CA3AF', fontSize: 13 }}>→</span>
-              <input type="date" value={finPerso} onChange={e => setFinPerso(e.target.value)}
-                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
+              <input type="date" value={debutPerso} onChange={e => setDebutPerso(e.target.value)} style={inputUnderline} />
+              <span style={{ color: colors.inkFaint, fontSize: 13 }}>→</span>
+              <input type="date" value={finPerso} onChange={e => setFinPerso(e.target.value)} style={inputUnderline} />
             </>
           )}
-          <button onClick={() => setPeriodePerso(p => !p)}
-            style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: periodePerso ? '#EFF6FF' : '#fff', color: periodePerso ? '#2563EB' : '#374151', cursor: 'pointer', fontSize: 12 }}>
-            {periodePerso ? '✕ Période perso' : '📅 Période perso'}
+          <button onClick={() => setPeriodePerso(p => !p)} style={quietLink}>
+            {periodePerso ? 'Annuler la période perso' : 'Période perso'}
           </button>
-          <button onClick={charger} disabled={loading} title="Recalculer avec les dernières données"
-            style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 12 }}>
-            {loading ? '⏳' : '🔄 Actualiser'}
+          <button onClick={charger} disabled={loading} title="Recalculer avec les dernières données" style={quietLink}>
+            {loading ? '...' : 'Actualiser'}
           </button>
         </div>
       </div>
 
       {error && (
-        <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
-          ⚠️ {error}
+        <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', margin: '28px 0 0', fontSize: 13 }}>
+          {error}
         </div>
       )}
 
       {sansDate.length > 0 && (
-        <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E', padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>
-            ⚠️ {sansDate.length} ligne{sansDate.length > 1 ? 's' : ''} sans date de facture — exclue{sansDate.length > 1 ? 's' : ''} du calcul ci-dessous, quelle que soit la période choisie
+        <div style={{ borderLeft: '2px solid ' + colors.warning, color: colors.ink, padding: '12px 16px', margin: '28px 0 0', fontSize: 13 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: colors.warning }}>
+            {sansDate.length} ligne{sansDate.length > 1 ? 's' : ''} sans date de facture — exclue{sansDate.length > 1 ? 's' : ''} du calcul ci-dessous, quelle que soit la période choisie
           </div>
-          <div style={{ marginBottom: 6 }}>Renseigne une date de facture sur chacune pour qu'elle soit comptée :</div>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
+          <div style={{ marginBottom: 6, color: colors.inkMuted }}>Renseigne une date de facture sur chacune pour qu'elle soit comptée :</div>
+          <ul style={{ margin: 0, paddingLeft: 18, color: colors.inkMuted }}>
             {sansDate.map((s, i) => (
               <li key={i}>{s.type} — {s.label} ({fmt(s.montant)})</li>
             ))}
@@ -203,46 +205,46 @@ export default function Resultat() {
       )}
 
       {loading || !data ? (
-        <div style={{ padding: '40px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>⏳ Calcul en cours...</div>
+        <div style={{ padding: '60px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13 }}>Calcul en cours...</div>
       ) : (
         <>
           {/* KPIs */}
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', margin: '36px 0 40px' }}>
             {[
-              { label: 'Chiffre d\'affaires', value: fmt(data.totalCA), sub: 'Factures clients émises', color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' },
-              { label: 'Achats projets', value: fmt(data.totalAchats), sub: 'Factures fournisseurs', color: '#EA580C', bg: '#FFF7ED', border: '#FED7AA' },
-              { label: 'Marge brute', value: fmt(data.margeBrute), sub: 'Taux : ' + tauxMarge + '%', color: data.margeBrute >= 0 ? '#059669' : '#DC2626', bg: data.margeBrute >= 0 ? '#F0FDF4' : '#FEF2F2', border: data.margeBrute >= 0 ? '#BBF7D0' : '#FCA5A5' },
-              { label: 'Dépenses générales', value: fmt(data.totalDepenses), sub: 'Loyer, compta, assurance...', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
-              { label: 'Résultat net', value: fmt(data.resultatNet), sub: 'Taux : ' + tauxNet + '%', color: data.resultatNet >= 0 ? '#059669' : '#DC2626', bg: data.resultatNet >= 0 ? '#F0FDF4' : '#FEF2F2', border: data.resultatNet >= 0 ? '#BBF7D0' : '#FCA5A5' },
-            ].map(k => (
-              <div key={k.label} style={{ background: k.bg, border: '1px solid ' + k.border, borderRadius: 12, padding: '16px 18px' }}>
-                <div style={{ fontSize: 10, color: k.color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{k.label}</div>
-                <div style={{ fontSize: 19, fontWeight: 700, color: k.color, marginBottom: 4 }}>{k.value}</div>
-                <div style={{ fontSize: 10, color: k.color + '99' }}>{k.sub}</div>
+              { label: 'Chiffre d\'affaires', value: fmt(data.totalCA), sub: 'Factures clients émises' },
+              { label: 'Achats projets', value: fmt(data.totalAchats), sub: 'Factures fournisseurs' },
+              { label: 'Marge brute', value: fmt(data.margeBrute), sub: 'Taux : ' + tauxMarge + '%', color: data.margeBrute >= 0 ? colors.success : colors.danger },
+              { label: 'Dépenses générales', value: fmt(data.totalDepenses), sub: 'Loyer, compta, assurance...' },
+              { label: 'Résultat net', value: fmt(data.resultatNet), sub: 'Taux : ' + tauxNet + '%', color: data.resultatNet >= 0 ? colors.success : colors.danger },
+            ].map((k, i) => (
+              <div key={k.label} style={{ padding: isMobile ? '16px 0' : '0 24px', borderLeft: (!isMobile && i > 0) ? '1px solid ' + colors.line : 'none', borderTop: (isMobile && i > 1) ? '1px solid ' + colors.line : 'none' }}>
+                <div style={eyebrow}>{k.label}</div>
+                <div style={{ fontFamily: fonts.mono, fontSize: 20, fontWeight: 500, margin: '8px 0 4px', fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
+                <div style={{ fontSize: 11, color: colors.inkFaint }}>{k.sub}</div>
               </div>
             ))}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr', gap: isMobile ? 40 : 48 }}>
 
             {/* Répartition mensuelle */}
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '18px 20px' }}>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Évolution mensuelle</div>
-              <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 16 }}>
-                <span style={{ color: '#2563EB' }}>■</span> CA &nbsp;
-                <span style={{ color: '#EA580C' }}>■</span> Charges (achats + dépenses générales)
+            <div>
+              <h2 style={sectionTitle}>Évolution mensuelle</h2>
+              <div style={{ fontSize: 11.5, color: colors.inkMuted, margin: '12px 0 20px', display: 'flex', gap: 16, alignItems: 'center' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={marker(colors.ink)} />CA</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={marker(colors.inkFaint)} />Charges (achats + dépenses générales)</span>
               </div>
               {data.parMois.length === 0 ? (
-                <div style={{ padding: '30px 0', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune donnée sur cette période.</div>
+                <div style={{ padding: '30px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13, borderTop: '1px solid ' + colors.line }}>Aucune donnée sur cette période.</div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: isMobile ? 4 : 8, height: 160, overflowX: 'auto' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: isMobile ? 4 : 8, height: 160, overflowX: 'auto', borderBottom: '1px solid ' + colors.line, paddingBottom: 1 }}>
                   {data.parMois.map(m => (
                     <div key={m.cle} style={{ flex: '1 0 auto', minWidth: isMobile ? 28 : 36, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
                       <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 2, width: '100%' }} title={m.label + ' — CA ' + fmt(m.ca) + ' · Charges ' + fmt(m.charges)}>
-                        <div style={{ flex: 1, background: '#2563EB', borderRadius: '3px 3px 0 0', height: Math.max(2, (m.ca / maxMois) * 100) + '%', transition: 'height 0.2s' }} />
-                        <div style={{ flex: 1, background: '#EA580C', borderRadius: '3px 3px 0 0', height: Math.max(2, (m.charges / maxMois) * 100) + '%', transition: 'height 0.2s' }} />
+                        <div style={{ flex: 1, background: colors.ink, height: Math.max(2, (m.ca / maxMois) * 100) + '%' }} />
+                        <div style={{ flex: 1, background: colors.inkFaint, height: Math.max(2, (m.charges / maxMois) * 100) + '%' }} />
                       </div>
-                      <div style={{ fontSize: 9, color: '#9CA3AF', marginTop: 6, whiteSpace: 'nowrap' }}>{m.label}</div>
+                      <div style={{ fontSize: 9, color: colors.inkFaint, marginTop: 6, whiteSpace: 'nowrap' }}>{m.label}</div>
                     </div>
                   ))}
                 </div>
@@ -250,22 +252,20 @@ export default function Resultat() {
             </div>
 
             {/* Dépenses générales par catégorie */}
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-              <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', fontSize: 14, fontWeight: 600 }}>
-                Dépenses générales par catégorie
-              </div>
+            <div>
+              <h2 style={sectionTitle}>Dépenses générales par catégorie</h2>
               {data.depensesParCategorie.length === 0 ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune dépense sur cette période</div>
+                <div style={{ padding: '24px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13, borderTop: '1px solid ' + colors.line, marginTop: 12 }}>Aucune dépense sur cette période</div>
               ) : (
-                <div>
-                  {data.depensesParCategorie.map((c, i) => (
-                    <div key={c.categorie} style={{ padding: '10px 18px', borderBottom: i < data.depensesParCategorie.length - 1 ? '1px solid #F3F4F6' : 'none' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                        <span style={{ fontSize: 12, color: '#374151' }}>{c.categorie}</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#7C3AED' }}>{fmt(c.montant)}</span>
+                <div style={{ borderTop: '1px solid ' + colors.line, marginTop: 12 }}>
+                  {data.depensesParCategorie.map(c => (
+                    <div key={c.categorie} style={{ padding: '12px 0', borderBottom: '1px solid ' + colors.line }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span style={{ fontSize: 12.5, color: colors.inkMuted }}>{c.categorie}</span>
+                        <span style={{ fontFamily: fonts.mono, fontSize: 12.5, fontVariantNumeric: 'tabular-nums' }}>{fmt(c.montant)}</span>
                       </div>
-                      <div style={{ background: '#F3F4F6', borderRadius: 4, height: 5, overflow: 'hidden' }}>
-                        <div style={{ background: '#7C3AED', height: '100%', width: (data.totalDepenses ? (c.montant / data.totalDepenses) * 100 : 0) + '%' }} />
+                      <div style={{ background: colors.line, height: 3 }}>
+                        <div style={{ background: colors.ink, height: '100%', width: (data.totalDepenses ? (c.montant / data.totalDepenses) * 100 : 0) + '%' }} />
                       </div>
                     </div>
                   ))}
