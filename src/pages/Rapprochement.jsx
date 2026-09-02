@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
-import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
+import { rapprocherFactures, appliquerRapprochement, appliquerRapprochementGroupe } from '../lib/rapprochement'
 import { useIsMobile } from '../lib/useIsMobile'
 import { CATEGORIES } from '../lib/depenses'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
@@ -10,6 +10,18 @@ import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 // d'abord) — au-delà, la liste serait juste noyée sous des mouvements
 // anciens déjà traités par ailleurs (retraits carte, virements internes...).
 const MAX_NON_RAPPROCHEES = 25
+
+// Libellé + couleur du badge "Confiance" dans l'historique, selon
+// qonto_match_confiance ('exact' et 'montant' viennent de rapprocherFactures()
+// dans lib/rapprochement.js, 'creation' et 'manuel_groupe' des actions
+// manuelles de cette page — voir creerFactureDepuisTransaction /
+// creerDepenseDepuisTransaction et appliquerRapprochementGroupe).
+const BADGE_CONFIANCE = {
+  exact: { label: '🔗 Auto (n° + montant)', bg: '#EFF6FF', color: '#2563EB' },
+  creation: { label: '🆕 Créée depuis Qonto', bg: '#F0FDF4', color: '#059669' },
+  manuel_groupe: { label: '👥 Paiement groupé', bg: '#FDF4FF', color: '#A21CAF' },
+  montant: { label: '✓ Confirmé (montant)', bg: '#FFFBEB', color: '#B45309' },
+}
 
 const fmtTx = cents => cents !== undefined && cents !== null
   ? (Number(cents) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
@@ -37,6 +49,15 @@ export default function Rapprochement() {
   const [modalFacture, setModalFacture] = useState(null)
   const [modalBusy, setModalBusy] = useState(false)
   const [modalError, setModalError] = useState('')
+
+  // Modale "Associer plusieurs factures" — pour un virement/paiement groupé
+  // qui règle plusieurs factures en une seule transaction (voir
+  // appliquerRapprochementGroupe dans lib/rapprochement.js) : l'utilisateur
+  // choisit lui-même les factures concernées parmi celles encore ouvertes.
+  // { transaction, table ('factures_cli' | 'factures_frs'), factures,
+  //   selection (Set d'ids), loading, error } ou null si fermée.
+  const [modalGroupe, setModalGroupe] = useState(null)
+  const [modalGroupeBusy, setModalGroupeBusy] = useState(false)
 
   useEffect(() => { lancerRapprochement(); chargerHistorique(); chargerProjets() }, [])
 
@@ -277,6 +298,50 @@ export default function Rapprochement() {
     chargerHistorique()
   }
 
+  // Ouvre la modale "Associer plusieurs factures" pour une transaction sans
+  // correspondance — charge les factures encore ouvertes du bon type
+  // (clients pour un crédit, fournisseurs pour un débit) à la volée, plutôt
+  // que de dépendre d'une liste chargée plus tôt qui pourrait être obsolète.
+  async function ouvrirAssociationGroupee(tx, table) {
+    setModalGroupe({ transaction: tx, table, factures: [], selection: new Set(), loading: true, error: '' })
+    const query = table === 'factures_cli'
+      ? supabase.from('factures_cli').select('id, numero, montant_ht, date_facture, projets(nom, clients(nom))').neq('statut', 'Payée').is('deleted_at', null).order('date_facture', { ascending: false })
+      : supabase.from('factures_frs').select('id, numero, montant_ht, date_facture, projets(nom), fournisseurs(nom)').neq('statut', 'Payée').is('deleted_at', null).order('date_facture', { ascending: false })
+    const { data, error: err } = await query
+    // Si l'utilisateur a déjà fermé/changé de modale pendant le chargement,
+    // on ignore cette réponse devenue obsolète.
+    setModalGroupe(prev => (prev && prev.transaction.transaction_id === tx.transaction_id)
+      ? { ...prev, factures: data || [], loading: false, error: err ? err.message : '' }
+      : prev)
+  }
+
+  function toggleFactureGroupe(id) {
+    setModalGroupe(prev => {
+      if (!prev) return prev
+      const next = new Set(prev.selection)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return { ...prev, selection: next }
+    })
+  }
+
+  async function confirmerAssociationGroupee() {
+    if (!modalGroupe || modalGroupe.selection.size === 0) return
+    setModalGroupeBusy(true)
+    const facturesChoisies = modalGroupe.factures.filter(f => modalGroupe.selection.has(f.id)).map(f => ({ id: f.id, numero: f.numero }))
+    const { appliques, echecs } = await appliquerRapprochementGroupe(supabase, modalGroupe.table, facturesChoisies, modalGroupe.transaction)
+    setModalGroupeBusy(false)
+    if (appliques === 0 && echecs > 0) {
+      setModalGroupe(prev => ({ ...prev, error: "Échec de l'enregistrement — la migration sql/qonto_migration.sql a-t-elle été exécutée dans Supabase ?" }))
+      return
+    }
+    const txId = modalGroupe.transaction.transaction_id
+    setNonRapprochees(prev => prev.filter(t => t.transaction_id !== txId))
+    setNbNonRapprocheesTotal(prev => Math.max(0, prev - 1))
+    setModalGroupe(null)
+    chargerHistorique()
+    if (echecs > 0) alert(`${appliques} facture(s) marquée(s) payée(s), ${echecs} échec(s) — vérifie l'historique.`)
+  }
+
   function CarteSuggestion({ r, table, couleur }) {
     const cle = table + ':' + r.facture.id + ':' + r.transaction.transaction_id
     const tiers = table === 'factures_cli' ? r.facture.projets?.clients?.nom
@@ -416,6 +481,79 @@ export default function Rapprochement() {
         </div>
       )}
 
+      {/* Modale "Associer plusieurs factures" — paiement groupé qui règle
+          plusieurs factures en une transaction — voir ouvrirAssociationGroupee
+          / confirmerAssociationGroupee. */}
+      {modalGroupe && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 600 }}>Associer plusieurs factures</h3>
+            <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 18 }}>
+              Transaction Qonto : {modalGroupe.transaction.label || modalGroupe.transaction.reference || 'Transaction Qonto'} · {fmtDate(modalGroupe.transaction.settled_at || modalGroupe.transaction.emitted_at)} · {fmtTx(Math.abs(modalGroupe.transaction.amount_cents))}
+            </div>
+
+            {modalGroupe.error && (
+              <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+                {modalGroupe.error}
+              </div>
+            )}
+
+            {modalGroupe.loading ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>⏳ Chargement des factures ouvertes...</div>
+            ) : modalGroupe.factures.length === 0 ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune facture ouverte de ce type pour l'instant.</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>Coche les factures réglées par cette transaction :</div>
+                <div style={{ border: '1px solid #E5E7EB', borderRadius: 10, overflow: 'hidden', marginBottom: 14, maxHeight: 280, overflowY: 'auto' }}>
+                  {modalGroupe.factures.map((f, i) => {
+                    const tiers = modalGroupe.table === 'factures_cli' ? f.projets?.clients?.nom : f.fournisseurs?.nom
+                    const coche = modalGroupe.selection.has(f.id)
+                    return (
+                      <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < modalGroupe.factures.length - 1 ? '1px solid #F3F4F6' : 'none', cursor: 'pointer', background: coche ? '#F0FDF4' : '#fff' }}>
+                        <input type="checkbox" checked={coche} onChange={() => toggleFactureGroupe(f.id)} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{f.numero}</div>
+                          <div style={{ fontSize: 11, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {tiers || '—'}{f.projets?.nom ? ' · ' + f.projets.nom : ''}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', flexShrink: 0 }}>{fmt(f.montant_ht)} HT</div>
+                      </label>
+                    )
+                  })}
+                </div>
+
+                {(() => {
+                  const choisies = modalGroupe.factures.filter(f => modalGroupe.selection.has(f.id))
+                  const totalHt = choisies.reduce((s, f) => s + (f.montant_ht || 0), 0)
+                  const totalTtc = totalHt * 1.2
+                  const montantTx = Math.abs(modalGroupe.transaction.amount_cents || 0) / 100
+                  const okHt = Math.abs(totalHt - montantTx) <= 0.02
+                  const okTtc = Math.abs(totalTtc - montantTx) <= 0.02
+                  const correspond = okHt || okTtc
+                  return (
+                    <div style={{ padding: '10px 14px', borderRadius: 8, background: correspond ? '#F0FDF4' : '#FFFBEB', color: correspond ? '#059669' : '#B45309', fontSize: 12, marginBottom: 18 }}>
+                      {choisies.length} facture(s) sélectionnée(s) · {fmt(totalHt)} HT (≈ {fmt(totalTtc)} TTC) — transaction : {fmtTx(Math.abs(modalGroupe.transaction.amount_cents))}
+                      {correspond ? ' ✓ le total correspond' : ' — le total ne correspond pas exactement, vérifie ta sélection'}
+                    </div>
+                  )
+                })()}
+              </>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setModalGroupe(null)} disabled={modalGroupeBusy}
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={confirmerAssociationGroupee} disabled={modalGroupeBusy || modalGroupe.selection.size === 0}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                {modalGroupeBusy ? '⏳ Enregistrement...' : `✓ Marquer ${modalGroupe.selection.size || ''} facture(s) payée(s)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 10, flexWrap: 'wrap' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Rapprochement</h2>
@@ -504,10 +642,17 @@ export default function Rapprochement() {
                       <div style={{ fontSize: 14, fontWeight: 700, color: estCredit ? '#059669' : '#DC2626', flexShrink: 0 }}>
                         {estCredit ? '+ ' : '− '}{fmtTx(Math.abs(tx.amount_cents))}
                       </div>
-                      <button onClick={() => estCredit ? ouvrirCreationFacture(tx) : ouvrirCreationDepense(tx)}
-                        style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid ' + (estCredit ? '#BBF7D0' : '#FCA5A5'), background: estCredit ? '#F0FDF4' : '#FEF2F2', color: estCredit ? '#059669' : '#DC2626', cursor: 'pointer', fontWeight: 500, fontSize: 13, flexShrink: 0 }}>
-                        {estCredit ? '+ Créer une facture client' : '+ Créer une dépense'}
-                      </button>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button onClick={() => ouvrirAssociationGroupee(tx, estCredit ? 'factures_cli' : 'factures_frs')}
+                          style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontWeight: 500, fontSize: 13, flexShrink: 0 }}
+                          title="Paiement groupé : cette transaction règle plusieurs factures à la fois">
+                          🔗 Associer à des factures {estCredit ? 'clients' : 'fournisseurs'}
+                        </button>
+                        <button onClick={() => estCredit ? ouvrirCreationFacture(tx) : ouvrirCreationDepense(tx)}
+                          style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid ' + (estCredit ? '#BBF7D0' : '#FCA5A5'), background: estCredit ? '#F0FDF4' : '#FEF2F2', color: estCredit ? '#059669' : '#DC2626', cursor: 'pointer', fontWeight: 500, fontSize: 13, flexShrink: 0 }}>
+                          {estCredit ? '+ Créer une facture client' : '+ Créer une dépense'}
+                        </button>
+                      </div>
                     </div>
                   )
                 })}
@@ -545,8 +690,8 @@ export default function Rapprochement() {
                         </td>
                         <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: h.couleur }}>{fmt(h.facture.montant_ht)}</td>
                         <td style={{ padding: '9px 14px' }}>
-                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: h.facture.qonto_match_confiance === 'exact' ? '#EFF6FF' : h.facture.qonto_match_confiance === 'creation' ? '#F0FDF4' : '#FFFBEB', color: h.facture.qonto_match_confiance === 'exact' ? '#2563EB' : h.facture.qonto_match_confiance === 'creation' ? '#059669' : '#B45309' }}>
-                            {h.facture.qonto_match_confiance === 'exact' ? '🔗 Auto (n° + montant)' : h.facture.qonto_match_confiance === 'creation' ? '🆕 Créée depuis Qonto' : '✓ Confirmé (montant)'}
+                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: BADGE_CONFIANCE[h.facture.qonto_match_confiance]?.bg || '#FFFBEB', color: BADGE_CONFIANCE[h.facture.qonto_match_confiance]?.color || '#B45309' }}>
+                            {BADGE_CONFIANCE[h.facture.qonto_match_confiance]?.label || '✓ Confirmé (montant)'}
                           </span>
                         </td>
                         <td style={{ padding: '9px 14px', color: '#9CA3AF' }}>{fmtDate(h.facture.qonto_matched_at)}</td>

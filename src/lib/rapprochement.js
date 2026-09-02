@@ -111,3 +111,29 @@ export async function appliquerRapprochement(supabase, table, match) {
   }
   return { error }
 }
+
+// Rapprochement manuel groupé : une même transaction Qonto règle PLUSIEURS
+// factures à la fois (virement groupé côté client, ou paiement unique
+// couvrant plusieurs factures fournisseur) — un cas que rapprocherFactures()
+// ne peut pas détecter tout seul, puisqu'il compare une transaction à une
+// seule facture à la fois (montant qui ne correspondra à aucune facture
+// individuellement, et le libellé du virement ne contient généralement pas
+// chaque numéro de facture réglée). L'utilisateur sélectionne lui-même les
+// factures concernées (voir la modale "Associer plusieurs factures" dans
+// Rapprochement.jsx) ; on les lie toutes à la même transaction, avec une
+// confiance dédiée 'manuel_groupe' pour les distinguer dans l'historique.
+// factures : tableau d'objets { id, numero } (les factures sélectionnées).
+export async function appliquerRapprochementGroupe(supabase, table, factures, transaction) {
+  let appliques = 0
+  let echecs = 0
+  const erreurs = []
+  for (const facture of factures) {
+    const { error: err } = await appliquerRapprochement(supabase, table, {
+      facture,
+      transaction,
+      confiance: 'manuel_groupe',
+    })
+    if (err) { echecs++; erreurs.push(err.message) } else { appliques++ }
+  }
+  return { appliques, echecs, erreurs }
+}
