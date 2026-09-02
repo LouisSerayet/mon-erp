@@ -33,17 +33,11 @@ async function chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montan
   const hasTexte = qNet.length >= 2
   const like = '%' + qNet + '%'
   const montant = hasTexte ? montantSaisi(qNet) : null
-  // `statuts` (ex. ['À envoyer', 'Envoyée']) arrive depuis un lien "Voir
-  // tout" d'une carte du Dashboard (voir Dashboard.jsx, VoirTout) : il
-  // permet de lister TOUTES les factures/dépenses d'un statut donné même
-  // sans texte ni période/montant saisis, ce que ces filtres seuls ne
-  // permettent pas.
-  const filtreFinancierActif = hasTexte || dateDebut || dateFin || montantMin !== '' || montantMax !== '' || (statuts && statuts.length > 0)
 
   // Applique les filtres période/montant/statut communs aux entités
   // "financières" (celles avec un montant_ht et une date de facture/
-  // commande) — les autres colonnes ne sont pas filtrables par ces
-  // critères, elles ne sont interrogées que si l'utilisateur a tapé du texte.
+  // commande) — les autres colonnes ne sont filtrables que si l'utilisateur
+  // a tapé du texte (voir plus bas).
   function avecFiltresFinanciers(query, colDate) {
     if (dateDebut) query = query.gte(colDate, dateDebut)
     if (dateFin) query = query.lte(colDate, dateFin)
@@ -55,28 +49,32 @@ async function chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montan
 
   const requetes = {}
 
-  if (typesActifs.projets && hasTexte) {
-    let q1 = supabase.from('projets').select('id, nom, statut, numero_bon_commande_client, clients(nom)').is('deleted_at', null)
-      .or(`nom.ilike.${like},numero_bon_commande_client.ilike.${like}`)
-      .order('created_at', { ascending: false }).limit(30)
-    requetes.projets = q1
+  // Chaque type coché est interrogé dès qu'il est actif, texte ou filtre ou
+  // pas — sans texte/filtre, ça liste simplement tout (les 30 plus
+  // récents/pertinents), pour ne pas obliger à taper quelque chose juste
+  // pour voir ce qu'il y a. Le texte/les filtres, quand ils sont renseignés,
+  // affinent cette liste au lieu d'être une condition pour la lancer.
+  if (typesActifs.projets) {
+    let query = supabase.from('projets').select('id, nom, statut, numero_bon_commande_client, clients(nom)').is('deleted_at', null)
+    if (hasTexte) query = query.or(`nom.ilike.${like},numero_bon_commande_client.ilike.${like}`)
+    requetes.projets = query.order('created_at', { ascending: false }).limit(30)
   }
-  if (typesActifs.clients && hasTexte) {
-    requetes.clients = supabase.from('clients').select('id, nom, email, ville').is('deleted_at', null)
-      .or(`nom.ilike.${like},email.ilike.${like},ville.ilike.${like}`)
-      .order('nom').limit(30)
+  if (typesActifs.clients) {
+    let query = supabase.from('clients').select('id, nom, email, ville').is('deleted_at', null)
+    if (hasTexte) query = query.or(`nom.ilike.${like},email.ilike.${like},ville.ilike.${like}`)
+    requetes.clients = query.order('nom').limit(30)
   }
-  if (typesActifs.fournisseurs && hasTexte) {
-    requetes.fournisseurs = supabase.from('fournisseurs').select('id, nom, email, ville').is('deleted_at', null)
-      .or(`nom.ilike.${like},email.ilike.${like},ville.ilike.${like}`)
-      .order('nom').limit(30)
+  if (typesActifs.fournisseurs) {
+    let query = supabase.from('fournisseurs').select('id, nom, email, ville').is('deleted_at', null)
+    if (hasTexte) query = query.or(`nom.ilike.${like},email.ilike.${like},ville.ilike.${like}`)
+    requetes.fournisseurs = query.order('nom').limit(30)
   }
-  if (typesActifs.contacts && hasTexte) {
-    requetes.contacts = supabase.from('client_contacts').select('id, nom, email, telephone, type, client_id, clients(nom)').is('deleted_at', null)
-      .or(`nom.ilike.${like},email.ilike.${like}`)
-      .limit(30)
+  if (typesActifs.contacts) {
+    let query = supabase.from('client_contacts').select('id, nom, email, telephone, type, client_id, clients(nom)').is('deleted_at', null)
+    if (hasTexte) query = query.or(`nom.ilike.${like},email.ilike.${like}`)
+    requetes.contacts = query.order('nom').limit(30)
   }
-  if (typesActifs.facturesCli && filtreFinancierActif) {
+  if (typesActifs.facturesCli) {
     let query = supabase.from('factures_cli').select('id, numero, montant_ht, statut, date_facture, projet_id, projets(nom)').is('deleted_at', null)
     if (hasTexte) {
       const conds = [`numero.ilike.${like}`]
@@ -85,7 +83,7 @@ async function chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montan
     }
     requetes.facturesCli = avecFiltresFinanciers(query, 'date_facture').order('date_facture', { ascending: false }).limit(30)
   }
-  if (typesActifs.facturesFrs && filtreFinancierActif) {
+  if (typesActifs.facturesFrs) {
     let query = supabase.from('factures_frs').select('id, numero, montant_ht, statut, date_facture, projet_id, projets(nom), fournisseurs(nom)').is('deleted_at', null)
     if (hasTexte) {
       const conds = [`numero.ilike.${like}`]
@@ -94,7 +92,7 @@ async function chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montan
     }
     requetes.facturesFrs = avecFiltresFinanciers(query, 'date_facture').order('date_facture', { ascending: false }).limit(30)
   }
-  if (typesActifs.commandes && filtreFinancierActif) {
+  if (typesActifs.commandes) {
     let query = supabase.from('commandes').select('id, numero, description, montant_ht, statut, date_commande, projet_id, projets(nom), fournisseurs(nom)').is('deleted_at', null)
     if (hasTexte) {
       const conds = [`numero.ilike.${like}`, `description.ilike.${like}`]
@@ -103,7 +101,7 @@ async function chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montan
     }
     requetes.commandes = avecFiltresFinanciers(query, 'date_commande').order('date_commande', { ascending: false }).limit(30)
   }
-  if (typesActifs.depenses && filtreFinancierActif) {
+  if (typesActifs.depenses) {
     let query = supabase.from('depenses_generales').select('id, libelle, numero, montant_ht, statut, date_facture, categorie, fournisseurs(nom)').is('deleted_at', null)
     if (hasTexte) {
       const conds = [`libelle.ilike.${like}`, `numero.ilike.${like}`]
@@ -114,6 +112,8 @@ async function chercher({ typesActifs, q, dateDebut, dateFin, montantMin, montan
   }
 
   const cles = Object.keys(requetes)
+  // Ne peut arriver que si tous les types sont décochés — voir le message
+  // "aucuneRequete" plus bas dans le composant.
   if (cles.length === 0) return null
   const reponses = await Promise.all(cles.map(k => requetes[k]))
   const out = {}
@@ -181,7 +181,7 @@ export default function Recherche() {
     <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif', maxWidth: 860, margin: '0 auto' }}>
       <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700 }}>🔎 Recherche avancée</h2>
       <p style={{ margin: '0 0 20px', fontSize: 12, color: '#9CA3AF' }}>
-        Cherche sur tous les types de données à la fois — nom, email, numéro de facture/commande, montant exact, ou une période/fourchette de montant sans même taper de texte.
+        Affiche tout par défaut pour les types cochés ci-dessous (les 30 plus récents de chaque) — tape un nom, email, numéro de facture/commande, un montant exact, ou choisis une période/fourchette de montant pour affiner.
       </p>
 
       {statutsFiltre && (
@@ -241,7 +241,7 @@ export default function Recherche() {
       {!loading && aucuneRequete && (
         <div style={{ textAlign: 'center', padding: '50px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
           <div style={{ fontSize: 28, marginBottom: 10 }}>🔎</div>
-          <div style={{ fontSize: 13 }}>Tape au moins 2 caractères, ou choisis une période/un montant pour lancer la recherche.</div>
+          <div style={{ fontSize: 13 }}>Coche au moins un type ci-dessus pour voir des résultats.</div>
         </div>
       )}
 
