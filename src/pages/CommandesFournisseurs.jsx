@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { colors, fonts, eyebrow, marker } from '../lib/theme'
 
 // Page dédiée "Commandes fournisseurs" — vue de navigation/consultation,
 // tous projets confondus (contrairement à l'onglet "Commandes" d'un projet,
@@ -10,17 +11,19 @@ import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 // clic sur une ligne renvoie vers le projet concerné, avec la commande mise
 // en évidence (tab + focusId, voir ProjetDetail.jsx).
 const STATUTS = ['Brouillon', 'Validée', 'Annulée']
-const STATUT_STYLE = {
-  'Brouillon': { bg: '#F3F4F6', color: '#6B7280' },
-  'Validée': { bg: '#ECFDF5', color: '#059669' },
-  'Annulée': { bg: '#FEF2F2', color: '#DC2626' },
-}
+const STATUT_MARKER = { 'Brouillon': colors.inkFaint, 'Validée': colors.success, 'Annulée': colors.danger }
 const TRIS = [
   { key: 'date_desc', label: 'Date (récent)' },
   { key: 'date_asc', label: 'Date (ancien)' },
   { key: 'montant_desc', label: 'Montant (élevé)' },
   { key: 'montant_asc', label: 'Montant (faible)' },
 ]
+
+const inputUnderline = {
+  padding: '8px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
+}
 
 export default function CommandesFournisseurs() {
   const isMobile = useIsMobile()
@@ -83,116 +86,106 @@ export default function CommandesFournisseurs() {
   const validees = commandes.filter(c => c.statut === 'Validée').reduce((s, c) => s + (c.montant_ht || 0), 0)
 
   return (
-    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Commandes fournisseurs</h2>
-        <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>Toutes les commandes fournisseurs, tous projets confondus</div>
-      </div>
+    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
+      <p style={eyebrow}>Partenaires Particuliers</p>
+      <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Commandes fournisseurs</h1>
+      <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Toutes les commandes fournisseurs, tous projets confondus</p>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-        {[
-          { label: 'En attente (brouillon)', value: fmt(enAttente), color: '#EA580C', bg: '#FFF7ED' },
-          { label: 'Validées', value: fmt(validees), color: '#059669', bg: '#ECFDF5' },
-          { label: 'Total commandes', value: commandes.length, color: '#2563EB', bg: '#EFF6FF' },
-        ].map(k => (
-          <div key={k.label} style={{ background: k.bg, borderRadius: 10, padding: '14px 18px', border: '1px solid ' + k.color + '30' }}>
-            <div style={{ fontSize: 11, color: k.color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{k.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: k.color }}>{k.value}</div>
-          </div>
-        ))}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr 1fr' : 'repeat(3, 1fr)', gap: 24, margin: '36px 0 32px', paddingBottom: 24, borderBottom: '1px solid ' + colors.line }}>
+        <div>
+          <div style={eyebrow}>En attente (brouillon)</div>
+          <div style={{ fontFamily: fonts.mono, fontSize: 24, fontWeight: 500, marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{fmt(enAttente)}</div>
+        </div>
+        <div>
+          <div style={eyebrow}>Validées</div>
+          <div style={{ fontFamily: fonts.mono, fontSize: 24, fontWeight: 500, marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{fmt(validees)}</div>
+        </div>
+        <div>
+          <div style={eyebrow}>Total commandes</div>
+          <div style={{ fontFamily: fonts.mono, fontSize: 24, fontWeight: 500, marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{commandes.length}</div>
+        </div>
       </div>
 
       {/* Filtres */}
-      <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, padding: 14, marginBottom: 20 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginBottom: 18 }}>
           {STATUTS.map(s => {
-            const st = STATUT_STYLE[s]
             const actif = statutsActifs.has(s)
             return (
               <button key={s} onClick={() => toggleStatut(s)}
-                style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid ' + (actif ? st.color : '#E5E7EB'), background: actif ? st.bg : '#fff', color: actif ? st.color : '#9CA3AF', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
-                {actif ? '✓ ' : ''}{s}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'none', border: 'none', padding: '0 0 4px', borderBottom: '2px solid ' + (actif ? STATUT_MARKER[s] : 'transparent'), cursor: 'pointer', fontFamily: fonts.display }}>
+                <span style={marker(STATUT_MARKER[s])} />
+                <span style={{ fontSize: 12.5, color: actif ? colors.ink : colors.inkFaint, fontWeight: actif ? 600 : 400 }}>{s}</span>
               </button>
             )
           })}
         </div>
-        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 20, flexWrap: 'wrap' }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="N°, description, fournisseur, projet..."
-            style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
-          <input type="date" value={dateDebut} onChange={e => setDateDebut(e.target.value)} title="Date début"
-            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
-          <input type="date" value={dateFin} onChange={e => setDateFin(e.target.value)} title="Date fin"
-            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
-          <select value={tri} onChange={e => setTri(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+            style={{ ...inputUnderline, flex: 2, minWidth: 160 }} />
+          <input type="date" value={dateDebut} onChange={e => setDateDebut(e.target.value)} title="Date début" style={{ ...inputUnderline, flex: 1 }} />
+          <input type="date" value={dateFin} onChange={e => setDateFin(e.target.value)} title="Date fin" style={{ ...inputUnderline, flex: 1 }} />
+          <select value={tri} onChange={e => setTri(e.target.value)} style={{ ...inputUnderline, flex: 1, cursor: 'pointer' }}>
             {TRIS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
         </div>
       </div>
 
       {/* Liste */}
-      {loading ? <div style={{ textAlign: 'center', padding: 40, color: '#9CA3AF' }}>Chargement...</div>
+      {loading ? <div style={{ textAlign: 'center', padding: 60, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
         : filtrees.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>🛒</div>
-            <div style={{ fontSize: 15, fontWeight: 500 }}>Aucune commande fournisseur</div>
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: colors.ink }}>Aucune commande fournisseur</div>
           </div>
         ) : isMobile ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filtrees.map(c => {
-              const st = STATUT_STYLE[c.statut] || {}
-              return (
-                <div key={c.id} onClick={() => aller(c)}
-                  style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 16px', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{c.numero || '—'}</span>
-                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: st.bg, color: st.color, fontWeight: 500, flexShrink: 0 }}>{c.statut}</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {c.fournisseurs?.nom || '—'}{c.projets?.nom ? ' · ' + c.projets.nom : ''}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 11, color: '#9CA3AF' }}>{fmtDate(c.date_commande)}</span>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>{fmt(c.montant_ht)}</span>
-                  </div>
+          <div>
+            {filtrees.map(c => (
+              <div key={c.id} onClick={() => aller(c)}
+                style={{ borderTop: '1px solid ' + colors.line, padding: '14px 0', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{c.numero || '—'}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
+                    <span style={marker(STATUT_MARKER[c.statut])} />{c.statut}
+                  </span>
                 </div>
-              )
-            })}
+                <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {c.fournisseurs?.nom || '—'}{c.projets?.nom ? ' · ' + c.projets.nom : ''}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: colors.inkFaint }}>{fmtDate(c.date_commande)}</span>
+                  <span style={{ fontFamily: fonts.mono, fontWeight: 500, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmt(c.montant_ht)}</span>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                  {['Fournisseur', 'Projet', 'N°', 'Description', 'Date', 'Montant HT', 'Statut'].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr>
+                {['Fournisseur', 'Projet', 'N°', 'Description', 'Date', 'Montant HT', 'Statut'].map(h => (
+                  <th key={h} style={{ padding: '0 14px 10px 0', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap', borderBottom: '1px solid ' + colors.line }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtrees.map(c => (
+                <tr key={c.id} onClick={() => aller(c)} style={{ borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
+                  <td style={{ padding: '12px 14px 12px 0', fontWeight: 500 }}>{c.fournisseurs?.nom || '—'}</td>
+                  <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{c.projets?.nom || '—'}</td>
+                  <td style={{ padding: '12px 14px', color: colors.inkFaint }}>{c.numero || '—'}</td>
+                  <td style={{ padding: '12px 14px', color: colors.inkMuted, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.description || '—'}</td>
+                  <td style={{ padding: '12px 14px', color: colors.inkMuted, whiteSpace: 'nowrap' }}>{fmtDate(c.date_commande)}</td>
+                  <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(c.montant_ht)}</td>
+                  <td style={{ padding: '12px 0 12px 14px' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.inkMuted }}>
+                      <span style={marker(STATUT_MARKER[c.statut])} />{c.statut}
+                    </span>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filtrees.map((c, i) => {
-                  const st = STATUT_STYLE[c.statut] || {}
-                  return (
-                    <tr key={c.id} onClick={() => aller(c)}
-                      style={{ borderBottom: '1px solid #F3F4F6', background: i % 2 === 0 ? '#fff' : '#FAFAFA', cursor: 'pointer' }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#EFF6FF'}
-                      onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#FAFAFA'}>
-                      <td style={{ padding: '11px 14px', fontWeight: 500, color: '#111827' }}>{c.fournisseurs?.nom || '—'}</td>
-                      <td style={{ padding: '11px 14px', color: '#2563EB' }}>{c.projets?.nom || '—'}</td>
-                      <td style={{ padding: '11px 14px', color: '#9CA3AF' }}>{c.numero || '—'}</td>
-                      <td style={{ padding: '11px 14px', color: '#374151', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.description || '—'}</td>
-                      <td style={{ padding: '11px 14px', color: '#6B7280', whiteSpace: 'nowrap' }}>{fmtDate(c.date_commande)}</td>
-                      <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 600 }}>{fmt(c.montant_ht)}</td>
-                      <td style={{ padding: '11px 14px' }}>
-                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: st.bg, color: st.color, fontWeight: 500 }}>{c.statut}</span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         )}
     </div>
   )
