@@ -15,12 +15,10 @@ const nav = [
   { section: 'Comptes' },
   { to: '/clients', label: 'Clients', icon: '👤' },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },
-  { section: 'Commandes / Factures' },
-  // Ces deux entrées ouvrent la Recherche avancée avec un type préfiltré
-  // (voir `state`) plutôt qu'une page dédiée — c'est ici qu'on vient
-  // chercher une facture client ou une facture/commande fournisseur.
-  { to: '/recherche', label: 'Clients', icon: '💶', state: { types: ['facturesCli'] } },
-  { to: '/recherche', label: 'Fournisseurs', icon: '📄', state: { types: ['facturesFrs', 'commandes'] } },
+  { section: 'Factures & commandes' },
+  { to: '/factures-clients', label: 'Factures clients', icon: '💶' },
+  { to: '/factures-fournisseurs', label: 'Factures fournisseurs', icon: '📄' },
+  { to: '/commandes-fournisseurs', label: 'Commandes fournisseurs', icon: '🛒' },
   { section: 'Support' },
   { to: '/corbeille', label: 'Corbeille', icon: '🗑' },
   { to: '/recherche', label: 'Recherche avancée', icon: '🔎' },

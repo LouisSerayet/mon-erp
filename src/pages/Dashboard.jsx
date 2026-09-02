@@ -615,9 +615,13 @@ export default function Dashboard() {
 
         {/* Commandes en attente */}
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>🛒 Commandes en attente</span>
-            <span style={{ fontSize: 12, color: '#6B7280' }}>{fmt(stats.totalCommandes)} total</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 12, color: '#6B7280' }}>{fmt(stats.totalCommandes)} total</span>
+              <button onClick={() => navigate('/commandes-fournisseurs', { state: { statuts: ['Brouillon'] } })}
+                style={{ fontSize: 12, color: '#2563EB', background: 'none', border: 'none', cursor: 'pointer' }}>Voir tout →</button>
+            </div>
           </div>
           {cmdEnAttente.length === 0 ? (
             <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune commande en attente</div>
@@ -674,7 +678,7 @@ export default function Dashboard() {
                   )
                 })}
               </div>
-              <VoirTout count={facturesFrsAPayer.length} onClick={() => navigate('/recherche', { state: { types: ['facturesFrs'], statuts: ['À payer'] } })} />
+              <VoirTout count={facturesFrsAPayer.length} onClick={() => navigate('/factures-fournisseurs', { state: { statuts: ['À payer'] } })} />
             </>
           )}
         </div>
@@ -708,7 +712,7 @@ export default function Dashboard() {
                   )
                 })}
               </div>
-              <VoirTout count={facturesCliAEncaisser.length} onClick={() => navigate('/recherche', { state: { types: ['facturesCli'], statuts: ['À envoyer', 'Envoyée'] } })} />
+              <VoirTout count={facturesCliAEncaisser.length} onClick={() => navigate('/factures-clients', { state: { statuts: ['À envoyer', 'Envoyée'] } })} />
             </>
           )}
         </div>

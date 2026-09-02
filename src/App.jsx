@@ -15,6 +15,9 @@ const Projets = lazy(() => import('./pages/Projets'))
 const ProjetDetail = lazy(() => import('./pages/ProjetDetail'))
 const Clients = lazy(() => import('./pages/Clients'))
 const Fournisseurs = lazy(() => import('./pages/Fournisseurs'))
+const FacturesClients = lazy(() => import('./pages/FacturesClients'))
+const FacturesFournisseurs = lazy(() => import('./pages/FacturesFournisseurs'))
+const CommandesFournisseurs = lazy(() => import('./pages/CommandesFournisseurs'))
 const Recherche = lazy(() => import('./pages/Recherche'))
 const Depenses = lazy(() => import('./pages/Depenses'))
 const Resultat = lazy(() => import('./pages/Resultat'))
@@ -60,6 +63,9 @@ function Gate() {
             <Route path="devis" element={<Navigate to="/projets" replace />} />
             <Route path="clients" element={<Clients />} />
             <Route path="fournisseurs" element={<Fournisseurs />} />
+            <Route path="factures-clients" element={<FacturesClients />} />
+            <Route path="factures-fournisseurs" element={<FacturesFournisseurs />} />
+            <Route path="commandes-fournisseurs" element={<CommandesFournisseurs />} />
             <Route path="recherche" element={<Recherche />} />
             <Route path="depenses" element={<Depenses />} />
             <Route path="resultat" element={<Resultat />} />
