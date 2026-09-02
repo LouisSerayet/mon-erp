@@ -6,6 +6,7 @@ import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQon
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
 import { CATEGORIES } from '../lib/depenses'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { colors, fonts, eyebrow, quietLink } from '../lib/theme'
 
 // Dépenses générales de la société : loyer, comptabilité, assurance,
 // abonnements... tout ce qui n'est pas lié à un projet client précis.
@@ -23,6 +24,21 @@ const fmtTx = cents => cents !== undefined && cents !== null
   : '—'
 
 const FORM_VIDE = { libelle: '', categorie: CATEGORIES[0], numero: '', fournisseur_id: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' }
+
+const inputUnderline = {
+  width: '100%', padding: '8px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
+}
+const fieldLabel = { display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }
+const btnPrimary = { background: colors.ink, color: colors.surface, border: 'none', padding: '10px 20px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
+const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px solid ' + colors.line, padding: '10px 18px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
+// Style des champs d'édition inline dans le tableau — souligné, teinte
+// ochre discrète tant que la ligne a des changements non enregistrés.
+const cellInput = isEdited => ({
+  padding: '4px 2px', border: 'none', borderBottom: '1px solid ' + (isEdited ? colors.warning : 'transparent'),
+  fontSize: 12.5, background: 'transparent', boxSizing: 'border-box', width: '100%', fontFamily: fonts.display, color: colors.ink,
+})
 
 export default function Depenses() {
   const isMobile = useIsMobile()
@@ -197,228 +213,225 @@ export default function Depenses() {
   const totalPaye = depenses.filter(d => d.statut === 'Payée').reduce((s, d) => s + (d.montant_ht || 0), 0)
 
   return (
-    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 10, flexWrap: 'wrap' }}>
+    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1280, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Dépenses</h2>
-          <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>Achats et frais de la société non liés à un projet client</div>
+          <p style={eyebrow}>Partenaires Particuliers</p>
+          <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Dépenses</h1>
+          <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Achats et frais de la société non liés à un projet client</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={verifierQonto} disabled={rapprochementBusy}
-            style={{ background: '#fff', color: '#EA580C', border: '1px solid #FED7AA', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-            {rapprochementBusy ? '⏳ Vérification...' : '🔗 Vérifier sur Qonto'}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={verifierQonto} disabled={rapprochementBusy} style={btnGhost}>
+            {rapprochementBusy ? 'Vérification...' : 'Vérifier sur Qonto'}
           </button>
-          <button onClick={() => { setShowForm(true); setError('') }}
-            style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+          <button onClick={() => { setShowForm(true); setError('') }} style={btnPrimary}>
             + Nouvelle dépense
           </button>
         </div>
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-        {[
-          { label: 'À payer', value: fmt(totalAPayer), color: '#EA580C', bg: '#FFF7ED' },
-          { label: 'Payé', value: fmt(totalPaye), color: '#059669', bg: '#F0FDF4' },
-          { label: 'Total dépenses', value: depenses.length, color: '#2563EB', bg: '#EFF6FF' },
-        ].map(k => (
-          <div key={k.label} style={{ background: k.bg, borderRadius: 10, padding: '14px 18px', border: '1px solid ' + k.color + '30' }}>
-            <div style={{ fontSize: 11, color: k.color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{k.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: k.color }}>{k.value}</div>
-          </div>
-        ))}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr 1fr' : 'repeat(3, 1fr)', gap: 24, margin: '36px 0 32px', paddingBottom: 24, borderBottom: '1px solid ' + colors.line }}>
+        <div>
+          <div style={eyebrow}>À payer</div>
+          <div style={{ fontFamily: fonts.mono, fontSize: 24, fontWeight: 500, marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalAPayer)}</div>
+        </div>
+        <div>
+          <div style={eyebrow}>Payé</div>
+          <div style={{ fontFamily: fonts.mono, fontSize: 24, fontWeight: 500, marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalPaye)}</div>
+        </div>
+        <div>
+          <div style={eyebrow}>Total dépenses</div>
+          <div style={{ fontFamily: fonts.mono, fontSize: 24, fontWeight: 500, marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{depenses.length}</div>
+        </div>
       </div>
 
       {rapprochementError && (
-        <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '12px 16px', borderRadius: 10, marginBottom: 16, fontSize: 13 }}>
-          ⚠️ {rapprochementError}
+        <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', marginBottom: 24, fontSize: 13 }}>
+          {rapprochementError}
         </div>
       )}
 
       {suggestions.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
-            À confirmer <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({suggestions.length})</span>
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ ...eyebrow, marginBottom: 10 }}>
+            À confirmer ({suggestions.length})
           </div>
-          {suggestions.map(r => (
-            <div key={r.facture.id + r.transaction.transaction_id} style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 16px', marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ minWidth: 220 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{r.facture.libelle}</div>
-                <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{r.facture.categorie}</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#EA580C', marginTop: 4 }}>{fmt(r.facture.montant_ht)} HT</div>
+          <div style={{ borderTop: '1px solid ' + colors.line }}>
+            {suggestions.map(r => (
+              <div key={r.facture.id + r.transaction.transaction_id}
+                style={{ borderBottom: '1px solid ' + colors.line, padding: '14px 0', display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ minWidth: 220 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{r.facture.libelle}</div>
+                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>{r.facture.categorie}</div>
+                  <div style={{ fontFamily: fonts.mono, fontSize: 13, fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>{fmt(r.facture.montant_ht)} HT</div>
+                </div>
+                <div style={{ fontSize: 12, color: colors.inkMuted, flex: 1, minWidth: 200 }}>
+                  <div style={{ marginBottom: 2 }}>↔ {r.transaction.label || r.transaction.reference || 'Transaction Qonto'}</div>
+                  <div>{fmtDate(r.transaction.settled_at || r.transaction.emitted_at)} · {fmtTx(r.transaction.amount_cents)} ({r.base})</div>
+                </div>
+                <button onClick={() => confirmerSuggestion(r)} disabled={confirmBusy === r.facture.id} style={quietLink}>
+                  {confirmBusy === r.facture.id ? '...' : 'Marquer payée'}
+                </button>
               </div>
-              <div style={{ fontSize: 12, color: '#6B7280', flex: 1, minWidth: 200 }}>
-                <div style={{ marginBottom: 2 }}>↔ {r.transaction.label || r.transaction.reference || 'Transaction Qonto'}</div>
-                <div>{fmtDate(r.transaction.settled_at || r.transaction.emitted_at)} · {fmtTx(r.transaction.amount_cents)} ({r.base})</div>
-              </div>
-              <button onClick={() => confirmerSuggestion(r)} disabled={confirmBusy === r.facture.id}
-                style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13, flexShrink: 0 }}>
-                {confirmBusy === r.facture.id ? '⏳' : '✓ Marquer payée'}
-              </button>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
       {/* Filtres */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 20, marginBottom: 24, flexWrap: 'wrap' }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..."
-          style={{ flex: 1, minWidth: 160, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
+          style={{ ...inputUnderline, flex: 1, minWidth: 160 }} />
         <select value={filtreCategorie} onChange={e => setFiltreCategorie(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+          style={{ ...inputUnderline, width: 'auto', cursor: 'pointer' }}>
           {categoriesDispos.map(c => <option key={c}>{c}</option>)}
         </select>
         <select value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+          style={{ ...inputUnderline, width: 'auto', cursor: 'pointer' }}>
           {['Toutes', ...STATUTS].map(s => <option key={s}>{s}</option>)}
         </select>
       </div>
 
       {/* Modal nouvelle dépense */}
       {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Nouvelle dépense</h3>
-            {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: colors.surface, padding: 32, width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+            <h3 style={{ margin: '0 0 22px', fontSize: 17, fontWeight: 700 }}>Nouvelle dépense</h3>
+            {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 16, fontSize: 13 }}>{error}</div>}
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Libellé *</label>
+            <label style={fieldLabel}>Libellé *</label>
             <input value={form.libelle} onChange={e => setForm(p => ({ ...p, libelle: e.target.value }))} placeholder="Ex. Loyer bureau — août 2026"
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+              style={{ ...inputUnderline, marginBottom: 16 }} />
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Catégorie</label>
+            <label style={fieldLabel}>Catégorie</label>
             <select value={form.categorie} onChange={e => setForm(p => ({ ...p, categorie: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 14, cursor: 'pointer' }}>
+              style={{ ...inputUnderline, marginBottom: 16, cursor: 'pointer' }}>
               {CATEGORIES.map(c => <option key={c}>{c}</option>)}
             </select>
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Fournisseur</label>
+            <label style={fieldLabel}>Fournisseur</label>
             <select value={form.fournisseur_id} onChange={e => setForm(p => ({ ...p, fournisseur_id: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 14, cursor: 'pointer' }}>
+              style={{ ...inputUnderline, marginBottom: 16, cursor: 'pointer' }}>
               <option value=''>— Aucun —</option>
               {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
             </select>
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° de facture</label>
+            <label style={fieldLabel}>N° de facture</label>
             <input value={form.numero} onChange={e => setForm(p => ({ ...p, numero: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+              style={{ ...inputUnderline, marginBottom: 16 }} />
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT</label>
+            <label style={fieldLabel}>Montant HT</label>
             <input type="number" min="0" value={form.montant_ht} onChange={e => setForm(p => ({ ...p, montant_ht: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+              style={{ ...inputUnderline, marginBottom: 16 }} />
 
-            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture *</label>
+                <label style={fieldLabel}>Date facture *</label>
                 <input type="date" value={form.date_facture} onChange={e => setForm(p => ({ ...p, date_facture: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  style={inputUnderline} />
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Échéance</label>
+                <label style={fieldLabel}>Échéance</label>
                 <input type="date" value={form.date_echeance} onChange={e => setForm(p => ({ ...p, date_echeance: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  style={inputUnderline} />
               </div>
             </div>
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
+            <label style={fieldLabel}>Statut</label>
             <select value={form.statut} onChange={e => setForm(p => ({ ...p, statut: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 14, cursor: 'pointer' }}>
+              style={{ ...inputUnderline, marginBottom: 16, cursor: 'pointer' }}>
               {STATUTS.map(s => <option key={s}>{s}</option>)}
             </select>
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Justificatif (PDF, optionnel)</label>
+            <label style={fieldLabel}>Justificatif (PDF, optionnel)</label>
             <input type="file" accept="application/pdf" onChange={e => setFichier(e.target.files?.[0] || null)}
-              style={{ width: '100%', fontSize: 13, marginBottom: 20 }} />
+              style={{ width: '100%', fontSize: 13, marginBottom: 22, fontFamily: fonts.display }} />
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowForm(false); setError(''); setForm(FORM_VIDE); setFichier(null) }}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={() => { setShowForm(false); setError(''); setForm(FORM_VIDE); setFichier(null) }} style={btnGhost}>Annuler</button>
               <button onClick={creerDepense} disabled={savingDepense}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingDepense ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingDepense ? 0.7 : 1 }}>{savingDepense ? 'Création...' : 'Créer'}</button>
+                style={{ ...btnPrimary, cursor: savingDepense ? 'default' : 'pointer', opacity: savingDepense ? 0.6 : 1 }}>{savingDepense ? 'Création...' : 'Créer'}</button>
             </div>
           </div>
         </div>
       )}
 
       {/* Liste */}
-      {loading ? <div style={{ textAlign: 'center', padding: 40, color: '#9CA3AF' }}>Chargement...</div>
+      {loading ? <div style={{ textAlign: 'center', padding: 60, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
         : filtered.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>💸</div>
-            <div style={{ fontSize: 15, fontWeight: 500 }}>Aucune dépense</div>
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: colors.ink }}>Aucune dépense</div>
           </div>
         ) : (
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'auto' }}>
+          <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+                <tr>
                   {['Libellé', 'Catégorie', 'Fournisseur', 'N°', 'Date', 'Échéance', 'Montant HT', 'Statut', 'Fichier', ''].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ padding: '0 14px 10px 0', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap', borderBottom: '1px solid ' + colors.line }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((d, i) => {
+                {filtered.map(d => {
                   const isEdited = !!editees[d.id]
-                  const inStyle = { padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #FED7AA' : '1px solid transparent', fontSize: 12, background: isEdited ? '#FFF7ED' : 'transparent', boxSizing: 'border-box', width: '100%' }
                   return (
-                    <tr key={d.id} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                      <td style={{ padding: '8px 14px', minWidth: 180 }}>
-                        <input value={getVal(d, 'libelle')} onChange={e => editer(d.id, 'libelle', e.target.value)} style={{ ...inStyle, fontWeight: 600 }} />
+                    <tr key={d.id} style={{ borderBottom: '1px solid ' + colors.line }}>
+                      <td style={{ padding: '8px 14px 8px 0', minWidth: 180 }}>
+                        <input value={getVal(d, 'libelle')} onChange={e => editer(d.id, 'libelle', e.target.value)} style={{ ...cellInput(isEdited), fontWeight: 600 }} />
                       </td>
-                      <td style={{ padding: '8px 14px', minWidth: 160 }}>
+                      <td style={{ padding: '8px 14px', minWidth: 150 }}>
                         <select value={getVal(d, 'categorie')} onChange={e => editer(d.id, 'categorie', e.target.value)}
-                          style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer', background: '#F5F3FF', color: '#7C3AED' }}>
+                          style={{ ...cellInput(isEdited), cursor: 'pointer', color: colors.inkMuted }}>
                           {CATEGORIES.map(c => <option key={c}>{c}</option>)}
                         </select>
                       </td>
                       <td style={{ padding: '8px 14px', minWidth: 140 }}>
-                        <select value={getVal(d, 'fournisseur_id') || ''} onChange={e => editer(d.id, 'fournisseur_id', e.target.value)} style={inStyle}>
+                        <select value={getVal(d, 'fournisseur_id') || ''} onChange={e => editer(d.id, 'fournisseur_id', e.target.value)} style={{ ...cellInput(isEdited), cursor: 'pointer' }}>
                           <option value=''>— Aucun —</option>
                           {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
                         </select>
                       </td>
                       <td style={{ padding: '8px 14px', minWidth: 90 }}>
-                        <input value={getVal(d, 'numero')} onChange={e => editer(d.id, 'numero', e.target.value)} style={{ ...inStyle, width: 90 }} />
+                        <input value={getVal(d, 'numero')} onChange={e => editer(d.id, 'numero', e.target.value)} style={{ ...cellInput(isEdited), width: 90 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <input type="date" value={getVal(d, 'date_facture')} onChange={e => editer(d.id, 'date_facture', e.target.value)} style={{ ...inStyle, width: 130 }} />
+                        <input type="date" value={getVal(d, 'date_facture')} onChange={e => editer(d.id, 'date_facture', e.target.value)} style={{ ...cellInput(isEdited), width: 130 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <input type="date" value={getVal(d, 'date_echeance')} onChange={e => editer(d.id, 'date_echeance', e.target.value)}
-                          style={{ ...inStyle, width: 130, color: d.statut === 'À payer' && d.date_echeance && new Date(d.date_echeance) < new Date() ? '#DC2626' : '#374151' }} />
+                          style={{ ...cellInput(isEdited), width: 130, color: d.statut === 'À payer' && d.date_echeance && new Date(d.date_echeance) < new Date() ? colors.danger : colors.ink }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" min="0" value={getVal(d, 'montant_ht')} onChange={e => editer(d.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600 }} />
+                        <input type="number" min="0" value={getVal(d, 'montant_ht')} onChange={e => editer(d.id, 'montant_ht', e.target.value)}
+                          style={{ ...cellInput(isEdited), width: 90, textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <select value={getVal(d, 'statut')} onChange={e => editer(d.id, 'statut', e.target.value)}
-                          style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer', background: d.statut === 'Payée' ? '#ECFDF5' : '#FFF7ED', color: d.statut === 'Payée' ? '#059669' : '#EA580C' }}>
+                          style={{ ...cellInput(isEdited), cursor: 'pointer', color: d.statut === 'Payée' ? colors.success : colors.warning }}>
                           {STATUTS.map(s => <option key={s}>{s}</option>)}
                         </select>
                         {d.qonto_transaction_id ? (
                           <div title={'Rapproché avec une transaction Qonto (' + (d.qonto_match_confiance === 'exact' ? 'numéro + montant' : 'montant seul') + '), le ' + (d.qonto_matched_at ? new Date(d.qonto_matched_at).toLocaleDateString('fr-FR') : '?')}
-                            style={{ fontSize: 10, marginTop: 4, color: '#2563EB', display: 'flex', alignItems: 'center', gap: 3 }}>
-                            🔗 Qonto{d.qonto_match_confiance === 'montant' ? ' (manuel)' : ''}
+                            style={{ fontSize: 10, marginTop: 4, color: colors.focus }}>
+                            Qonto{d.qonto_match_confiance === 'montant' ? ' (manuel)' : ''}
                           </div>
                         ) : d.statut === 'Payée' ? (
-                          <div style={{ fontSize: 10, marginTop: 4, color: '#9CA3AF' }}>saisi manuellement</div>
+                          <div style={{ fontSize: 10, marginTop: 4, color: colors.inkFaint }}>saisi manuellement</div>
                         ) : null}
                       </td>
-                      <td style={{ padding: '10px 14px' }}>
+                      <td style={{ padding: '8px 14px' }}>
                         {d.fichier_path ? (
-                          <button onClick={() => telechargerFichier(d.fichier_path)}
-                            style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 11 }}>
-                            📎 Voir
-                          </button>
+                          <button onClick={() => telechargerFichier(d.fichier_path)} style={quietLink}>Voir</button>
                         ) : '—'}
                       </td>
-                      <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <td style={{ padding: '8px 0 8px 14px', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
                           {isEdited && (
-                            <button onClick={() => sauvegarder(d)}
-                              style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>✓</button>
+                            <button onClick={() => sauvegarder(d)} style={quietLink}>Enregistrer</button>
                           )}
-                          <button onClick={() => supprimer(d.id)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}>✕</button>
+                          <button onClick={() => supprimer(d.id)} style={quietLink}>Supprimer</button>
                         </div>
                       </td>
                     </tr>
