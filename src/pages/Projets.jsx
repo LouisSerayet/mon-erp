@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt } from '../lib/calculs'
+import { colors, fonts, eyebrow, quietLink, marker, statutProjetMarker } from '../lib/theme'
 
 // 'Brouillon' = devis en préparation (pas encore envoyé) ; 'Perdu' = devis
 // refusé / projet abandonné. Un projet démarre toujours en 'Brouillon' et
@@ -10,15 +11,15 @@ import { fmtEUR as fmt } from '../lib/calculs'
 // ProjetDetail.jsx pour le détail du cycle de vie et le bouton "Marquer perdu".
 const STATUTS = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé', 'Perdu']
 const TAUX_TVA_OPTIONS = [20, 10, 5.5, 0]
-const STATUT_STYLE = {
-  'Brouillon':    { bg: '#F3F4F6', color: '#6B7280', icon: '📝' },
-  'Devis envoyé': { bg: '#FFF7ED', color: '#EA580C', icon: '📤' },
-  'Devis signé':  { bg: '#F5F3FF', color: '#7C3AED', icon: '✍️' },
-  'En cours':     { bg: '#EFF6FF', color: '#2563EB', icon: '🔨' },
-  'Finalisation': { bg: '#ECFDF5', color: '#059669', icon: '✅' },
-  'Clôturé':      { bg: '#F3F4F6', color: '#6B7280', icon: '🏁' },
-  'Perdu':        { bg: '#FEF2F2', color: '#DC2626', icon: '❌' },
+
+const inputUnderline = {
+  width: '100%', padding: '8px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
 }
+const label = { display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }
+const btnPrimary = { background: colors.ink, color: colors.surface, border: 'none', padding: '10px 20px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
+const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px solid ' + colors.line, padding: '10px 18px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
 
 export default function Projets() {
   const [projets, setProjets] = useState([])
@@ -119,135 +120,133 @@ export default function Projets() {
   }
 
   return (
-    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 10, flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Projets</h2>
-        <button onClick={() => { setShowForm(true); setError('') }}
-          style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 40, gap: 14, flexWrap: 'wrap' }}>
+        <div>
+          <p style={eyebrow}>Partenaires Particuliers</p>
+          <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Projets</h1>
+        </div>
+        <button onClick={() => { setShowForm(true); setError('') }} style={btnPrimary}>
           + Nouveau projet
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10, marginBottom: 20 }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, marginBottom: 32, borderBottom: '1px solid ' + colors.line, paddingBottom: 20 }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un projet..."
-          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+          style={{ ...inputUnderline, flex: 2 }} />
         <select value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+          style={{ ...inputUnderline, flex: 1, cursor: 'pointer' }}>
           <option>Tous</option>
           {STATUTS.map(s => <option key={s}>{s}</option>)}
         </select>
         <select value={tri} onChange={e => setTri(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+          style={{ ...inputUnderline, flex: 1, cursor: 'pointer' }}>
           <option value="date">Trier par date</option>
           <option value="statut">Trier par statut</option>
         </select>
       </div>
 
       {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 500, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600 }}>Nouveau projet</h3>
-            <p style={{ margin: '0 0 20px', fontSize: 12, color: '#9CA3AF' }}>Un projet démarre en devis (Brouillon) : tu retrouveras toutes les infos (lignes, rentabilité...) dans sa fiche, avant même qu'il soit signé.</p>
-            {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{error}</div>}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 100, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
+          <div style={{ background: colors.surface, padding: isMobile ? 22 : 32, width: isMobile ? '100%' : 500, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 700 }}>Nouveau projet</h3>
+            <p style={{ margin: '0 0 22px', fontSize: 12, color: colors.inkMuted }}>Un projet démarre en devis (Brouillon) : tu retrouveras toutes les infos (lignes, rentabilité...) dans sa fiche, avant même qu'il soit signé.</p>
+            {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 16, fontSize: 13 }}>{error}</div>}
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Nom du projet *</label>
+            <label style={label}>Nom du projet *</label>
             <input value={form.nom} onChange={e => setForm(p => ({ ...p, nom: e.target.value }))}
               placeholder="Ex: Aménagement bureaux Tour Eiffel"
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+              style={{ ...inputUnderline, marginBottom: 18 }} />
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Client</label>
+            <label style={label}>Client</label>
             <select value={form.client_id} onChange={e => setForm(p => ({ ...p, client_id: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, marginBottom: 14, cursor: 'pointer' }}>
+              style={{ ...inputUnderline, marginBottom: 18, cursor: 'pointer' }}>
               <option value=''>— Aucun —</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
             </select>
 
-            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 18 }}>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date début</label>
+                <label style={label}>Date début</label>
                 <input type="date" value={form.date_debut} onChange={e => setForm(p => ({ ...p, date_debut: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  style={inputUnderline} />
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date fin prévue</label>
+                <label style={label}>Date fin prévue</label>
                 <input type="date" value={form.date_fin_prevue} onChange={e => setForm(p => ({ ...p, date_fin_prevue: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  style={inputUnderline} />
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
+                <label style={label}>Statut</label>
                 <select value={form.statut} onChange={e => setForm(p => ({ ...p, statut: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer', boxSizing: 'border-box' }}>
+                  style={{ ...inputUnderline, cursor: 'pointer' }}>
                   {STATUTS.map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>TVA</label>
+                <label style={label}>TVA</label>
                 <select value={form.taux_tva} onChange={e => setForm(p => ({ ...p, taux_tva: Number(e.target.value) }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer', boxSizing: 'border-box' }}>
+                  style={{ ...inputUnderline, cursor: 'pointer' }}>
                   {TAUX_TVA_OPTIONS.map(t => <option key={t} value={t}>{t === 0 ? 'Non applicable (0%)' : t + ' %'}</option>)}
                 </select>
               </div>
             </div>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowForm(false); setError('') }}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={() => { setShowForm(false); setError('') }} style={btnGhost}>Annuler</button>
               <button onClick={creerProjet} disabled={savingProjet}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingProjet ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingProjet ? 0.7 : 1 }}>{savingProjet ? 'Création...' : 'Créer'}</button>
+                style={{ ...btnPrimary, cursor: savingProjet ? 'default' : 'pointer', opacity: savingProjet ? 0.6 : 1 }}>{savingProjet ? 'Création...' : 'Créer'}</button>
             </div>
           </div>
         </div>
       )}
 
-      {loading ? <div style={{ textAlign: 'center', padding: 40, color: '#9CA3AF' }}>Chargement...</div>
+      {loading ? <div style={{ textAlign: 'center', padding: 60, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
         : filtered.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
-            <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>Aucun projet</div>
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: colors.ink }}>Aucun projet</div>
             <div style={{ fontSize: 13 }}>Crée un projet pour démarrer un devis — il évoluera vers un chantier réel une fois signé</div>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
             {filtered.map((p, i) => {
-              const st = STATUT_STYLE[p.statut] || {}
               // En tri par statut, un petit intitulé au-dessus du premier
               // projet de chaque groupe — sinon le regroupement n'est
-              // visible qu'au badge de statut de chaque ligne, facile à
+              // visible qu'au marqueur de statut de chaque ligne, facile à
               // manquer en survolant vite la liste.
               const nouveauGroupe = tri === 'statut' && (i === 0 || filtered[i - 1].statut !== p.statut)
               return (
                 <div key={p.id}>
                   {nouveauGroupe && (
-                    <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, margin: i === 0 ? '0 0 2px' : '14px 0 2px' }}>
-                      {st.icon} {p.statut}
+                    <div style={{ ...eyebrow, display: 'flex', alignItems: 'center', gap: 8, margin: i === 0 ? '0 0 8px' : '28px 0 8px' }}>
+                      <span style={marker(statutProjetMarker[p.statut])} />{p.statut}
                     </div>
                   )}
-                <div onClick={() => navigate('/projets/' + p.id)}
-                  style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: isMobile ? '14px 16px' : '16px 20px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 16, cursor: 'pointer' }}
-                  onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'}
-                  onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 15, color: '#111827', marginBottom: 3 }}>{p.nom}</div>
-                    <div style={{ fontSize: 12, color: '#9CA3AF' }}>
-                      {p.clients?.nom ? '👤 ' + p.clients.nom : 'Sans client'}
-                      {p.date_debut ? ' · 📅 ' + new Date(p.date_debut).toLocaleDateString('fr-FR') : ''}
-                      {p.date_fin_prevue ? ' → ' + new Date(p.date_fin_prevue).toLocaleDateString('fr-FR') : ''}
+                  <div onClick={() => navigate('/projets/' + p.id)}
+                    style={{ borderTop: '1px solid ' + colors.line, padding: isMobile ? '14px 0' : '16px 0', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 8 : 16, cursor: 'pointer' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 15 }}>{p.nom}</div>
+                      <div style={{ fontSize: 12, color: colors.inkMuted, marginTop: 3 }}>
+                        {p.clients?.nom || 'Sans client'}
+                        {p.date_debut ? ' · ' + new Date(p.date_debut).toLocaleDateString('fr-FR') : ''}
+                        {p.date_fin_prevue ? ' → ' + new Date(p.date_fin_prevue).toLocaleDateString('fr-FR') : ''}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: isMobile ? 'left' : 'right', display: 'flex', flexDirection: isMobile ? 'row-reverse' : 'row', justifyContent: isMobile ? 'space-between' : 'flex-start', alignItems: 'center', gap: 20 }}>
+                      <div>
+                        <div style={{ fontFamily: fonts.mono, fontWeight: 500, fontSize: 15, fontVariantNumeric: 'tabular-nums', marginBottom: 4 }}>{fmt(p.montant_ht)}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted, justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
+                          <span style={marker(statutProjetMarker[p.statut])} />{p.statut}
+                        </div>
+                      </div>
+                      <button onClick={e => supprimerProjet(e, p.id)} style={{ ...quietLink, flexShrink: 0 }}>
+                        Supprimer
+                      </button>
                     </div>
                   </div>
-                  <div style={{ textAlign: isMobile ? 'left' : 'right', display: 'flex', flexDirection: isMobile ? 'row-reverse' : 'row', justifyContent: isMobile ? 'space-between' : 'flex-start', alignItems: 'center', gap: 12 }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 4 }}>{fmt(p.montant_ht)}</div>
-                      <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: st.bg, color: st.color, fontWeight: 500 }}>{st.icon} {p.statut}</span>
-                    </div>
-                    <button onClick={e => supprimerProjet(e, p.id)}
-                      style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>
-                      🗑
-                    </button>
-                  </div>
-                </div>
                 </div>
               )
             })}

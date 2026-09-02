@@ -72,7 +72,20 @@ export const quietLink = {
 }
 
 // Marqueur de statut : petit carré coloré (façon légende de plan) plutôt
-// qu'un badge plein — voir STATUT_MARKER dans Dashboard.jsx pour l'usage.
+// qu'un badge plein.
 export function marker(color) {
   return { width: 7, height: 7, flexShrink: 0, display: 'inline-block', background: color }
+}
+
+// Couleur de statut projet, partagée entre Dashboard, Projets et ProjetDetail
+// pour que le même statut soit toujours identifié par la même couleur,
+// où qu'on le voie dans l'app.
+export const statutProjetMarker = {
+  'Brouillon': colors.inkFaint,
+  'Devis envoyé': colors.warning,
+  'Devis signé': '#5b6f8a',
+  'En cours': colors.focus,
+  'Finalisation': colors.warning,
+  'Clôturé': colors.success,
+  'Perdu': colors.danger,
 }

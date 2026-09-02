@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { calculerMarge, ligneCompteDansTotal, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { getBankAccounts } from '../lib/useQonto'
-import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
+import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 
 // Ordre d'affichage des statuts dans le widget "Vue globale des projets"
 // ci-dessous — reprend exactement STATUTS_PROJET de ProjetDetail.jsx/Projets.jsx.
@@ -15,16 +15,6 @@ const STATUTS_ORDRE = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours',
 // coup d'œil ; les listes simples (Projets actifs, Commandes en attente)
 // restent en texte neutre, la couleur étant réservée à ce qui a vraiment
 // besoin d'attirer l'œil (retard, succès) plutôt qu'à la décoration.
-const STATUT_MARKER = {
-  'Brouillon': colors.inkFaint,
-  'Devis envoyé': colors.warning,
-  'Devis signé': '#5b6f8a',
-  'En cours': colors.focus,
-  'Finalisation': colors.warning,
-  'Clôturé': colors.success,
-  'Perdu': colors.danger,
-}
-
 // Raccourcis de filtrage courants pour le widget — l'utilisateur peut aussi
 // cocher/décocher chaque statut à la main pour composer sa propre vue.
 const PRESETS_STATUTS = [
@@ -514,8 +504,8 @@ export default function Dashboard() {
               const actif = filtreStatutsGlobal.has(s)
               return (
                 <button key={s} onClick={() => toggleStatutGlobal(s)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'none', border: 'none', padding: '0 0 4px', borderBottom: '2px solid ' + (actif ? STATUT_MARKER[s] : 'transparent'), cursor: 'pointer', fontFamily: fonts.display }}>
-                  <span style={marker(STATUT_MARKER[s])} />
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'none', border: 'none', padding: '0 0 4px', borderBottom: '2px solid ' + (actif ? statutProjetMarker[s] : 'transparent'), cursor: 'pointer', fontFamily: fonts.display }}>
+                  <span style={marker(statutProjetMarker[s])} />
                   <span style={{ fontSize: 12.5, color: actif ? colors.ink : colors.inkFaint, fontWeight: actif ? 600 : 400 }}>{s}</span>
                 </button>
               )
@@ -551,7 +541,7 @@ export default function Dashboard() {
                 {breakdownStatuts.map(b => (
                   <tr key={b.statut} style={{ opacity: b.actif ? 1 : 0.4, cursor: 'pointer' }} onClick={() => toggleStatutGlobal(b.statut)}>
                     <td style={{ padding: '10px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={marker(STATUT_MARKER[b.statut])} />{b.statut}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={marker(statutProjetMarker[b.statut])} />{b.statut}</span>
                     </td>
                     <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line }}>{b.nb}</td>
                     <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.ca)}</td>
