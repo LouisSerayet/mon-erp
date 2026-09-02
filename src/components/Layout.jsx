@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { useIsMobile } from '../lib/useIsMobile'
+import { colors, fonts, quietLink } from '../lib/theme'
 
 // Dashboard, Compte de résultat, Trésorerie et Rapprochement n'ont plus
 // d'entrée ici : le logo (desktop) / l'onglet Dashboard (mobile) ouvre
@@ -103,14 +104,14 @@ function ListeResultats({ resultats, onNavigerClient, onNavigerFournisseur, onNa
   return (
     <div>
       {aucun ? (
-        <div style={{ padding: '16px', fontSize: 13, color: '#9CA3AF', textAlign: 'center' }}>Aucun résultat rapide</div>
+        <div style={{ padding: '16px', fontSize: 13, color: colors.inkFaint, textAlign: 'center' }}>Aucun résultat rapide</div>
       ) : (
         GROUPES.map((g, gi) => g.items.map((item, i) => {
           const { label, onClick } = g.rendu(item)
           return (
             <div key={gi + '-' + i} onClick={onClick}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: '#111827' }}
-              onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: colors.ink }}
+              onMouseEnter={e => e.currentTarget.style.background = colors.bg}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
               <span style={{ fontSize: 14, flexShrink: 0 }}>{g.icon}</span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
@@ -119,10 +120,10 @@ function ListeResultats({ resultats, onNavigerClient, onNavigerFournisseur, onNa
         }))
       )}
       <div onClick={onRechercheAvancee}
-        style={{ borderTop: '1px solid #F3F4F6', padding: '10px 14px', fontSize: 12, color: '#2563EB', cursor: 'pointer', textAlign: 'center', fontWeight: 500 }}
-        onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
+        style={{ borderTop: '1px solid ' + colors.line, padding: '10px 14px', fontSize: 12, color: colors.inkMuted, cursor: 'pointer', textAlign: 'center', fontWeight: 500 }}
+        onMouseEnter={e => e.currentTarget.style.background = colors.bg}
         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-        🔎 Recherche avancée →
+        Recherche avancée →
       </div>
     </div>
   )
@@ -159,37 +160,38 @@ export default function Layout() {
   if (isMobile) {
     const linkStyle = ({ isActive }) => ({
       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-      flex: 1, padding: '6px 4px', color: isActive ? '#185FA5' : '#8A8A8A',
+      flex: 1, padding: '6px 4px', color: isActive ? colors.ink : colors.inkFaint,
       textDecoration: 'none', fontSize: 10, fontWeight: isActive ? 600 : 400,
+      fontFamily: fonts.display,
     })
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px', background: '#fff', borderBottom: '1px solid #e5e5e5', flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px', background: colors.surface, borderBottom: '1px solid ' + colors.line, flexShrink: 0 }}>
           <button onClick={() => setRechercheMobileOuverte(true)}
-            style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', padding: 4, color: '#374151' }}>
-            🔍
+            style={{ background: 'none', border: 'none', fontSize: 15, cursor: 'pointer', padding: 4, color: colors.inkMuted, fontFamily: fonts.display }}>
+            Rechercher
           </button>
         </div>
 
-        <main style={{ flex: 1, overflow: 'auto', background: '#f5f5f0', WebkitOverflowScrolling: 'touch' }}>
+        <main style={{ flex: 1, overflow: 'auto', background: colors.bg, WebkitOverflowScrolling: 'touch' }}>
           <Outlet />
         </main>
 
         {rechercheMobileOuverte && (
-          <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 30, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid #E5E7EB', paddingTop: 'calc(10px + env(safe-area-inset-top))' }}>
+          <div style={{ position: 'fixed', inset: 0, background: colors.surface, zIndex: 30, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid ' + colors.line, paddingTop: 'calc(10px + env(safe-area-inset-top))' }}>
               <input autoFocus value={rechercheQ} onChange={e => setRechercheQ(e.target.value)}
                 placeholder="Rechercher un client, projet, facture..."
-                style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 14 }} />
-              <button onClick={fermerRecherche} style={{ background: 'none', border: 'none', fontSize: 15, color: '#6B7280', cursor: 'pointer', padding: 4 }}>Annuler</button>
+                style={{ flex: 1, padding: '8px 2px', background: 'transparent', border: 'none', borderBottom: '1px solid ' + colors.line, fontSize: 14, fontFamily: fonts.display, color: colors.ink }} />
+              <button onClick={fermerRecherche} style={{ background: 'none', border: 'none', fontSize: 14, color: colors.inkMuted, cursor: 'pointer', padding: 4, fontFamily: fonts.display }}>Annuler</button>
             </div>
             <div style={{ flex: 1, overflow: 'auto' }}>
               {rechercheEnCours ? (
-                <div style={{ padding: 16, fontSize: 13, color: '#9CA3AF', textAlign: 'center' }}>Recherche...</div>
+                <div style={{ padding: 16, fontSize: 13, color: colors.inkFaint, textAlign: 'center' }}>Recherche...</div>
               ) : resultats ? (
                 <ListeResultats resultats={resultats} onNavigerClient={allerVersClient} onNavigerFournisseur={allerVersFournisseur} onNavigerProjet={allerVersProjet} onRechercheAvancee={allerVersRechercheAvancee} />
               ) : (
-                <div style={{ padding: 16, fontSize: 13, color: '#9CA3AF', textAlign: 'center' }}>Tape au moins 2 caractères</div>
+                <div style={{ padding: 16, fontSize: 13, color: colors.inkFaint, textAlign: 'center' }}>Tape au moins 2 caractères</div>
               )}
             </div>
           </div>
@@ -197,36 +199,35 @@ export default function Layout() {
 
         {plusOuvert && (
           <div onClick={() => setPlusOuvert(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 20, display: 'flex', alignItems: 'flex-end' }}>
+            style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 20, display: 'flex', alignItems: 'flex-end' }}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: '#fff', width: '100%', borderRadius: '16px 16px 0 0', padding: '10px 0 calc(10px + env(safe-area-inset-bottom))', boxShadow: '0 -4px 24px rgba(0,0,0,0.15)' }}>
-              <div style={{ width: 36, height: 4, borderRadius: 2, background: '#E5E7EB', margin: '4px auto 12px' }} />
+              style={{ background: colors.surface, width: '100%', borderTop: '1px solid ' + colors.line, padding: '4px 0 calc(10px + env(safe-area-inset-bottom))' }}>
               {NAV_MOBILE_PLUS.map((n, i) => n.section ? (
-                <div key={i} style={{ fontSize: 11, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '14px 20px 4px', fontWeight: 500 }}>{n.section}</div>
+                <div key={i} style={{ fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '14px 20px 4px', fontWeight: 600 }}>{n.section}</div>
               ) : (
                 <NavLink key={i} to={n.to} state={n.state} onClick={() => setPlusOuvert(false)}
                   style={({ isActive }) => ({
                     display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px',
-                    fontSize: 15, color: (isActive && !n.state) ? '#185FA5' : '#1a1a1a', textDecoration: 'none',
-                    fontWeight: (isActive && !n.state) ? 600 : 400,
+                    fontSize: 15, color: (isActive && !n.state) ? colors.ink : colors.inkMuted, textDecoration: 'none',
+                    fontWeight: (isActive && !n.state) ? 600 : 400, fontFamily: fonts.display,
                   })}>
                   {n.label}
                 </NavLink>
               ))}
-              <div style={{ borderTop: '1px solid #F3F4F6', margin: '8px 0' }} />
+              <div style={{ borderTop: '1px solid ' + colors.line, margin: '8px 0' }} />
               {session?.user?.email && (
-                <div style={{ padding: '6px 20px', fontSize: 12, color: '#9CA3AF' }}>{session.user.email}</div>
+                <div style={{ padding: '6px 20px', fontSize: 12, color: colors.inkFaint }}>{session.user.email}</div>
               )}
               <button onClick={logout}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '13px 20px', fontSize: 15, color: '#DC2626', background: 'none', border: 'none' }}>
-                <span style={{ fontSize: 18 }}>↩</span>Se déconnecter
+                style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '13px 20px', fontSize: 15, color: colors.inkMuted, background: 'none', border: 'none', fontFamily: fonts.display }}>
+                Se déconnecter
               </button>
             </div>
           </div>
         )}
 
         <nav style={{
-          display: 'flex', background: '#fff', borderTop: '1px solid #e5e5e5',
+          display: 'flex', background: colors.surface, borderTop: '1px solid ' + colors.line,
           paddingBottom: 'env(safe-area-inset-bottom)', flexShrink: 0,
         }}>
           {NAV_MOBILE_PRINCIPALE.map((n, i) => (
@@ -235,8 +236,8 @@ export default function Layout() {
             </NavLink>
           ))}
           <button onClick={() => setPlusOuvert(true)}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flex: 1, padding: '6px 4px', background: 'none', border: 'none', color: plusOuvert ? '#185FA5' : '#8A8A8A', fontSize: 10, fontWeight: plusOuvert ? 600 : 400 }}>
-            <span style={{ fontSize: 20 }}>⋯</span>Plus
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flex: 1, padding: '6px 4px', background: 'none', border: 'none', color: plusOuvert ? colors.ink : colors.inkFaint, fontSize: 10, fontWeight: plusOuvert ? 600 : 400, fontFamily: fonts.display }}>
+            Plus
           </button>
         </nav>
       </div>
@@ -245,12 +246,12 @@ export default function Layout() {
 
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
-      <aside style={{ width: 210, background: '#fff', borderRight: '1px solid #e5e5e5', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-        <div onClick={() => navigate('/dashboard')} style={{ padding: '18px 16px', borderBottom: '1px solid #e5e5e5', cursor: 'pointer' }}
-          onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
-          onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+      <aside style={{ width: 210, background: colors.surface, borderRight: '1px solid ' + colors.line, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <div onClick={() => navigate('/dashboard')} style={{ padding: '18px 16px', borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}
+          onMouseEnter={e => e.currentTarget.style.background = colors.bg}
+          onMouseLeave={e => e.currentTarget.style.background = colors.surface}>
           <img src="/logo-pp.png" alt="Partenaires Particuliers" style={{ height: 30, width: 'auto', display: 'block' }} />
-          <div style={{ fontSize: 10, color: '#aaa', letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: 4 }}>Partenaires Particuliers</div>
+          <div style={{ fontSize: 10, color: colors.inkFaint, letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: 4 }}>Partenaires Particuliers</div>
         </div>
 
         {/* Recherche globale */}
@@ -259,12 +260,12 @@ export default function Layout() {
             onChange={e => setRechercheQ(e.target.value)}
             onFocus={() => setRechercheOuverte(true)}
             onBlur={() => setTimeout(() => setRechercheOuverte(false), 150)}
-            placeholder="🔍 Rechercher..."
-            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 12, boxSizing: 'border-box' }} />
+            placeholder="Rechercher..."
+            style={{ width: '100%', padding: '7px 2px', background: 'transparent', border: 'none', borderBottom: '1px solid ' + colors.line, fontSize: 12, boxSizing: 'border-box', fontFamily: fonts.display, color: colors.ink }} />
           {rechercheOuverte && rechercheQ.trim().length >= 2 && (
-            <div style={{ position: 'absolute', top: '100%', left: 10, right: 10, marginTop: 4, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 50, maxHeight: 320, overflow: 'auto' }}>
+            <div style={{ position: 'absolute', top: '100%', left: 10, right: 10, marginTop: 4, background: colors.surface, border: '1px solid ' + colors.line, zIndex: 50, maxHeight: 320, overflow: 'auto' }}>
               {rechercheEnCours ? (
-                <div style={{ padding: 16, fontSize: 13, color: '#9CA3AF', textAlign: 'center' }}>Recherche...</div>
+                <div style={{ padding: 16, fontSize: 13, color: colors.inkFaint, textAlign: 'center' }}>Recherche...</div>
               ) : resultats ? (
                 <ListeResultats resultats={resultats} onNavigerClient={allerVersClient} onNavigerFournisseur={allerVersFournisseur} onNavigerProjet={allerVersProjet} onRechercheAvancee={allerVersRechercheAvancee} />
               ) : null}
@@ -274,33 +275,33 @@ export default function Layout() {
 
         <nav style={{ padding: '8px', flex: 1, overflow: 'auto' }}>
           {nav.map((n, i) => n.section ? (
-            <div key={i} style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '16px 10px 4px', fontWeight: 500 }}>{n.section}</div>
+            <div key={i} style={{ fontSize: 10, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '16px 10px 4px', fontWeight: 600 }}>{n.section}</div>
           ) : (
             <NavLink key={i} to={n.to} state={n.state}
               style={({ isActive }) => ({
                 display: 'flex', alignItems: 'center', gap: 8,
-                padding: '8px 10px', borderRadius: 6, fontSize: 13,
-                marginBottom: 1, color: (isActive && !n.state) ? '#185FA5' : '#555',
-                background: (isActive && !n.state) ? '#E6F1FB' : 'transparent',
-                fontWeight: (isActive && !n.state) ? 500 : 400, textDecoration: 'none'
+                padding: '7px 10px 7px 8px', fontSize: 13,
+                marginBottom: 1, color: (isActive && !n.state) ? colors.ink : colors.inkMuted,
+                borderLeft: (isActive && !n.state) ? '2px solid ' + colors.ink : '2px solid transparent',
+                fontWeight: (isActive && !n.state) ? 600 : 400, textDecoration: 'none'
               })}>
               {n.label}
             </NavLink>
           ))}
         </nav>
-        <div style={{ padding: '12px 16px', borderTop: '1px solid #e5e5e5' }}>
+        <div style={{ padding: '12px 16px', borderTop: '1px solid ' + colors.line }}>
           {session?.user?.email && (
-            <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={session.user.email}>
+            <div style={{ fontSize: 11, color: colors.inkFaint, marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={session.user.email}>
               {session.user.email}
             </div>
           )}
-          <button onClick={logout} style={{ fontSize: 11, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 6 }}>
-            ↩ Se déconnecter
+          <button onClick={logout} style={{ ...quietLink, fontSize: 11, padding: 0, marginBottom: 6, display: 'inline-block' }}>
+            Se déconnecter
           </button>
-          <div style={{ fontSize: 11, color: '#ccc' }}>v2.0 · 2026</div>
+          <div style={{ fontSize: 11, color: colors.inkFaint }}>v2.0 · 2026</div>
         </div>
       </aside>
-      <main style={{ flex: 1, overflow: 'auto', background: '#f5f5f0' }}>
+      <main style={{ flex: 1, overflow: 'auto', background: colors.bg }}>
         <Outlet />
       </main>
     </div>
