@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { colors, fonts, eyebrow, marker } from '../lib/theme'
 
 // Historique des modifications — lecture seule de la table audit_log,
 // alimentée par un trigger Postgres générique (voir
@@ -19,11 +20,17 @@ const TABLE_LABELS = {
 }
 
 const ACTION_STYLE = {
-  CREATION: { label: 'Création', bg: '#F0FDF4', color: '#059669', icon: '＋' },
-  MODIFICATION: { label: 'Modification', bg: '#EFF6FF', color: '#2563EB', icon: '✏️' },
-  SUPPRESSION: { label: 'Suppression', bg: '#FFF7ED', color: '#EA580C', icon: '🗑' },
-  RESTAURATION: { label: 'Restauration', bg: '#F5F3FF', color: '#7C3AED', icon: '↺' },
-  SUPPRESSION_DEFINITIVE: { label: 'Suppression définitive', bg: '#FEF2F2', color: '#DC2626', icon: '⛔' },
+  CREATION: { label: 'Création', color: colors.success },
+  MODIFICATION: { label: 'Modification', color: colors.focus },
+  SUPPRESSION: { label: 'Suppression', color: colors.warning },
+  RESTAURATION: { label: 'Restauration', color: '#7c4a8e' },
+  SUPPRESSION_DEFINITIVE: { label: 'Suppression définitive', color: colors.danger },
+}
+
+const inputUnderline = {
+  padding: '8px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
 }
 
 // Champs utilisés pour identifier une ligne dans l'historique (le premier
@@ -71,49 +78,47 @@ export default function Historique() {
   const fmtDate = d => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
   return (
-    <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>🕓 Historique des modifications</h2>
-        <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>Les 200 dernières actions sur les projets, factures, commandes, clients et fournisseurs.</div>
-      </div>
+    <div style={{ padding: '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
+      <p style={eyebrow}>Partenaires Particuliers</p>
+      <h1 style={{ margin: '14px 0 0', fontSize: 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Historique des modifications</h1>
+      <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Les 200 dernières actions sur les projets, factures, commandes, clients et fournisseurs.</p>
 
       <select value={filtreTable} onChange={e => setFiltreTable(e.target.value)}
-        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
+        style={{ ...inputUnderline, cursor: 'pointer', margin: '32px 0 28px' }}>
         <option>Toutes</option>
         {Object.entries(TABLE_LABELS).map(([table, label]) => <option key={table} value={table}>{label}</option>)}
       </select>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: '#9CA3AF' }}>Chargement...</div>
+        <div style={{ textAlign: 'center', padding: 60, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>🕓</div>
-          <div style={{ fontSize: 15, fontWeight: 500 }}>Aucune activité enregistrée</div>
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: colors.ink }}>Aucune activité enregistrée</div>
         </div>
       ) : (
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-          {filtered.map((e, i) => {
-            const style = ACTION_STYLE[e.action] || { label: e.action, bg: '#F9FAFB', color: '#6B7280', icon: '•' }
+        <div style={{ borderTop: '1px solid ' + colors.line }}>
+          {filtered.map(e => {
+            const style = ACTION_STYLE[e.action] || { label: e.action, color: colors.inkFaint }
             const row = e.action === 'SUPPRESSION_DEFINITIVE' || e.action === 'CREATION' ? e.diff : e.diff?.apres
             const nom = identifiant(row) || identifiant(e.diff?.avant)
             const diffs = e.action === 'MODIFICATION' ? champsModifies(e.diff?.avant, e.diff?.apres) : []
             return (
-              <div key={e.id} style={{ padding: '12px 18px', borderBottom: i < filtered.length - 1 ? '1px solid #F3F4F6' : 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: style.bg, color: style.color, fontWeight: 600, flexShrink: 0 }}>
-                    {style.icon} {style.label}
+              <div key={e.id} style={{ padding: '12px 0', borderBottom: '1px solid ' + colors.line }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.ink, fontWeight: 600, flexShrink: 0 }}>
+                    <span style={marker(style.color)} />{style.label}
                   </span>
-                  <span style={{ fontSize: 12, color: '#9CA3AF' }}>{TABLE_LABELS[e.table_name] || e.table_name}</span>
-                  {nom && <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{nom}</span>}
+                  <span style={{ fontSize: 12, color: colors.inkFaint }}>{TABLE_LABELS[e.table_name] || e.table_name}</span>
+                  {nom && <span style={{ fontSize: 13, fontWeight: 600 }}>{nom}</span>}
                   <span style={{ flex: 1 }} />
-                  <span style={{ fontSize: 11, color: '#9CA3AF' }}>{e.changed_by}</span>
-                  <span style={{ fontSize: 11, color: '#9CA3AF' }}>{fmtDate(e.changed_at)}</span>
+                  <span style={{ fontSize: 11, color: colors.inkFaint }}>{e.changed_by}</span>
+                  <span style={{ fontSize: 11, color: colors.inkFaint }}>{fmtDate(e.changed_at)}</span>
                 </div>
                 {diffs.length > 0 && (
-                  <div style={{ marginTop: 6, marginLeft: 4, fontSize: 12, color: '#6B7280' }}>
+                  <div style={{ marginTop: 8, marginLeft: 13, fontSize: 12, color: colors.inkMuted }}>
                     {diffs.slice(0, 5).map(([champ, avant, apres]) => (
                       <div key={champ}>
-                        <span style={{ fontWeight: 500 }}>{champ}</span> : {String(avant ?? '—')} → <span style={{ color: '#111827', fontWeight: 500 }}>{String(apres ?? '—')}</span>
+                        <span style={{ fontWeight: 500 }}>{champ}</span> : {String(avant ?? '—')} → <span style={{ color: colors.ink, fontWeight: 500 }}>{String(apres ?? '—')}</span>
                       </div>
                     ))}
                   </div>

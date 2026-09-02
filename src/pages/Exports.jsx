@@ -2,6 +2,7 @@ import { useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
+import { colors, fonts, eyebrow, quietLink } from '../lib/theme'
 
 // Exports Excel pour la comptabilité — factures clients, factures
 // fournisseurs et commandes, tous projets confondus, avec un filtre de
@@ -15,6 +16,12 @@ function telechargerExcel(lignes, feuille, fichier) {
 }
 
 const fmtDateFr = d => d ? new Date(d).toLocaleDateString('fr-FR') : ''
+
+const inputUnderline = {
+  padding: '7px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
+}
 
 export default function Exports() {
   const isMobile = useIsMobile()
@@ -102,42 +109,37 @@ export default function Exports() {
   }
 
   const CARTES = [
-    { key: 'facturesCli', label: 'Factures clients', icon: '💶', action: exporterFacturesCli, color: '#059669', bg: '#F0FDF4', border: '#BBF7D0' },
-    { key: 'facturesFrs', label: 'Factures fournisseurs', icon: '📄', action: exporterFacturesFrs, color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' },
-    { key: 'commandes', label: 'Commandes', icon: '🛒', action: exporterCommandes, color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
+    { key: 'facturesCli', label: 'Factures clients', action: exporterFacturesCli },
+    { key: 'facturesFrs', label: 'Factures fournisseurs', action: exporterFacturesFrs },
+    { key: 'commandes', label: 'Commandes', action: exporterCommandes },
   ]
 
   return (
-    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>📤 Exports</h2>
-        <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>Exporte les données en Excel, prêtes à transmettre à ta comptabilité.</div>
-      </div>
+    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
+      <p style={eyebrow}>Partenaires Particuliers</p>
+      <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Exports</h1>
+      <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Exporte les données en Excel, prêtes à transmettre à ta comptabilité.</p>
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: 16, marginBottom: 20, display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 16, alignItems: isMobile ? 'stretch' : 'flex-end' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, alignItems: isMobile ? 'stretch' : 'flex-end', margin: '32px 0', paddingBottom: 24, borderBottom: '1px solid ' + colors.line }}>
         <div>
-          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Du (optionnel)</label>
-          <input type="date" value={du} onChange={e => setDu(e.target.value)}
-            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
+          <label style={{ display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Du (optionnel)</label>
+          <input type="date" value={du} onChange={e => setDu(e.target.value)} style={inputUnderline} />
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Au (optionnel)</label>
-          <input type="date" value={au} onChange={e => setAu(e.target.value)}
-            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }} />
+          <label style={{ display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Au (optionnel)</label>
+          <input type="date" value={au} onChange={e => setAu(e.target.value)} style={inputUnderline} />
         </div>
-        <div style={{ fontSize: 12, color: '#9CA3AF' }}>Laisse vide pour tout exporter, quelle que soit la date.</div>
+        <div style={{ fontSize: 12, color: colors.inkFaint }}>Laisse vide pour tout exporter, quelle que soit la date.</div>
       </div>
 
-      {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{error}</div>}
+      {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', marginBottom: 24, fontSize: 13 }}>{error}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 14 }}>
-        {CARTES.map(c => (
-          <div key={c.key} style={{ background: c.bg, border: '1px solid ' + c.border, borderRadius: 12, padding: 20 }}>
-            <div style={{ fontSize: 24, marginBottom: 8 }}>{c.icon}</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 12 }}>{c.label}</div>
-            <button onClick={c.action} disabled={busy === c.key}
-              style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: c.color, color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-              {busy === c.key ? '⏳ Export...' : '⬇ Exporter en Excel'}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)' }}>
+        {CARTES.map((c, i) => (
+          <div key={c.key} style={{ padding: isMobile ? '20px 0' : '0 28px', borderLeft: (!isMobile && i > 0) ? '1px solid ' + colors.line : 'none', borderTop: (isMobile && i > 0) ? '1px solid ' + colors.line : 'none' }}>
+            <div style={eyebrow}>{c.label}</div>
+            <button onClick={c.action} disabled={busy === c.key} style={{ ...quietLink, display: 'inline-block', marginTop: 14 }}>
+              {busy === c.key ? 'Export...' : 'Exporter en Excel'}
             </button>
           </div>
         ))}
