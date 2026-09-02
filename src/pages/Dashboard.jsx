@@ -4,10 +4,26 @@ import { useNavigate } from 'react-router-dom'
 import { calculerMarge, ligneCompteDansTotal, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { getBankAccounts } from '../lib/useQonto'
+import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 
 // Ordre d'affichage des statuts dans le widget "Vue globale des projets"
 // ci-dessous — reprend exactement STATUTS_PROJET de ProjetDetail.jsx/Projets.jsx.
 const STATUTS_ORDRE = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé', 'Perdu']
+
+// Repère de couleur par statut — utilisé uniquement dans les vues d'analyse
+// (tableau de répartition ci-dessous) pour différencier les statuts d'un
+// coup d'œil ; les listes simples (Projets actifs, Commandes en attente)
+// restent en texte neutre, la couleur étant réservée à ce qui a vraiment
+// besoin d'attirer l'œil (retard, succès) plutôt qu'à la décoration.
+const STATUT_MARKER = {
+  'Brouillon': colors.inkFaint,
+  'Devis envoyé': colors.warning,
+  'Devis signé': '#5b6f8a',
+  'En cours': colors.focus,
+  'Finalisation': colors.warning,
+  'Clôturé': colors.success,
+  'Perdu': colors.danger,
+}
 
 // Raccourcis de filtrage courants pour le widget — l'utilisateur peut aussi
 // cocher/décocher chaque statut à la main pour composer sa propre vue.
@@ -293,17 +309,7 @@ export default function Dashboard() {
     })
   }
 
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Chargement...</div>
-
-  const STATUT_STYLE = {
-    'Brouillon': { bg: '#F3F4F6', color: '#6B7280' },
-    'Devis envoyé': { bg: '#FFF7ED', color: '#EA580C' },
-    'Devis signé': { bg: '#F5F3FF', color: '#7C3AED' },
-    'En cours': { bg: '#EFF6FF', color: '#2563EB' },
-    'Finalisation': { bg: '#FFF7ED', color: '#EA580C' },
-    'Clôturé': { bg: '#F0FDF4', color: '#059669' },
-    'Perdu': { bg: '#FEF2F2', color: '#DC2626' },
-  }
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: colors.inkFaint, fontFamily: fonts.display }}>Chargement...</div>
 
   // Widget "Vue globale des projets" : totaux du périmètre actuellement
   // sélectionné (statuts cochés × base de coût prévu/engagé), + détail par
@@ -321,88 +327,78 @@ export default function Dashboard() {
   }).filter(b => b.nb > 0)
 
   return (
-    <div style={{ padding: 24, fontFamily: 'Inter, sans-serif' }}>
+    <div style={{ padding: '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Tableau de bord</h1>
-        <p style={{ color: '#9CA3AF', fontSize: 13, marginTop: 4 }}>
-          {new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-        </p>
-      </div>
+      <p style={eyebrow}>Partenaires Particuliers</p>
+      <h1 style={{ margin: '14px 0 0', fontSize: 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Tableau de bord</h1>
+      <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0', textTransform: 'capitalize' }}>
+        {new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+      </p>
 
       {/* Solde bancaire (Qonto) + Compte de résultat — mini-widgets cliquables
           vers Trésorerie/Rapprochement et Compte de résultat, seules portes
           d'entrée vers ces pages maintenant qu'elles n'ont plus d'onglet
           dans le menu (voir Layout.jsx). */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-        <div onClick={() => navigate('/tresorerie')}
-          style={{ background: '#1E293B', borderRadius: 12, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, cursor: 'pointer' }}
-          onMouseEnter={e => e.currentTarget.style.background = '#25324a'}
-          onMouseLeave={e => e.currentTarget.style.background = '#1E293B'}>
-          <div>
-            <div style={{ fontSize: 11, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>💳 Solde bancaire (Qonto)</div>
-            {loadingSoldeQonto ? (
-              <div style={{ fontSize: 13, color: '#94A3B8' }}>⏳ Chargement...</div>
-            ) : soldeQontoError ? (
-              <div style={{ fontSize: 12, color: '#FCA5A5' }} title={soldeQontoError}>⚠️ Indisponible — {soldeQontoError}</div>
-            ) : (
-              <div style={{ fontSize: 24, fontWeight: 800, color: '#fff' }}>{fmt(soldeQonto / 100)}</div>
-            )}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
-            <span style={{ fontSize: 12, color: '#93C5FD', fontWeight: 500 }}>Voir la trésorerie →</span>
-            <span onClick={e => { e.stopPropagation(); navigate('/rapprochement') }}
-              style={{ fontSize: 11, color: '#CBD5E1', fontWeight: 500 }}
-              onMouseEnter={e => e.currentTarget.style.color = '#fff'}
-              onMouseLeave={e => e.currentTarget.style.color = '#CBD5E1'}>
-              🔗 Rapprocher →
-            </span>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', marginTop: 44 }}>
+        <div onClick={() => navigate('/tresorerie')} style={{ padding: '26px 32px 26px 0', cursor: 'pointer' }}>
+          <div style={{ ...eyebrow, marginBottom: 14 }}>Solde bancaire — Qonto</div>
+          {loadingSoldeQonto ? (
+            <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
+          ) : soldeQontoError ? (
+            <div style={{ fontSize: 12, color: colors.danger }} title={soldeQontoError}>Indisponible — {soldeQontoError}</div>
+          ) : (
+            <div style={{ fontFamily: fonts.mono, fontSize: 34, fontWeight: 500, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{fmt(soldeQonto / 100)}</div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+            <a style={quietLink}>Voir la trésorerie</a>
+            <a onClick={e => { e.stopPropagation(); navigate('/rapprochement') }} style={quietLink}>Rapprocher</a>
           </div>
         </div>
 
-        <div onClick={() => navigate('/resultat')}
-          style={{ background: '#1E293B', borderRadius: 12, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, cursor: 'pointer' }}
-          onMouseEnter={e => e.currentTarget.style.background = '#25324a'}
-          onMouseLeave={e => e.currentTarget.style.background = '#1E293B'}>
-          <div>
-            <div style={{ fontSize: 11, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>🧾 Compte de résultat {new Date().getFullYear()}</div>
-            {loadingResultat ? (
-              <div style={{ fontSize: 13, color: '#94A3B8' }}>⏳ Chargement...</div>
-            ) : resultatError ? (
-              <div style={{ fontSize: 12, color: '#FCA5A5' }} title={resultatError}>⚠️ Indisponible — {resultatError}</div>
-            ) : (
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontSize: 10, color: '#64748B' }}>CA HT</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{fmt(resultatAnnee.totalCA)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: '#64748B' }}>Marge brute</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: resultatAnnee.margeBrute >= 0 ? '#6EE7B7' : '#FCA5A5' }}>{fmt(resultatAnnee.margeBrute)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: '#64748B' }}>Résultat net</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: resultatAnnee.resultatNet >= 0 ? '#6EE7B7' : '#FCA5A5' }}>{fmt(resultatAnnee.resultatNet)}</div>
-                </div>
+        <div onClick={() => navigate('/resultat')} style={{ padding: '26px 0 26px 32px', borderLeft: '1px solid ' + colors.line, cursor: 'pointer' }}>
+          <div style={{ ...eyebrow, marginBottom: 14 }}>Compte de résultat — {new Date().getFullYear()}</div>
+          {loadingResultat ? (
+            <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
+          ) : resultatError ? (
+            <div style={{ fontSize: 12, color: colors.danger }} title={resultatError}>Indisponible — {resultatError}</div>
+          ) : (
+            <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontFamily: fonts.mono, fontSize: 21, fontVariantNumeric: 'tabular-nums' }}>{fmt(resultatAnnee.totalCA)}</div>
+                <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>CA HT</div>
               </div>
-            )}
+              <div>
+                <div style={{ fontFamily: fonts.mono, fontSize: 21, fontVariantNumeric: 'tabular-nums', color: resultatAnnee.margeBrute >= 0 ? colors.success : colors.danger }}>{fmt(resultatAnnee.margeBrute)}</div>
+                <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>Marge brute</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: fonts.mono, fontSize: 21, fontVariantNumeric: 'tabular-nums', color: resultatAnnee.resultatNet >= 0 ? colors.success : colors.danger }}>{fmt(resultatAnnee.resultatNet)}</div>
+                <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>Résultat net</div>
+              </div>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <a style={quietLink}>Voir le détail</a>
           </div>
-          <span style={{ fontSize: 12, color: '#93C5FD', fontWeight: 500, flexShrink: 0 }}>Voir le détail →</span>
         </div>
       </div>
 
       {/* Alertes */}
-      {stats.nbFfrsEnRetard > 0 && (
-        <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 20, alignItems: 'center' }}>
-          <span style={{ fontSize: 16 }}>⚠️</span>
-          <span style={{ fontSize: 13, color: '#DC2626', fontWeight: 500 }}>{stats.nbFfrsEnRetard} facture(s) fournisseur en retard — voir "Factures frs à payer" ci-dessous</span>
-        </div>
-      )}
-
-      {stats.nbDepEnRetard > 0 && (
-        <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 20, alignItems: 'center' }}>
-          <span style={{ fontSize: 16 }}>⚠️</span>
-          <span style={{ fontSize: 13, color: '#DC2626', fontWeight: 500 }}>{stats.nbDepEnRetard} dépense(s) générale(s) en retard — voir "Dépenses à payer" ci-dessous</span>
+      {(stats.nbFfrsEnRetard > 0 || stats.nbDepEnRetard > 0) && (
+        <div style={{ marginTop: 8 }}>
+          {stats.nbFfrsEnRetard > 0 && (
+            <div style={{ borderTop: '1px solid ' + colors.line, padding: '14px 0', display: 'flex', gap: 14, alignItems: 'baseline', fontSize: 13 }}>
+              <span style={{ ...marker(colors.danger), marginTop: 5 }} />
+              <span>{stats.nbFfrsEnRetard} facture(s) fournisseur en retard <span style={{ color: colors.inkMuted }}>— voir « Factures frs. à payer » ci-dessous</span></span>
+            </div>
+          )}
+          {stats.nbDepEnRetard > 0 && (
+            <div style={{ borderTop: '1px solid ' + colors.line, borderBottom: stats.nbFfrsEnRetard ? 'none' : '1px solid ' + colors.line, padding: '14px 0', display: 'flex', gap: 14, alignItems: 'baseline', fontSize: 13 }}>
+              <span style={{ ...marker(colors.warning), marginTop: 5 }} />
+              <span>{stats.nbDepEnRetard} dépense(s) générale(s) en retard <span style={{ color: colors.inkMuted }}>— voir « Dépenses à payer » ci-dessous</span></span>
+            </div>
+          )}
+          <div style={{ borderBottom: '1px solid ' + colors.line }} />
         </div>
       )}
 
@@ -410,39 +406,38 @@ export default function Dashboard() {
           envoyerRelanceDepuisModal(). L'email ne part jamais tant qu'on n'a
           pas validé son contenu ici. */}
       {modalRelance && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>Relance par email</h3>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: colors.surface, padding: 32, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
+            <h3 style={{ margin: '0 0 22px', fontSize: 16, fontWeight: 600 }}>Relance par email</h3>
 
             {modalRelanceError && (
-              <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+              <div style={{ background: colors.dangerBg, color: colors.danger, padding: '8px 12px', marginBottom: 14, fontSize: 13 }}>
                 {modalRelanceError}
               </div>
             )}
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>À</label>
+            <label style={{ display: 'block', fontSize: 11, color: colors.inkMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.06em' }}>À</label>
             <input value={modalRelance.to} onChange={e => setModalRelance(p => ({ ...p, to: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+              style={{ width: '100%', padding: '9px 0', border: 'none', borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box', marginBottom: 18, fontFamily: fonts.display, background: 'transparent' }} />
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Objet</label>
+            <label style={{ display: 'block', fontSize: 11, color: colors.inkMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.06em' }}>Objet</label>
             <input value={modalRelance.subject} onChange={e => setModalRelance(p => ({ ...p, subject: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+              style={{ width: '100%', padding: '9px 0', border: 'none', borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box', marginBottom: 18, fontFamily: fonts.display, background: 'transparent' }} />
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Message</label>
+            <label style={{ display: 'block', fontSize: 11, color: colors.inkMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.06em' }}>Message</label>
             <textarea value={modalRelance.body} onChange={e => setModalRelance(p => ({ ...p, body: e.target.value }))} rows={9}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 20, fontFamily: 'inherit', resize: 'vertical' }} />
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box', marginBottom: 22, fontFamily: 'inherit', resize: 'vertical', background: 'transparent' }} />
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
-              <button onClick={creerBrouillonDepuisModal} disabled={modalRelanceBusy || modalRelanceDraftBusy || !modalRelance.to}
-                style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}>
-                {modalRelanceDraftBusy ? '⏳ Création du brouillon...' : 'ou créer un brouillon dans Outlook'}
+              <button onClick={creerBrouillonDepuisModal} disabled={modalRelanceBusy || modalRelanceDraftBusy || !modalRelance.to} style={{ ...quietLink, fontSize: 12 }}>
+                {modalRelanceDraftBusy ? 'Création du brouillon...' : 'ou créer un brouillon dans Outlook'}
               </button>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => setModalRelance(null)} disabled={modalRelanceBusy}
-                  style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                  style={{ padding: '9px 18px', border: '1px solid ' + colors.line, background: 'transparent', cursor: 'pointer', fontSize: 13, fontFamily: fonts.display, color: colors.ink }}>Annuler</button>
                 <button onClick={envoyerRelanceDepuisModal} disabled={modalRelanceBusy || modalRelanceDraftBusy || !modalRelance.to}
-                  style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                  {modalRelanceBusy ? '⏳ Envoi...' : '✉️ Envoyer'}
+                  style={{ padding: '9px 20px', border: 'none', background: colors.ink, color: colors.surface, cursor: 'pointer', fontWeight: 500, fontSize: 13, fontFamily: fonts.display }}>
+                  {modalRelanceBusy ? 'Envoi...' : 'Envoyer'}
                 </button>
               </div>
             </div>
@@ -453,34 +448,33 @@ export default function Dashboard() {
       {/* Relances à faire — factures clients en retard ; le bouton ouvre un
           aperçu/édition avant tout envoi (voir modale ci-dessus). */}
       {relances.length > 0 && (
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #FCA5A5', overflow: 'hidden', marginBottom: 24 }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #FEE2E2', background: '#FEF2F2', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#991B1B' }}>⚠️ Relances à faire · {relances.length} facture(s) client en retard</span>
+        <div style={{ marginTop: 48 }}>
+          <div style={{ ...sectionTitle, marginBottom: 18, color: colors.danger }}>
+            Relances à faire <span style={{ color: colors.inkFaint, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— {relances.length} facture(s) client en retard</span>
           </div>
-          <div>
-            {relances.map((f, i) => {
+          <div style={{ borderTop: '1px solid ' + colors.line }}>
+            {relances.map(f => {
               const joursRetard = f.date_echeance ? Math.floor((new Date() - new Date(f.date_echeance)) / 86400000) : null
               return (
-                <div key={f.id} style={{ padding: '12px 18px', borderBottom: i < relances.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div key={f.id} style={{ borderLeft: '2px solid ' + colors.danger, paddingLeft: 14, marginLeft: -16, borderBottom: '1px solid ' + colors.line, padding: '13px 0 13px 14px', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
                   <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_cli', focusId: f.id } })}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#111827' }}>{f.clients?.nom || 'Client inconnu'} · {f.numero}</div>
-                    <div style={{ fontSize: 11, color: '#DC2626' }}>
+                    <div style={{ fontWeight: 500, fontSize: 13.5 }}>{f.clients?.nom || 'Client inconnu'} · {f.numero}</div>
+                    <div style={{ fontSize: 11.5, color: colors.danger, marginTop: 2 }}>
                       {f.projets?.nom ? f.projets.nom + ' · ' : ''}Échue depuis {joursRetard} jour(s) ({fmtDate(f.date_echeance)})
                     </div>
                   </div>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: '#DC2626', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
-                  {f.clients?.email ? (
-                    envoiRelance[f.id] === 'envoye' ? (
-                      <span style={{ fontSize: 12, color: '#059669', fontWeight: 500, flexShrink: 0 }}>✓ Envoyé</span>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontFamily: fonts.mono, fontSize: 13.5, fontVariantNumeric: 'tabular-nums', color: colors.danger }}>{fmt(f.montant_ht)}</div>
+                    {f.clients?.email ? (
+                      envoiRelance[f.id] === 'envoye' ? (
+                        <span style={{ fontSize: 11, color: colors.success, fontWeight: 500 }}>Envoyé</span>
+                      ) : (
+                        <a onClick={() => ouvrirRelance(f)} style={{ ...quietLink, fontSize: 11 }}>Relancer</a>
+                      )
                     ) : (
-                      <button onClick={() => ouvrirRelance(f)}
-                        style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
-                        ✉️ Relancer
-                      </button>
-                    )
-                  ) : (
-                    <span style={{ fontSize: 11, color: '#9CA3AF', flexShrink: 0 }} title="Aucun email renseigné pour ce client">— pas d'email</span>
-                  )}
+                      <span style={{ fontSize: 11, color: colors.inkFaint }} title="Aucun email renseigné pour ce client">pas d'email</span>
+                    )}
+                  </div>
                 </div>
               )
             })}
@@ -492,279 +486,253 @@ export default function Dashboard() {
           librement) + choix de la base de coût (devis prévu / commandes
           engagées), pour composer soi-même la vue voulue : prévisionnel,
           signés & actifs, clôturés, etc. */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>🔍 Vue globale des projets</span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {[{ key: 'prevu', label: '📐 Coût prévu (devis)' }, { key: 'engage', label: '🛒 Coût engagé (commandes)' }].map(b => (
+      <div style={{ marginTop: 48 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
+          <h2 style={sectionTitle}>Vue globale des projets</h2>
+          <div style={{ display: 'flex', gap: 18 }}>
+            {[{ key: 'prevu', label: 'Coût prévu (devis)' }, { key: 'engage', label: 'Coût engagé (commandes)' }].map(b => (
               <button key={b.key} onClick={() => setBaseCoutGlobal(b.key)}
-                style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid ' + (baseCoutGlobal === b.key ? '#2563EB' : '#E5E7EB'), background: baseCoutGlobal === b.key ? '#EFF6FF' : '#fff', color: baseCoutGlobal === b.key ? '#2563EB' : '#6B7280', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+                style={{ background: 'none', border: 'none', padding: '0 0 4px', borderBottom: '2px solid ' + (baseCoutGlobal === b.key ? colors.ink : 'transparent'), color: baseCoutGlobal === b.key ? colors.ink : colors.inkFaint, fontSize: 12, fontWeight: baseCoutGlobal === b.key ? 600 : 400, cursor: 'pointer', fontFamily: fonts.display }}>
                 {b.label}
               </button>
             ))}
           </div>
         </div>
 
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6' }}>
-          <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>Raccourcis :</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ paddingBottom: 20, borderBottom: '1px solid ' + colors.line }}>
+          <div style={{ fontSize: 11, color: colors.inkFaint, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.06em' }}>Raccourcis</div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 18 }}>
             {PRESETS_STATUTS.map(pr => (
-              <button key={pr.label} onClick={() => setFiltreStatutsGlobal(new Set(pr.statuts))}
-                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #DDD6FE', background: '#F5F3FF', color: '#7C3AED', fontSize: 11, fontWeight: 500, cursor: 'pointer' }}>
+              <a key={pr.label} onClick={() => setFiltreStatutsGlobal(new Set(pr.statuts))} style={{ ...quietLink, fontSize: 12.5 }}>
                 {pr.label}
-              </button>
+              </a>
             ))}
           </div>
-          <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>Ou cocher/décocher un statut à la main :</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 11, color: colors.inkFaint, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.06em' }}>Ou cocher/décocher un statut</div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
             {STATUTS_ORDRE.map(s => {
-              const st = STATUT_STYLE[s] || {}
               const actif = filtreStatutsGlobal.has(s)
               return (
                 <button key={s} onClick={() => toggleStatutGlobal(s)}
-                  style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid ' + (actif ? st.color : '#E5E7EB'), background: actif ? st.bg : '#fff', color: actif ? st.color : '#9CA3AF', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
-                  {actif ? '✓ ' : ''}{s}
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'none', border: 'none', padding: '0 0 4px', borderBottom: '2px solid ' + (actif ? STATUT_MARKER[s] : 'transparent'), cursor: 'pointer', fontFamily: fonts.display }}>
+                  <span style={marker(STATUT_MARKER[s])} />
+                  <span style={{ fontSize: 12.5, color: actif ? colors.ink : colors.inkFaint, fontWeight: actif ? 600 : 400 }}>{s}</span>
                 </button>
               )
             })}
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: '1px solid ' + colors.line }}>
           {[
-            { label: 'Projets sélectionnés', value: String(projetsFiltresGlobal.length), color: '#374151' },
-            { label: 'CA total HT', value: fmt(caGlobalFiltre), color: '#059669' },
-            { label: baseCoutGlobal === 'prevu' ? 'Coût prévu HT' : 'Coût engagé HT', value: fmt(coutGlobalFiltre), color: '#EA580C' },
-            { label: 'Marge (' + tauxGlobalFiltre + '%)', value: fmt(margeGlobalFiltre), color: margeGlobalFiltre >= 0 ? '#059669' : '#DC2626' },
+            { label: 'Projets sélectionnés', value: String(projetsFiltresGlobal.length) },
+            { label: 'CA total HT', value: fmt(caGlobalFiltre) },
+            { label: baseCoutGlobal === 'prevu' ? 'Coût prévu HT' : 'Coût engagé HT', value: fmt(coutGlobalFiltre) },
+            { label: 'Marge (' + tauxGlobalFiltre + ' %)', value: fmt(margeGlobalFiltre), color: margeGlobalFiltre >= 0 ? colors.success : colors.danger },
           ].map((k, i) => (
-            <div key={k.label} style={{ padding: '16px 18px', borderRight: i < 3 ? '1px solid #F3F4F6' : 'none' }}>
-              <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 4 }}>{k.label}</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: k.color }}>{k.value}</div>
+            <div key={k.label} style={{ padding: '18px 20px 20px 0', paddingLeft: i > 0 ? 20 : 0, borderLeft: i > 0 ? '1px solid ' + colors.line : 'none' }}>
+              <div style={{ fontSize: 11, color: colors.inkMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.06em' }}>{k.label}</div>
+              <div style={{ fontFamily: fonts.mono, fontSize: 20, fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
             </div>
           ))}
         </div>
 
         {breakdownStatuts.length > 0 && (
-          <div style={{ padding: '4px 18px 14px', overflowX: 'auto' }}>
-            <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse', fontSize: 12 }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'left', fontWeight: 500, color: '#9CA3AF', padding: '8px 4px' }}>Statut</th>
-                  <th style={{ textAlign: 'right', fontWeight: 500, color: '#9CA3AF', padding: '8px 4px' }}>Nb</th>
-                  <th style={{ textAlign: 'right', fontWeight: 500, color: '#9CA3AF', padding: '8px 4px' }}>CA HT</th>
-                  <th style={{ textAlign: 'right', fontWeight: 500, color: '#9CA3AF', padding: '8px 4px' }}>Coût HT</th>
-                  <th style={{ textAlign: 'right', fontWeight: 500, color: '#9CA3AF', padding: '8px 4px' }}>Marge</th>
-                  <th style={{ textAlign: 'right', fontWeight: 500, color: '#9CA3AF', padding: '8px 4px' }}>Taux</th>
+                  {['Statut', 'Nb', 'CA HT', 'Coût HT', 'Marge', 'Taux'].map((h, i) => (
+                    <th key={h} style={{ textAlign: i === 0 ? 'left' : 'right', fontWeight: 500, color: colors.inkFaint, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', padding: '12px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {breakdownStatuts.map(b => {
-                  const st = STATUT_STYLE[b.statut] || {}
-                  return (
-                    <tr key={b.statut} style={{ opacity: b.actif ? 1 : 0.4, cursor: 'pointer' }} onClick={() => toggleStatutGlobal(b.statut)}>
-                      <td style={{ padding: '6px 4px' }}>
-                        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: st.bg, color: st.color, fontWeight: 500 }}>{b.statut}</span>
-                      </td>
-                      <td style={{ padding: '6px 4px', textAlign: 'right', color: '#374151' }}>{b.nb}</td>
-                      <td style={{ padding: '6px 4px', textAlign: 'right', color: '#374151' }}>{fmt(b.ca)}</td>
-                      <td style={{ padding: '6px 4px', textAlign: 'right', color: '#374151' }}>{fmt(b.cout)}</td>
-                      <td style={{ padding: '6px 4px', textAlign: 'right', color: b.marge >= 0 ? '#059669' : '#DC2626', fontWeight: 600 }}>{fmt(b.marge)}</td>
-                      <td style={{ padding: '6px 4px', textAlign: 'right', color: '#374151' }}>{b.taux}%</td>
-                    </tr>
-                  )
-                })}
+                {breakdownStatuts.map(b => (
+                  <tr key={b.statut} style={{ opacity: b.actif ? 1 : 0.4, cursor: 'pointer' }} onClick={() => toggleStatutGlobal(b.statut)}>
+                    <td style={{ padding: '10px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={marker(STATUT_MARKER[b.statut])} />{b.statut}</span>
+                    </td>
+                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line }}>{b.nb}</td>
+                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.ca)}</td>
+                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.cout)}</td>
+                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', color: b.marge >= 0 ? colors.success : colors.danger }}>{fmt(b.marge)}</td>
+                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{b.taux} %</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 56, marginTop: 48 }}>
 
         {/* Projets en cours */}
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>📋 Projets actifs</span>
-            <button onClick={() => navigate('/projets')} style={{ fontSize: 12, color: '#2563EB', background: 'none', border: 'none', cursor: 'pointer' }}>Voir tous →</button>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+            <h2 style={sectionTitle}>Projets actifs</h2>
+            <a onClick={() => navigate('/projets')} style={quietLink}>Voir tous</a>
           </div>
-          {projets.length === 0 ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucun projet actif</div>
-          ) : (
-            <div>
-              {projets.map((p, i) => {
-                const st = STATUT_STYLE[p.statut] || {}
-                return (
-                  <div key={p.id} onClick={() => navigate('/projets/' + p.id)}
-                    style={{ padding: '12px 18px', borderBottom: i < projets.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
-                    onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#111827', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nom}</div>
-                      <div style={{ fontSize: 11, color: '#9CA3AF' }}>{p.clients?.nom || '—'}</div>
-                    </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 2 }}>{fmt(p.montant_ht)}</div>
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: st.bg, color: st.color, fontWeight: 500 }}>{p.statut}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+          <div style={{ borderTop: '1px solid ' + colors.line }}>
+            {projets.length === 0 ? (
+              <div style={{ padding: '20px 0', color: colors.inkFaint, fontSize: 13, borderBottom: '1px solid ' + colors.line }}>Aucun projet actif</div>
+            ) : projets.map(p => (
+              <div key={p.id} onClick={() => navigate('/projets/' + p.id)}
+                style={{ padding: '13px 0', borderBottom: '1px solid ' + colors.line, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nom}</div>
+                  <div style={{ fontSize: 11.5, color: colors.inkMuted, marginTop: 2 }}>{p.clients?.nom || '—'}</div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontFamily: fonts.mono, fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>{fmt(p.montant_ht)}</div>
+                  <div style={{ fontSize: 10.5, color: colors.inkFaint, marginTop: 3 }}>{p.statut}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Commandes en attente */}
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>🛒 Commandes en attente</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 12, color: '#6B7280' }}>{fmt(stats.totalCommandes)} total</span>
-              <button onClick={() => navigate('/commandes-fournisseurs', { state: { statuts: ['Brouillon'] } })}
-                style={{ fontSize: 12, color: '#2563EB', background: 'none', border: 'none', cursor: 'pointer' }}>Voir tout →</button>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
+            <h2 style={sectionTitle}>Commandes en attente</h2>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+              <span style={{ fontSize: 12, color: colors.inkFaint }}>{fmt(stats.totalCommandes)} total</span>
+              <a onClick={() => navigate('/commandes-fournisseurs', { state: { statuts: ['Brouillon'] } })} style={quietLink}>Voir tout</a>
             </div>
           </div>
-          {cmdEnAttente.length === 0 ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune commande en attente</div>
-          ) : (
-            <div>
-              {cmdEnAttente.map((c, i) => (
-                <div key={c.id} onClick={() => navigate('/projets/' + c.projet_id, { state: { tab: 'commandes', focusId: c.id } })}
-                  style={{ padding: '12px 18px', borderBottom: i < cmdEnAttente.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
-                  onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.fournisseurs?.nom || '—'}</div>
-                    <div style={{ fontSize: 11, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.projets?.nom} · {c.numero}</div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#2563EB' }}>{fmt(c.montant_ht)}</div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF' }}>{c.statut}</div>
-                  </div>
+          <div style={{ borderTop: '1px solid ' + colors.line }}>
+            {cmdEnAttente.length === 0 ? (
+              <div style={{ padding: '20px 0', color: colors.inkFaint, fontSize: 13, borderBottom: '1px solid ' + colors.line }}>Aucune commande en attente</div>
+            ) : cmdEnAttente.map(c => (
+              <div key={c.id} onClick={() => navigate('/projets/' + c.projet_id, { state: { tab: 'commandes', focusId: c.id } })}
+                style={{ padding: '13px 0', borderBottom: '1px solid ' + colors.line, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.fournisseurs?.nom || '—'}</div>
+                  <div style={{ fontSize: 11.5, color: colors.inkMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.projets?.nom} · {c.numero}</div>
                 </div>
-              ))}
-            </div>
-          )}
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontFamily: fonts.mono, fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>{fmt(c.montant_ht)}</div>
+                  <div style={{ fontSize: 10.5, color: colors.inkFaint, marginTop: 3 }}>{c.statut}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 40, marginTop: 48 }}>
 
         {/* Factures frs à payer */}
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>📄 Factures frs à payer</span>
-            <span style={{ fontSize: 12, color: '#EA580C', fontWeight: 600 }}>{fmt(stats.totalFfrsAPayer)}</span>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+            <h2 style={sectionTitle}>Factures frs. à payer</h2>
+            <span style={{ fontSize: 12, color: colors.warning }}>{fmt(stats.totalFfrsAPayer)}</span>
           </div>
-          {facturesFrsAPayer.length === 0 ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune facture à payer ✓</div>
-          ) : (
-            <>
-              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                {facturesFrsAPayer.map((f, i) => {
+          <div style={{ borderTop: '1px solid ' + colors.line }}>
+            {facturesFrsAPayer.length === 0 ? (
+              <div style={{ padding: '20px 0', color: colors.inkFaint, fontSize: 13, borderBottom: '1px solid ' + colors.line }}>Aucune facture à payer</div>
+            ) : (
+              <>
+                {facturesFrsAPayer.map(f => {
                   const enRetard = f.date_echeance && new Date(f.date_echeance) < new Date()
                   return (
                     <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_frs', focusId: f.id } })}
-                      style={{ padding: '12px 18px', borderBottom: i < facturesFrsAPayer.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
-                      onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
-                      onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
+                      style={{ padding: '12px 0', borderBottom: '1px solid ' + colors.line, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', borderLeft: enRetard ? '2px solid ' + colors.danger : 'none', paddingLeft: enRetard ? 12 : 0, marginLeft: enRetard ? -14 : 0 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2 }}>{f.fournisseurs?.nom || '—'}</div>
-                        <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
-                          {enRetard ? '⚠️ En retard · ' : ''}Échéance : {fmtDate(f.date_echeance)}
+                        <div style={{ fontWeight: 500, fontSize: 13 }}>{f.fournisseurs?.nom || '—'}</div>
+                        <div style={{ fontSize: 11, color: enRetard ? colors.danger : colors.inkMuted, marginTop: 2 }}>
+                          {enRetard ? 'En retard · ' : ''}Échéance : {fmtDate(f.date_echeance)}
                         </div>
                       </div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#EA580C', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
+                      <div style={{ fontFamily: fonts.mono, fontSize: 13, fontVariantNumeric: 'tabular-nums', color: enRetard ? colors.danger : colors.warning, flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
                     </div>
                   )
                 })}
-              </div>
-              <VoirTout count={facturesFrsAPayer.length} onClick={() => navigate('/factures-fournisseurs', { state: { statuts: ['À payer'] } })} />
-            </>
-          )}
+                <VoirTout count={facturesFrsAPayer.length} onClick={() => navigate('/factures-fournisseurs', { state: { statuts: ['À payer'] } })} />
+              </>
+            )}
+          </div>
         </div>
 
         {/* Factures clients à encaisser */}
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>💶 Factures clients à encaisser</span>
-            <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>{fmt(stats.totalFcliAEncaisser)}</span>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+            <h2 style={sectionTitle}>Factures cli. à encaisser</h2>
+            <span style={{ fontSize: 12, color: colors.success }}>{fmt(stats.totalFcliAEncaisser)}</span>
           </div>
-          {facturesCliAEncaisser.length === 0 ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune facture en attente ✓</div>
-          ) : (
-            <>
-              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                {facturesCliAEncaisser.map((f, i) => {
+          <div style={{ borderTop: '1px solid ' + colors.line }}>
+            {facturesCliAEncaisser.length === 0 ? (
+              <div style={{ padding: '20px 0', color: colors.inkFaint, fontSize: 13, borderBottom: '1px solid ' + colors.line }}>Aucune facture en attente</div>
+            ) : (
+              <>
+                {facturesCliAEncaisser.map(f => {
                   const enRetard = f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date()
                   return (
                     <div key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_cli', focusId: f.id } })}
-                      style={{ padding: '12px 18px', borderBottom: i < facturesCliAEncaisser.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
-                      onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
-                      onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
+                      style={{ padding: '12px 0', borderBottom: '1px solid ' + colors.line, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', borderLeft: enRetard ? '2px solid ' + colors.danger : 'none', paddingLeft: enRetard ? 12 : 0, marginLeft: enRetard ? -14 : 0 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2 }}>{f.projets?.nom || '—'}</div>
-                        <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
-                          {f.numero} · {enRetard ? '⚠️ En retard · ' : ''}{f.statut === 'À envoyer' ? 'À envoyer' : 'Échéance : ' + fmtDate(f.date_echeance)}
+                        <div style={{ fontWeight: 500, fontSize: 13 }}>{f.projets?.nom || '—'}</div>
+                        <div style={{ fontSize: 11, color: enRetard ? colors.danger : colors.inkMuted, marginTop: 2 }}>
+                          {f.numero} · {enRetard ? 'En retard · ' : ''}{f.statut === 'À envoyer' ? 'À envoyer' : 'Échéance : ' + fmtDate(f.date_echeance)}
                         </div>
                       </div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#059669', flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
+                      <div style={{ fontFamily: fonts.mono, fontSize: 13, fontVariantNumeric: 'tabular-nums', color: enRetard ? colors.danger : colors.success, flexShrink: 0 }}>{fmt(f.montant_ht)}</div>
                     </div>
                   )
                 })}
-              </div>
-              <VoirTout count={facturesCliAEncaisser.length} onClick={() => navigate('/factures-clients', { state: { statuts: ['À envoyer', 'Envoyée'] } })} />
-            </>
-          )}
+                <VoirTout count={facturesCliAEncaisser.length} onClick={() => navigate('/factures-clients', { state: { statuts: ['À envoyer', 'Envoyée'] } })} />
+              </>
+            )}
+          </div>
         </div>
 
         {/* Dépenses générales à payer */}
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>💸 Dépenses à payer</span>
-            <span style={{ fontSize: 12, color: '#EA580C', fontWeight: 600 }}>{fmt(stats.totalDepensesAPayer)}</span>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+            <h2 style={sectionTitle}>Dépenses à payer</h2>
+            <span style={{ fontSize: 12, color: colors.warning }}>{fmt(stats.totalDepensesAPayer)}</span>
           </div>
-          {depensesAPayer.length === 0 ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune dépense à payer ✓</div>
-          ) : (
-            <>
-              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                {depensesAPayer.map((d, i) => {
+          <div style={{ borderTop: '1px solid ' + colors.line }}>
+            {depensesAPayer.length === 0 ? (
+              <div style={{ padding: '20px 0', color: colors.inkFaint, fontSize: 13, borderBottom: '1px solid ' + colors.line }}>Aucune dépense à payer</div>
+            ) : (
+              <>
+                {depensesAPayer.map(d => {
                   const enRetard = d.date_echeance && new Date(d.date_echeance) < new Date()
                   return (
                     <div key={d.id} onClick={() => navigate('/depenses')}
-                      style={{ padding: '12px 18px', borderBottom: i < depensesAPayer.length - 1 ? '1px solid #F3F4F6' : 'none', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: enRetard ? '#FFF5F5' : '#fff' }}
-                      onMouseEnter={e => e.currentTarget.style.background = enRetard ? '#FEE2E2' : '#F9FAFB'}
-                      onMouseLeave={e => e.currentTarget.style.background = enRetard ? '#FFF5F5' : '#fff'}>
+                      style={{ padding: '12px 0', borderBottom: '1px solid ' + colors.line, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', borderLeft: enRetard ? '2px solid ' + colors.danger : 'none', paddingLeft: enRetard ? 12 : 0, marginLeft: enRetard ? -14 : 0 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 500, fontSize: 13, color: '#111827', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.libelle}</div>
-                        <div style={{ fontSize: 11, color: enRetard ? '#DC2626' : '#9CA3AF' }}>
-                          {enRetard ? '⚠️ En retard · ' : ''}{d.categorie}
+                        <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.libelle}</div>
+                        <div style={{ fontSize: 11, color: enRetard ? colors.danger : colors.inkMuted, marginTop: 2 }}>
+                          {enRetard ? 'En retard · ' : ''}{d.categorie}
                         </div>
                       </div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#EA580C', flexShrink: 0 }}>{fmt(d.montant_ht)}</div>
+                      <div style={{ fontFamily: fonts.mono, fontSize: 13, fontVariantNumeric: 'tabular-nums', color: enRetard ? colors.danger : colors.warning, flexShrink: 0 }}>{fmt(d.montant_ht)}</div>
                     </div>
                   )
                 })}
-              </div>
-              <VoirTout count={depensesAPayer.length} onClick={() => navigate('/recherche', { state: { types: ['depenses'], statuts: ['À payer'] } })} />
-            </>
-          )}
+                <VoirTout count={depensesAPayer.length} onClick={() => navigate('/recherche', { state: { types: ['depenses'], statuts: ['À payer'] } })} />
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-// Lien "Voir tout (N) →" affiché au pied d'une carte du Dashboard quand elle
-// contient plus d'éléments que ce qui tient sans défiler (voir maxHeight sur
-// le conteneur juste au-dessus) — renvoie vers Recherche avancée, préfiltrée
-// sur le même type/statut que la carte, pour une vue complète et filtrable.
+// Lien "Voir tout (N)" affiché au pied d'une liste du Dashboard quand elle
+// contient plus d'éléments que ce qui tient sans défiler — renvoie vers la
+// page dédiée (ou Recherche avancée pour les dépenses), préfiltrée sur le
+// même statut que la liste, pour une vue complète et filtrable.
 function VoirTout({ count, onClick }) {
   if (count <= 5) return null
   return (
-    <button onClick={onClick}
-      style={{ display: 'block', width: '100%', padding: '10px 18px', background: '#F9FAFB', border: 'none', borderTop: '1px solid #F3F4F6', color: '#2563EB', cursor: 'pointer', fontSize: 12, fontWeight: 500, textAlign: 'center' }}>
-      Voir tout ({count}) →
-    </button>
+    <div style={{ padding: '12px 0 0' }}>
+      <a onClick={onClick} style={{ ...quietLink, fontSize: 12 }}>Voir tout ({count})</a>
+    </div>
   )
 }
