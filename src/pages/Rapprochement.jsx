@@ -5,27 +5,42 @@ import { rapprocherFactures, appliquerRapprochement, appliquerRapprochementGroup
 import { useIsMobile } from '../lib/useIsMobile'
 import { CATEGORIES } from '../lib/depenses'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { colors, fonts, eyebrow, quietLink, marker } from '../lib/theme'
 
 // Nombre max de transactions non rapprochées affichées (les plus récentes
 // d'abord) — au-delà, la liste serait juste noyée sous des mouvements
 // anciens déjà traités par ailleurs (retraits carte, virements internes...).
 const MAX_NON_RAPPROCHEES = 25
 
-// Libellé + couleur du badge "Confiance" dans l'historique, selon
-// qonto_match_confiance ('exact' et 'montant' viennent de rapprocherFactures()
-// dans lib/rapprochement.js, 'creation' et 'manuel_groupe' des actions
-// manuelles de cette page — voir creerFactureDepuisTransaction /
-// creerDepenseDepuisTransaction et appliquerRapprochementGroupe).
+// Libellé + couleur (marqueur) du badge "Confiance" dans l'historique,
+// selon qonto_match_confiance ('exact' et 'montant' viennent de
+// rapprocherFactures() dans lib/rapprochement.js, 'creation' et
+// 'manuel_groupe' des actions manuelles de cette page — voir
+// creerFactureDepuisTransaction / creerDepenseDepuisTransaction et
+// appliquerRapprochementGroupe).
 const BADGE_CONFIANCE = {
-  exact: { label: '🔗 Auto (n° + montant)', bg: '#EFF6FF', color: '#2563EB' },
-  creation: { label: '🆕 Créée depuis Qonto', bg: '#F0FDF4', color: '#059669' },
-  manuel_groupe: { label: '👥 Paiement groupé', bg: '#FDF4FF', color: '#A21CAF' },
-  montant: { label: '✓ Confirmé (montant)', bg: '#FFFBEB', color: '#B45309' },
+  exact: { label: 'Auto (n° + montant)', color: colors.focus },
+  creation: { label: 'Créée depuis Qonto', color: colors.success },
+  manuel_groupe: { label: 'Paiement groupé', color: '#7c4a8e' },
+  montant: { label: 'Confirmé (montant)', color: colors.warning },
 }
+
+// Couleur de catégorisation par type de rapprochement (clients/fournisseurs/
+// dépenses) — un simple repère visuel, pas un statut fonctionnel.
+const TYPE_MARKER = { factures_cli: colors.success, factures_frs: colors.warning, depenses_generales: colors.focus }
 
 const fmtTx = cents => cents !== undefined && cents !== null
   ? (Number(cents) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
   : '—'
+
+const inputUnderline = {
+  width: '100%', padding: '8px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
+}
+const fieldLabel = { display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }
+const btnPrimary = { background: colors.ink, color: colors.surface, border: 'none', padding: '10px 20px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
+const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px solid ' + colors.line, padding: '10px 18px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
 
 export default function Rapprochement() {
   const isMobile = useIsMobile()
@@ -85,9 +100,9 @@ export default function Rapprochement() {
         .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
     ])
     const combine = [
-      ...(hCli || []).map(f => ({ table: 'factures_cli', facture: f, tiers: f.projets?.clients?.nom, couleur: '#059669' })),
-      ...(hFrs || []).map(f => ({ table: 'factures_frs', facture: f, tiers: f.fournisseurs?.nom, couleur: '#EA580C' })),
-      ...(hDep || []).map(d => ({ table: 'depenses_generales', facture: d, tiers: d.fournisseurs?.nom || d.categorie, couleur: '#7C3AED' })),
+      ...(hCli || []).map(f => ({ table: 'factures_cli', facture: f, tiers: f.projets?.clients?.nom })),
+      ...(hFrs || []).map(f => ({ table: 'factures_frs', facture: f, tiers: f.fournisseurs?.nom })),
+      ...(hDep || []).map(d => ({ table: 'depenses_generales', facture: d, tiers: d.fournisseurs?.nom || d.categorie })),
     ].sort((a, b) => new Date(b.facture.qonto_matched_at || 0) - new Date(a.facture.qonto_matched_at || 0))
     setHistorique(combine)
   }
@@ -342,83 +357,82 @@ export default function Rapprochement() {
     if (echecs > 0) alert(`${appliques} facture(s) marquée(s) payée(s), ${echecs} échec(s) — vérifie l'historique.`)
   }
 
-  function CarteSuggestion({ r, table, couleur }) {
+  function CarteSuggestion({ r, table }) {
     const cle = table + ':' + r.facture.id + ':' + r.transaction.transaction_id
     const tiers = table === 'factures_cli' ? r.facture.projets?.clients?.nom
       : table === 'depenses_generales' ? (r.facture.fournisseurs?.nom || r.facture.categorie)
       : r.facture.fournisseurs?.nom
     return (
-      <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 16px', marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ borderBottom: '1px solid ' + colors.line, padding: '14px 0', display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ minWidth: 220 }}>
-          <div style={{ fontWeight: 600, fontSize: 13 }}>{r.facture.numero || r.facture.libelle}</div>
-          <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontWeight: 600, fontSize: 13 }}>
+            <span style={marker(TYPE_MARKER[table])} />{r.facture.numero || r.facture.libelle}
+          </div>
+          <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 3 }}>
             {tiers || '—'}{r.facture.projets?.nom ? ' · ' + r.facture.projets.nom : ''}
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: couleur, marginTop: 4 }}>{fmt(r.facture.montant_ht)} HT</div>
+          <div style={{ fontFamily: fonts.mono, fontSize: 13, fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>{fmt(r.facture.montant_ht)} HT</div>
         </div>
-        <div style={{ fontSize: 12, color: '#6B7280', flex: 1, minWidth: 200 }}>
+        <div style={{ fontSize: 12, color: colors.inkMuted, flex: 1, minWidth: 200 }}>
           <div style={{ marginBottom: 2 }}>↔ {r.transaction.label || r.transaction.reference || 'Transaction Qonto'}</div>
           <div>{fmtDate(r.transaction.settled_at || r.transaction.emitted_at)} · {fmtTx(r.transaction.amount_cents)} ({r.base})</div>
         </div>
-        <button onClick={() => confirmer(table, r)} disabled={busy === cle}
-          style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: couleur, color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13, flexShrink: 0 }}>
-          {busy === cle ? '⏳' : '✓ Marquer payée'}
+        <button onClick={() => confirmer(table, r)} disabled={busy === cle} style={quietLink}>
+          {busy === cle ? '...' : 'Marquer payée'}
         </button>
       </div>
     )
   }
 
   return (
-    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
+    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
       {/* Modale "Créer une dépense" à partir d'une transaction Qonto (débit)
           sans correspondance — voir ouvrirCreationDepense /
           creerDepenseDepuisTransaction. */}
       {modalDepense && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 440, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 600 }}>Créer une dépense</h3>
-            <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 18 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: colors.surface, padding: 32, width: 440, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 700 }}>Créer une dépense</h3>
+            <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 20 }}>
               Depuis la transaction Qonto : {modalDepense.transaction.label || modalDepense.transaction.reference} · {fmtTx(Math.abs(modalDepense.transaction.amount_cents))}
             </div>
 
             {modalError && (
-              <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+              <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 16, fontSize: 13 }}>
                 {modalError}
               </div>
             )}
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Libellé</label>
+            <label style={fieldLabel}>Libellé</label>
             <input value={modalDepense.libelle} onChange={e => setModalDepense(p => ({ ...p, libelle: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+              style={{ ...inputUnderline, marginBottom: 16 }} />
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Catégorie</label>
+            <label style={fieldLabel}>Catégorie</label>
             <select value={modalDepense.categorie} onChange={e => setModalDepense(p => ({ ...p, categorie: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }}>
+              style={{ ...inputUnderline, marginBottom: 16, cursor: 'pointer' }}>
               {CATEGORIES.map(c => <option key={c}>{c}</option>)}
             </select>
 
-            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
+                <label style={fieldLabel}>Montant HT (€)</label>
                 <input type="number" step="0.01" value={modalDepense.montant_ht} onChange={e => setModalDepense(p => ({ ...p, montant_ht: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  style={inputUnderline} />
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date</label>
+                <label style={fieldLabel}>Date</label>
                 <input type="date" value={modalDepense.date_facture} onChange={e => setModalDepense(p => ({ ...p, date_facture: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  style={inputUnderline} />
               </div>
             </div>
-            <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 20 }}>
-              💡 Montant HT prérempli à partir du montant de la transaction (TVA 20 % déduite) — à corriger si besoin.
+            <div style={{ fontSize: 11, color: colors.inkFaint, margin: '10px 0 22px' }}>
+              Montant HT prérempli à partir du montant de la transaction (TVA 20 % déduite) — à corriger si besoin.
             </div>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setModalDepense(null)} disabled={modalBusy}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-              <button onClick={creerDepenseDepuisTransaction} disabled={modalBusy}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                {modalBusy ? '⏳ Création...' : '✓ Créer la dépense'}
+              <button onClick={() => setModalDepense(null)} disabled={modalBusy} style={btnGhost}>Annuler</button>
+              <button onClick={creerDepenseDepuisTransaction} disabled={modalBusy} style={btnPrimary}>
+                {modalBusy ? 'Création...' : 'Créer la dépense'}
               </button>
             </div>
           </div>
@@ -429,52 +443,50 @@ export default function Rapprochement() {
           (crédit) sans correspondance — voir ouvrirCreationFacture /
           creerFactureDepuisTransaction. */}
       {modalFacture && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 440, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 600 }}>Créer une facture client</h3>
-            <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 18 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: colors.surface, padding: 32, width: 440, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 700 }}>Créer une facture client</h3>
+            <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 20 }}>
               Depuis la transaction Qonto : {modalFacture.transaction.label || modalFacture.transaction.reference} · {fmtTx(Math.abs(modalFacture.transaction.amount_cents))}
             </div>
 
             {modalError && (
-              <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+              <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 16, fontSize: 13 }}>
                 {modalError}
               </div>
             )}
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Projet</label>
+            <label style={fieldLabel}>Projet</label>
             {projetsListe.length === 0 ? (
-              <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 14 }}>Aucun projet disponible — crée d'abord un projet.</div>
+              <div style={{ fontSize: 12, color: colors.inkFaint, marginBottom: 16 }}>Aucun projet disponible — crée d'abord un projet.</div>
             ) : (
               <select value={modalFacture.projetId} onChange={e => setModalFacture(p => ({ ...p, projetId: e.target.value }))}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }}>
+                style={{ ...inputUnderline, marginBottom: 16, cursor: 'pointer' }}>
                 <option value="">— Choisir un projet —</option>
                 {projetsListe.map(p => <option key={p.id} value={p.id}>{p.nom}{p.clients?.nom ? ' · ' + p.clients.nom : ''}</option>)}
               </select>
             )}
 
-            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
+                <label style={fieldLabel}>Montant HT (€)</label>
                 <input type="number" step="0.01" value={modalFacture.montant_ht} onChange={e => setModalFacture(p => ({ ...p, montant_ht: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  style={inputUnderline} />
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date</label>
+                <label style={fieldLabel}>Date</label>
                 <input type="date" value={modalFacture.date_facture} onChange={e => setModalFacture(p => ({ ...p, date_facture: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                  style={inputUnderline} />
               </div>
             </div>
-            <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 20 }}>
-              💡 Montant HT prérempli à partir du montant de la transaction (TVA 20 % déduite) — à corriger si besoin. Le numéro de facture est généré automatiquement et la facture est créée directement au statut "Payée".
+            <div style={{ fontSize: 11, color: colors.inkFaint, margin: '10px 0 22px' }}>
+              Montant HT prérempli à partir du montant de la transaction (TVA 20 % déduite) — à corriger si besoin. Le numéro de facture est généré automatiquement et la facture est créée directement au statut "Payée".
             </div>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setModalFacture(null)} disabled={modalBusy}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-              <button onClick={creerFactureDepuisTransaction} disabled={modalBusy || projetsListe.length === 0}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                {modalBusy ? '⏳ Création...' : '✓ Créer la facture'}
+              <button onClick={() => setModalFacture(null)} disabled={modalBusy} style={btnGhost}>Annuler</button>
+              <button onClick={creerFactureDepuisTransaction} disabled={modalBusy || projetsListe.length === 0} style={btnPrimary}>
+                {modalBusy ? 'Création...' : 'Créer la facture'}
               </button>
             </div>
           </div>
@@ -485,40 +497,40 @@ export default function Rapprochement() {
           plusieurs factures en une transaction — voir ouvrirAssociationGroupee
           / confirmerAssociationGroupee. */}
       {modalGroupe && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 600 }}>Associer plusieurs factures</h3>
-            <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 18 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: colors.surface, padding: 32, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 700 }}>Associer plusieurs factures</h3>
+            <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 20 }}>
               Transaction Qonto : {modalGroupe.transaction.label || modalGroupe.transaction.reference || 'Transaction Qonto'} · {fmtDate(modalGroupe.transaction.settled_at || modalGroupe.transaction.emitted_at)} · {fmtTx(Math.abs(modalGroupe.transaction.amount_cents))}
             </div>
 
             {modalGroupe.error && (
-              <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+              <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 16, fontSize: 13 }}>
                 {modalGroupe.error}
               </div>
             )}
 
             {modalGroupe.loading ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>⏳ Chargement des factures ouvertes...</div>
+              <div style={{ padding: '20px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13 }}>Chargement des factures ouvertes...</div>
             ) : modalGroupe.factures.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Aucune facture ouverte de ce type pour l'instant.</div>
+              <div style={{ padding: '20px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13 }}>Aucune facture ouverte de ce type pour l'instant.</div>
             ) : (
               <>
-                <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>Coche les factures réglées par cette transaction :</div>
-                <div style={{ border: '1px solid #E5E7EB', borderRadius: 10, overflow: 'hidden', marginBottom: 14, maxHeight: 280, overflowY: 'auto' }}>
-                  {modalGroupe.factures.map((f, i) => {
+                <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 10 }}>Coche les factures réglées par cette transaction :</div>
+                <div style={{ borderTop: '1px solid ' + colors.line, marginBottom: 16, maxHeight: 280, overflowY: 'auto' }}>
+                  {modalGroupe.factures.map(f => {
                     const tiers = modalGroupe.table === 'factures_cli' ? f.projets?.clients?.nom : f.fournisseurs?.nom
                     const coche = modalGroupe.selection.has(f.id)
                     return (
-                      <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < modalGroupe.factures.length - 1 ? '1px solid #F3F4F6' : 'none', cursor: 'pointer', background: coche ? '#F0FDF4' : '#fff' }}>
+                      <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
                         <input type="checkbox" checked={coche} onChange={() => toggleFactureGroupe(f.id)} />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13 }}>{f.numero}</div>
-                          <div style={{ fontSize: 11, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontWeight: coche ? 600 : 500, fontSize: 13 }}>{f.numero}</div>
+                          <div style={{ fontSize: 11, color: colors.inkFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {tiers || '—'}{f.projets?.nom ? ' · ' + f.projets.nom : ''}
                           </div>
                         </div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', flexShrink: 0 }}>{fmt(f.montant_ht)} HT</div>
+                        <div style={{ fontFamily: fonts.mono, fontSize: 13, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{fmt(f.montant_ht)} HT</div>
                       </label>
                     )
                   })}
@@ -533,9 +545,9 @@ export default function Rapprochement() {
                   const okTtc = Math.abs(totalTtc - montantTx) <= 0.02
                   const correspond = okHt || okTtc
                   return (
-                    <div style={{ padding: '10px 14px', borderRadius: 8, background: correspond ? '#F0FDF4' : '#FFFBEB', color: correspond ? '#059669' : '#B45309', fontSize: 12, marginBottom: 18 }}>
+                    <div style={{ borderLeft: '2px solid ' + (correspond ? colors.success : colors.warning), padding: '8px 14px', color: colors.ink, fontSize: 12, marginBottom: 22 }}>
                       {choisies.length} facture(s) sélectionnée(s) · {fmt(totalHt)} HT (≈ {fmt(totalTtc)} TTC) — transaction : {fmtTx(Math.abs(modalGroupe.transaction.amount_cents))}
-                      {correspond ? ' ✓ le total correspond' : ' — le total ne correspond pas exactement, vérifie ta sélection'}
+                      {correspond ? ' — le total correspond' : ' — le total ne correspond pas exactement, vérifie ta sélection'}
                     </div>
                   )
                 })()}
@@ -543,121 +555,119 @@ export default function Rapprochement() {
             )}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setModalGroupe(null)} disabled={modalGroupeBusy}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-              <button onClick={confirmerAssociationGroupee} disabled={modalGroupeBusy || modalGroupe.selection.size === 0}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                {modalGroupeBusy ? '⏳ Enregistrement...' : `✓ Marquer ${modalGroupe.selection.size || ''} facture(s) payée(s)`}
+              <button onClick={() => setModalGroupe(null)} disabled={modalGroupeBusy} style={btnGhost}>Annuler</button>
+              <button onClick={confirmerAssociationGroupee} disabled={modalGroupeBusy || modalGroupe.selection.size === 0} style={btnPrimary}>
+                {modalGroupeBusy ? 'Enregistrement...' : `Marquer ${modalGroupe.selection.size || ''} facture(s) payée(s)`}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Rapprochement</h2>
-          <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>Factures ouvertes rapprochées des transactions Qonto</div>
+          <p style={eyebrow}>Partenaires Particuliers</p>
+          <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Rapprochement</h1>
+          <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Factures ouvertes rapprochées des transactions Qonto</p>
         </div>
-        <button onClick={lancerRapprochement} disabled={loading}
-          style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>
-          {loading ? '⏳ Rapprochement...' : '🔄 Relancer'}
+        <button onClick={lancerRapprochement} disabled={loading} style={quietLink}>
+          {loading ? 'Rapprochement...' : 'Relancer'}
         </button>
       </div>
 
       {error && (
-        <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
-          ⚠️ {error}
+        <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', margin: '28px 0 0', fontSize: 13 }}>
+          {error}
         </div>
       )}
 
       {dernierRapport && (
-        <div style={{ background: dernierRapport.appliques > 0 ? '#F0FDF4' : '#F8FAFC', color: dernierRapport.appliques > 0 ? '#059669' : '#6B7280', padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
+        <div style={{ borderLeft: '2px solid ' + (dernierRapport.appliques > 0 ? colors.success : colors.line), color: colors.ink, padding: '10px 14px', margin: '28px 0 0', fontSize: 13 }}>
           {dernierRapport.appliques > 0
-            ? `✓ ${dernierRapport.appliques} facture(s) marquée(s) payée(s) automatiquement (numéro de facture retrouvé dans une transaction Qonto correspondante).`
+            ? `${dernierRapport.appliques} facture(s) marquée(s) payée(s) automatiquement (numéro de facture retrouvé dans une transaction Qonto correspondante).`
             : 'Aucune correspondance exacte trouvée automatiquement cette fois-ci.'}
           {dernierRapport.echecs > 0 ? ` (${dernierRapport.echecs} échec(s) d'enregistrement — la migration sql/qonto_migration.sql a-t-elle été exécutée dans Supabase ?)` : ''}
         </div>
       )}
 
       {loading ? (
-        <div style={{ padding: '40px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>⏳ Chargement des transactions Qonto et des factures ouvertes...</div>
+        <div style={{ padding: '60px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13 }}>Chargement des transactions Qonto et des factures ouvertes...</div>
       ) : (
         <>
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
-              Factures clients à confirmer <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({suggestionsCli.length})</span>
+          <div style={{ marginTop: 36 }}>
+            <div style={{ ...eyebrow, marginBottom: 4 }}>
+              Factures clients à confirmer ({suggestionsCli.length})
             </div>
             {suggestionsCli.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 10, border: '1px dashed #E5E7EB', fontSize: 13 }}>
+              <div style={{ padding: '20px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13, borderTop: '1px solid ' + colors.line, marginTop: 10 }}>
                 Aucune suggestion en attente.
               </div>
-            ) : suggestionsCli.map(r => <CarteSuggestion key={r.facture.id + r.transaction.transaction_id} r={r} table="factures_cli" couleur="#059669" />)}
+            ) : <div style={{ borderTop: '1px solid ' + colors.line, marginTop: 10 }}>{suggestionsCli.map(r => <CarteSuggestion key={r.facture.id + r.transaction.transaction_id} r={r} table="factures_cli" />)}</div>}
           </div>
 
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
-              Factures fournisseurs à confirmer <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({suggestionsFrs.length})</span>
+          <div style={{ marginTop: 32 }}>
+            <div style={{ ...eyebrow, marginBottom: 4 }}>
+              Factures fournisseurs à confirmer ({suggestionsFrs.length})
             </div>
             {suggestionsFrs.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 10, border: '1px dashed #E5E7EB', fontSize: 13 }}>
+              <div style={{ padding: '20px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13, borderTop: '1px solid ' + colors.line, marginTop: 10 }}>
                 Aucune suggestion en attente.
               </div>
-            ) : suggestionsFrs.map(r => <CarteSuggestion key={r.facture.id + r.transaction.transaction_id} r={r} table="factures_frs" couleur="#EA580C" />)}
+            ) : <div style={{ borderTop: '1px solid ' + colors.line, marginTop: 10 }}>{suggestionsFrs.map(r => <CarteSuggestion key={r.facture.id + r.transaction.transaction_id} r={r} table="factures_frs" />)}</div>}
           </div>
 
-          <div style={{ marginTop: 24 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
-              Dépenses générales à confirmer <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({suggestionsDep.length})</span>
+          <div style={{ marginTop: 32 }}>
+            <div style={{ ...eyebrow, marginBottom: 4 }}>
+              Dépenses générales à confirmer ({suggestionsDep.length})
             </div>
             {suggestionsDep.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 10, border: '1px dashed #E5E7EB', fontSize: 13 }}>
+              <div style={{ padding: '20px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13, borderTop: '1px solid ' + colors.line, marginTop: 10 }}>
                 Aucune suggestion en attente.
               </div>
-            ) : suggestionsDep.map(r => <CarteSuggestion key={r.facture.id + r.transaction.transaction_id} r={r} table="depenses_generales" couleur="#7C3AED" />)}
+            ) : <div style={{ borderTop: '1px solid ' + colors.line, marginTop: 10 }}>{suggestionsDep.map(r => <CarteSuggestion key={r.facture.id + r.transaction.transaction_id} r={r} table="depenses_generales" />)}</div>}
           </div>
 
           {/* Transactions Qonto sans aucune facture/dépense correspondante
               en base — proposer de créer directement l'écriture (dépense ou
               facture client) plutôt que de laisser l'utilisateur ressaisir
               ça à la main ailleurs dans l'app. */}
-          <div style={{ marginTop: 24 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
-              Transactions non rapprochées <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({nbNonRapprocheesTotal})</span>
+          <div style={{ marginTop: 32 }}>
+            <div style={{ ...eyebrow, marginBottom: 4 }}>
+              Transactions non rapprochées ({nbNonRapprocheesTotal})
             </div>
             {nonRapprochees.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 10, border: '1px dashed #E5E7EB', fontSize: 13 }}>
-                Aucune transaction sans correspondance ✓
+              <div style={{ padding: '20px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13, borderTop: '1px solid ' + colors.line, marginTop: 10 }}>
+                Aucune transaction sans correspondance
               </div>
             ) : (
               <>
-                {nonRapprochees.map(tx => {
-                  const estCredit = tx.side === 'credit'
-                  return (
-                    <div key={tx.transaction_id} style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 16px', marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ flex: 1, minWidth: 220 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.label || tx.reference || 'Transaction Qonto'}</div>
-                        <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{fmtDate(tx.settled_at || tx.emitted_at)}</div>
+                <div style={{ borderTop: '1px solid ' + colors.line, marginTop: 10 }}>
+                  {nonRapprochees.map(tx => {
+                    const estCredit = tx.side === 'credit'
+                    return (
+                      <div key={tx.transaction_id} style={{ borderBottom: '1px solid ' + colors.line, padding: '14px 0', display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ flex: 1, minWidth: 220 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.label || tx.reference || 'Transaction Qonto'}</div>
+                          <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 3 }}>{fmtDate(tx.settled_at || tx.emitted_at)}</div>
+                        </div>
+                        <div style={{ fontFamily: fonts.mono, fontSize: 14, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: estCredit ? colors.success : colors.ink, flexShrink: 0 }}>
+                          {estCredit ? '+ ' : '− '}{fmtTx(Math.abs(tx.amount_cents))}
+                        </div>
+                        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                          <button onClick={() => ouvrirAssociationGroupee(tx, estCredit ? 'factures_cli' : 'factures_frs')} style={quietLink}
+                            title="Paiement groupé : cette transaction règle plusieurs factures à la fois">
+                            Associer à des factures {estCredit ? 'clients' : 'fournisseurs'}
+                          </button>
+                          <button onClick={() => estCredit ? ouvrirCreationFacture(tx) : ouvrirCreationDepense(tx)} style={quietLink}>
+                            {estCredit ? '+ Créer une facture client' : '+ Créer une dépense'}
+                          </button>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: estCredit ? '#059669' : '#DC2626', flexShrink: 0 }}>
-                        {estCredit ? '+ ' : '− '}{fmtTx(Math.abs(tx.amount_cents))}
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <button onClick={() => ouvrirAssociationGroupee(tx, estCredit ? 'factures_cli' : 'factures_frs')}
-                          style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontWeight: 500, fontSize: 13, flexShrink: 0 }}
-                          title="Paiement groupé : cette transaction règle plusieurs factures à la fois">
-                          🔗 Associer à des factures {estCredit ? 'clients' : 'fournisseurs'}
-                        </button>
-                        <button onClick={() => estCredit ? ouvrirCreationFacture(tx) : ouvrirCreationDepense(tx)}
-                          style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid ' + (estCredit ? '#BBF7D0' : '#FCA5A5'), background: estCredit ? '#F0FDF4' : '#FEF2F2', color: estCredit ? '#059669' : '#DC2626', cursor: 'pointer', fontWeight: 500, fontSize: 13, flexShrink: 0 }}>
-                          {estCredit ? '+ Créer une facture client' : '+ Créer une dépense'}
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
                 {nbNonRapprocheesTotal > nonRapprochees.length && (
-                  <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 6 }}>
+                  <div style={{ fontSize: 12, color: colors.inkFaint, textAlign: 'center', marginTop: 12 }}>
                     + {nbNonRapprocheesTotal - nonRapprochees.length} autre(s) transaction(s) plus ancienne(s), non affichée(s)
                   </div>
                 )}
@@ -665,36 +675,39 @@ export default function Rapprochement() {
             )}
           </div>
 
-          <div style={{ marginTop: 32 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
-              Historique des rapprochements <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({historique.length})</span>
+          <div style={{ marginTop: 40 }}>
+            <div style={{ ...eyebrow, marginBottom: 4 }}>
+              Historique des rapprochements ({historique.length})
             </div>
             {historique.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 10, border: '1px dashed #E5E7EB', fontSize: 13 }}>
+              <div style={{ padding: '20px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13, borderTop: '1px solid ' + colors.line, marginTop: 10 }}>
                 Aucune facture rapprochée avec Qonto pour l'instant.
               </div>
             ) : (
-              <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto', marginTop: 10 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead><tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+                  <thead><tr>
                     {['N°', 'Tiers / Projet', 'Montant HT', 'Confiance', 'Rapproché le'].map(h => (
-                      <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500 }}>{h}</th>
+                      <th key={h} style={{ padding: '0 14px 10px 0', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid ' + colors.line }}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>
-                    {historique.map((h, i) => (
-                      <tr key={h.table + h.facture.id} style={{ borderBottom: i === historique.length - 1 ? 'none' : '1px solid #F3F4F6' }}>
-                        <td style={{ padding: '9px 14px', fontWeight: 600 }}>{h.facture.numero || h.facture.libelle}</td>
-                        <td style={{ padding: '9px 14px', color: '#6B7280' }}>
+                    {historique.map(h => (
+                      <tr key={h.table + h.facture.id} style={{ borderBottom: '1px solid ' + colors.line }}>
+                        <td style={{ padding: '10px 14px 10px 0', fontWeight: 600 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><span style={marker(TYPE_MARKER[h.table])} />{h.facture.numero || h.facture.libelle}</span>
+                        </td>
+                        <td style={{ padding: '10px 14px', color: colors.inkMuted }}>
                           {h.tiers || '—'}{h.facture.projets?.nom ? ' · ' + h.facture.projets.nom : ''}
                         </td>
-                        <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: h.couleur }}>{fmt(h.facture.montant_ht)}</td>
-                        <td style={{ padding: '9px 14px' }}>
-                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: BADGE_CONFIANCE[h.facture.qonto_match_confiance]?.bg || '#FFFBEB', color: BADGE_CONFIANCE[h.facture.qonto_match_confiance]?.color || '#B45309' }}>
-                            {BADGE_CONFIANCE[h.facture.qonto_match_confiance]?.label || '✓ Confirmé (montant)'}
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(h.facture.montant_ht)}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.inkMuted }}>
+                            <span style={marker((BADGE_CONFIANCE[h.facture.qonto_match_confiance] || BADGE_CONFIANCE.montant).color)} />
+                            {(BADGE_CONFIANCE[h.facture.qonto_match_confiance] || BADGE_CONFIANCE.montant).label}
                           </span>
                         </td>
-                        <td style={{ padding: '9px 14px', color: '#9CA3AF' }}>{fmtDate(h.facture.qonto_matched_at)}</td>
+                        <td style={{ padding: '10px 0 10px 14px', color: colors.inkFaint }}>{fmtDate(h.facture.qonto_matched_at)}</td>
                       </tr>
                     ))}
                   </tbody>

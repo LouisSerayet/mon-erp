@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getBankAccounts, getTransactions } from '../lib/useQonto'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtDateFr as fmtDate } from '../lib/calculs'
+import { colors, fonts, eyebrow, sectionTitle, quietLink } from '../lib/theme'
 
 export default function Tresorerie() {
   const isMobile = useIsMobile()
@@ -71,61 +72,61 @@ export default function Tresorerie() {
   const totalSolde = accounts.reduce((s, a) => s + (a.balance_cents || 0), 0)
 
   if (loading) return (
-    <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF', fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
+    <div style={{ padding: 60, textAlign: 'center', color: colors.inkFaint, fontFamily: fonts.display, fontSize: 13 }}>
       Chargement des données Qonto...
     </div>
   )
 
   return (
-    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 10, flexWrap: 'wrap' }}>
+    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Trésorerie</h2>
-          <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>Données en temps réel via Qonto</div>
+          <p style={eyebrow}>Partenaires Particuliers</p>
+          <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Trésorerie</h1>
+          <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Données en temps réel via Qonto</p>
         </div>
-        <button onClick={fetchData}
-          style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>
-          🔄 Actualiser
-        </button>
+        <button onClick={fetchData} style={quietLink}>Actualiser</button>
       </div>
 
       {error && (
-        <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
-          ⚠️ {error}
+        <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', margin: '28px 0 0', fontSize: 13 }}>
+          {error}
         </div>
       )}
 
       {/* Solde total */}
-      <div style={{ background: '#1E293B', borderRadius: 12, padding: '20px 24px', marginBottom: 20, color: '#fff' }}>
-        <div style={{ fontSize: 11, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Solde total</div>
-        <div style={{ fontSize: 32, fontWeight: 800 }}>{fmt(totalSolde)}</div>
-        <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>{accounts.length} compte(s) Qonto</div>
+      <div style={{ margin: '36px 0 32px', paddingBottom: 28, borderBottom: '1px solid ' + colors.line }}>
+        <div style={eyebrow}>Solde total</div>
+        <div style={{ fontFamily: fonts.mono, fontSize: 40, fontWeight: 500, margin: '10px 0 4px', fontVariantNumeric: 'tabular-nums' }}>{fmt(totalSolde)}</div>
+        <div style={{ fontSize: 12, color: colors.inkFaint }}>{accounts.length} compte(s) Qonto</div>
       </div>
 
       {/* Comptes */}
       {accounts.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 24 }}>
-          {accounts.map(acc => (
-            <div key={acc.slug} onClick={() => selectAccount(acc)}
-              style={{ background: selectedAccount?.slug === acc.slug ? '#EFF6FF' : '#fff', border: '1px solid ' + (selectedAccount?.slug === acc.slug ? '#2563EB' : '#E5E7EB'), borderRadius: 10, padding: '14px 16px', cursor: 'pointer' }}>
-              <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 4 }}>{acc.name || 'Compte principal'}</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: selectedAccount?.slug === acc.slug ? '#2563EB' : '#111827' }}>{fmt(acc.balance_cents)}</div>
-              <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4, fontFamily: 'monospace' }}>{acc.iban}</div>
-            </div>
-          ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 0, marginBottom: 40, borderTop: '1px solid ' + colors.line, borderLeft: '1px solid ' + colors.line }}>
+          {accounts.map(acc => {
+            const actif = selectedAccount?.slug === acc.slug
+            return (
+              <div key={acc.slug} onClick={() => selectAccount(acc)}
+                style={{ padding: '16px 18px', cursor: 'pointer', borderRight: '1px solid ' + colors.line, borderBottom: '2px solid ' + (actif ? colors.ink : 'transparent') }}>
+                <div style={{ fontSize: 11, color: colors.inkFaint, marginBottom: 6 }}>{acc.name || 'Compte principal'}</div>
+                <div style={{ fontFamily: fonts.mono, fontSize: 17, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: actif ? colors.ink : colors.inkMuted }}>{fmt(acc.balance_cents)}</div>
+                <div style={{ fontSize: 10, color: colors.inkFaint, marginTop: 6, fontFamily: fonts.mono }}>{acc.iban}</div>
+              </div>
+            )
+          })}
         </div>
       )}
 
       {/* Transactions */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', fontSize: 14, fontWeight: 600 }}>
+      <div>
+        <h2 style={sectionTitle}>
           Dernières transactions {selectedAccount ? `— ${selectedAccount.name || 'Compte principal'}` : ''}
-        </div>
+        </h2>
         {loadingTx ? (
-          <div style={{ padding: '30px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>⏳ Chargement...</div>
+          <div style={{ padding: '30px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13, borderTop: '1px solid ' + colors.line, marginTop: 12 }}>Chargement...</div>
         ) : transactions.length === 0 ? (
-          <div style={{ padding: '30px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
+          <div style={{ padding: '30px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13, borderTop: '1px solid ' + colors.line, marginTop: 12 }}>
             Aucune transaction trouvée
           </div>
         ) : isMobile ? (
@@ -133,22 +134,22 @@ export default function Tresorerie() {
           // d'iPhone (soit ça déborde, soit le texte devient illisible) —
           // on affiche plutôt une liste de cartes empilées, une transaction
           // par bloc, plus adaptée à la consultation au pouce.
-          <div>
+          <div style={{ borderTop: '1px solid ' + colors.line, marginTop: 12 }}>
             {transactions.map((tx, i) => {
               const montant = (tx.amount_cents || 0) / 100
               const isCredit = tx.side === 'credit'
               return (
                 <div key={tx.transaction_id || i}
-                  style={{ padding: '12px 16px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                  style={{ padding: '12px 0', borderBottom: '1px solid ' + colors.line, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ color: '#374151', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {tx.label || tx.reference || '—'}
                     </div>
-                    <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {fmtDate(tx.settled_at || tx.emitted_at)}{tx.counterparty_name ? ' · ' + tx.counterparty_name : ''}
                     </div>
                   </div>
-                  <div style={{ fontWeight: 600, color: isCredit ? '#059669' : '#DC2626', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  <div style={{ fontFamily: fonts.mono, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: isCredit ? colors.success : colors.ink, whiteSpace: 'nowrap', flexShrink: 0 }}>
                     {isCredit ? '+' : '-'}{Math.abs(montant).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                   </div>
                 </div>
@@ -156,11 +157,11 @@ export default function Tresorerie() {
             })}
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 12 }}>
             <thead>
-              <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+              <tr>
                 {['Date', 'Libellé', 'Contrepartie', 'Montant'].map(h => (
-                  <th key={h} style={{ padding: '10px 16px', textAlign: h === 'Montant' ? 'right' : 'left', color: '#6B7280', fontWeight: 500 }}>{h}</th>
+                  <th key={h} style={{ padding: '0 16px 10px 0', textAlign: h === 'Montant' ? 'right' : 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid ' + colors.line }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -169,15 +170,15 @@ export default function Tresorerie() {
                 const montant = (tx.amount_cents || 0) / 100
                 const isCredit = tx.side === 'credit'
                 return (
-                  <tr key={tx.transaction_id || i} style={{ borderBottom: '1px solid #F3F4F6', background: i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                    <td style={{ padding: '10px 16px', color: '#9CA3AF', whiteSpace: 'nowrap' }}>{fmtDate(tx.settled_at || tx.emitted_at)}</td>
-                    <td style={{ padding: '10px 16px', color: '#374151', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <tr key={tx.transaction_id || i} style={{ borderBottom: '1px solid ' + colors.line }}>
+                    <td style={{ padding: '11px 16px 11px 0', color: colors.inkMuted, whiteSpace: 'nowrap' }}>{fmtDate(tx.settled_at || tx.emitted_at)}</td>
+                    <td style={{ padding: '11px 16px', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {tx.label || tx.reference || '—'}
                     </td>
-                    <td style={{ padding: '10px 16px', color: '#6B7280', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '11px 16px', color: colors.inkMuted, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {tx.counterparty_name || '—'}
                     </td>
-                    <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 600, color: isCredit ? '#059669' : '#DC2626', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '11px 0 11px 16px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', color: isCredit ? colors.success : colors.ink, whiteSpace: 'nowrap' }}>
                       {isCredit ? '+' : '-'}{Math.abs(montant).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </td>
                   </tr>
