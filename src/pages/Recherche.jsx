@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt, fmtDateFr as fmtDate, termeNettoye, montantSaisi } from '../lib/calculs'
+import { colors, fonts, eyebrow, quietLink, sectionTitle } from '../lib/theme'
 
 // Recherche avancée — complète la petite recherche rapide de la barre
 // latérale (Layout.jsx) qui ne couvre que clients/fournisseurs/projets/
@@ -17,14 +18,14 @@ import { fmtEUR as fmt, fmtDateFr as fmtDate, termeNettoye, montantSaisi } from 
 // propre page.
 
 const TYPES = [
-  { key: 'projets', label: 'Projets', icon: '📋' },
-  { key: 'clients', label: 'Clients', icon: '👤' },
-  { key: 'fournisseurs', label: 'Fournisseurs', icon: '🏢' },
-  { key: 'contacts', label: 'Contacts clients', icon: '📇' },
-  { key: 'facturesCli', label: 'Factures clients', icon: '💶' },
-  { key: 'facturesFrs', label: 'Factures fournisseurs', icon: '📄' },
-  { key: 'commandes', label: 'Commandes fournisseurs', icon: '🛒' },
-  { key: 'depenses', label: 'Dépenses', icon: '💸' },
+  { key: 'projets', label: 'Projets' },
+  { key: 'clients', label: 'Clients' },
+  { key: 'fournisseurs', label: 'Fournisseurs' },
+  { key: 'contacts', label: 'Contacts clients' },
+  { key: 'facturesCli', label: 'Factures clients' },
+  { key: 'facturesFrs', label: 'Factures fournisseurs' },
+  { key: 'commandes', label: 'Commandes fournisseurs' },
+  { key: 'depenses', label: 'Dépenses' },
 ]
 const TOUS_TYPES_ACTIFS = Object.fromEntries(TYPES.map(t => [t.key, true]))
 
@@ -127,7 +128,11 @@ function totalResultats(r) {
   return TYPES.reduce((acc, t) => acc + (r[t.key]?.length || 0), 0)
 }
 
-const badgeStyle = { display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, background: '#F3F4F6', color: '#6B7280' }
+const inputUnderline = {
+  padding: '8px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
+}
 
 export default function Recherche() {
   const location = useLocation()
@@ -175,97 +180,92 @@ export default function Recherche() {
   const aucuneRequete = resultats === null && !loading
   const total = totalResultats(resultats)
 
-  const inputStyle = { padding: '8px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }
-
   return (
-    <div style={{ padding: isMobile ? 14 : 24, fontFamily: 'Inter, sans-serif', maxWidth: 860, margin: '0 auto' }}>
-      <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700 }}>🔎 Recherche avancée</h2>
-      <p style={{ margin: '0 0 20px', fontSize: 12, color: '#9CA3AF' }}>
+    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 860, margin: '0 auto' }}>
+      <p style={eyebrow}>Partenaires Particuliers</p>
+      <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Recherche avancée</h1>
+      <p style={{ margin: '10px 0 0', fontSize: 13, color: colors.inkMuted }}>
         Affiche tout par défaut pour les types cochés ci-dessous (les 30 plus récents de chaque) — tape un nom, email, numéro de facture/commande, un montant exact, ou choisis une période/fourchette de montant pour affiner.
       </p>
 
       {statutsFiltre && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#1E3A8A' }}>
-          <span>🔗 Filtre depuis le Dashboard — statut : {statutsFiltre.join(', ')}</span>
-          <button onClick={() => setStatutsFiltre(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#2563EB', cursor: 'pointer', fontSize: 12, fontWeight: 500, padding: 0 }}>✕ Retirer</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderLeft: '2px solid ' + colors.focus, padding: '8px 14px', marginTop: 24, fontSize: 12, color: colors.ink }}>
+          <span>Filtre depuis le Dashboard — statut : {statutsFiltre.join(', ')}</span>
+          <button onClick={() => setStatutsFiltre(null)} style={{ ...quietLink, marginLeft: 'auto' }}>Retirer</button>
         </div>
       )}
 
       <input autoFocus value={q} onChange={e => setQ(e.target.value)}
         placeholder="Nom, email, numéro de facture/commande, montant (ex: 1250,00)..."
-        style={{ width: '100%', padding: '10px 14px', borderRadius: 10, border: '1px solid #E5E7EB', fontSize: 14, boxSizing: 'border-box', marginBottom: 14 }} />
+        style={{ ...inputUnderline, width: '100%', fontSize: 15, margin: '32px 0 24px' }} />
 
-      <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, padding: 14, marginBottom: 20 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+      <div style={{ marginBottom: 32, paddingBottom: 24, borderBottom: '1px solid ' + colors.line }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginBottom: 22 }}>
           {TYPES.map(t => (
             <button key={t.key} onClick={() => toggleType(t.key)}
               style={{
-                display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 20,
-                border: '1px solid ' + (typesActifs[t.key] ? '#185FA5' : '#E5E7EB'),
-                background: typesActifs[t.key] ? '#E6F1FB' : '#fff',
-                color: typesActifs[t.key] ? '#185FA5' : '#9CA3AF',
-                fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                background: 'none', border: 'none', padding: '0 0 4px', cursor: 'pointer', fontFamily: fonts.display,
+                borderBottom: '1px solid ' + (typesActifs[t.key] ? colors.ink : 'transparent'),
+                color: typesActifs[t.key] ? colors.ink : colors.inkFaint,
+                fontSize: 12.5, fontWeight: typesActifs[t.key] ? 600 : 400,
               }}>
-              <span>{t.icon}</span>{t.label}
+              {t.label}
             </button>
           ))}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24 }}>
           <div style={{ flex: 1 }}>
-            <label style={{ display: 'block', fontSize: 11, color: '#6B7280', marginBottom: 4 }}>Période (factures / commandes / dépenses)</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input type="date" value={dateDebut} onChange={e => setDateDebut(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
-              <input type="date" value={dateFin} onChange={e => setDateFin(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+            <label style={{ display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Période (factures / commandes / dépenses)</label>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <input type="date" value={dateDebut} onChange={e => setDateDebut(e.target.value)} style={{ ...inputUnderline, flex: 1 }} />
+              <input type="date" value={dateFin} onChange={e => setDateFin(e.target.value)} style={{ ...inputUnderline, flex: 1 }} />
             </div>
           </div>
           <div style={{ flex: 1 }}>
-            <label style={{ display: 'block', fontSize: 11, color: '#6B7280', marginBottom: 4 }}>Montant HT (factures / commandes / dépenses)</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input type="number" min="0" placeholder="Min" value={montantMin} onChange={e => setMontantMin(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
-              <input type="number" min="0" placeholder="Max" value={montantMax} onChange={e => setMontantMax(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+            <label style={{ display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Montant HT (factures / commandes / dépenses)</label>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <input type="number" min="0" placeholder="Min" value={montantMin} onChange={e => setMontantMin(e.target.value)} style={{ ...inputUnderline, flex: 1 }} />
+              <input type="number" min="0" placeholder="Max" value={montantMax} onChange={e => setMontantMax(e.target.value)} style={{ ...inputUnderline, flex: 1 }} />
             </div>
           </div>
         </div>
 
         {filtresActifs && (
-          <button onClick={reinitialiserFiltres}
-            style={{ marginTop: 10, background: 'none', border: 'none', color: '#2563EB', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+          <button onClick={reinitialiserFiltres} style={{ ...quietLink, display: 'inline-block', marginTop: 16 }}>
             Réinitialiser les filtres
           </button>
         )}
       </div>
 
-      {loading && <div style={{ textAlign: 'center', padding: 30, color: '#9CA3AF', fontSize: 13 }}>Recherche...</div>}
+      {loading && <div style={{ textAlign: 'center', padding: 40, color: colors.inkFaint, fontSize: 13 }}>Recherche...</div>}
 
       {!loading && aucuneRequete && (
-        <div style={{ textAlign: 'center', padding: '50px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-          <div style={{ fontSize: 28, marginBottom: 10 }}>🔎</div>
+        <div style={{ textAlign: 'center', padding: '50px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
           <div style={{ fontSize: 13 }}>Coche au moins un type ci-dessus pour voir des résultats.</div>
         </div>
       )}
 
       {!loading && resultats && (
         total === 0 ? (
-          <div style={{ textAlign: 'center', padding: '50px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-            <div style={{ fontSize: 28, marginBottom: 10 }}>🤷</div>
+          <div style={{ textAlign: 'center', padding: '50px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
             <div style={{ fontSize: 13 }}>Aucun résultat pour cette recherche.</div>
           </div>
         ) : (
           <div>
-            <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 10 }}>{total} résultat{total > 1 ? 's' : ''}</div>
+            <div style={{ fontSize: 12, color: colors.inkFaint, marginBottom: 16 }}>{total} résultat{total > 1 ? 's' : ''}</div>
             {resultats.projets.length > 0 && (
-              <Groupe titre="Projets" icon="📋">
+              <Groupe titre="Projets">
                 {resultats.projets.map(p => (
                   <Ligne key={p.id} onClick={() => navigate('/projets/' + p.id)}
                     principal={p.nom}
                     secondaire={[p.clients?.nom, p.numero_bon_commande_client ? 'BC ' + p.numero_bon_commande_client : null].filter(Boolean).join(' · ')}
-                    droite={<span style={badgeStyle}>{p.statut}</span>} />
+                    droite={p.statut} />
                 ))}
               </Groupe>
             )}
             {resultats.clients.length > 0 && (
-              <Groupe titre="Clients" icon="👤">
+              <Groupe titre="Clients">
                 {resultats.clients.map(c => (
                   <Ligne key={c.id} onClick={() => { navigate('/clients', { state: { q: c.nom } }) }}
                     principal={c.nom} secondaire={[c.email, c.ville].filter(Boolean).join(' · ')} />
@@ -273,7 +273,7 @@ export default function Recherche() {
               </Groupe>
             )}
             {resultats.fournisseurs.length > 0 && (
-              <Groupe titre="Fournisseurs" icon="🏢">
+              <Groupe titre="Fournisseurs">
                 {resultats.fournisseurs.map(f => (
                   <Ligne key={f.id} onClick={() => { navigate('/fournisseurs', { state: { q: f.nom } }) }}
                     principal={f.nom} secondaire={[f.email, f.ville].filter(Boolean).join(' · ')} />
@@ -281,7 +281,7 @@ export default function Recherche() {
               </Groupe>
             )}
             {resultats.contacts.length > 0 && (
-              <Groupe titre="Contacts clients" icon="📇">
+              <Groupe titre="Contacts clients">
                 {resultats.contacts.map(c => (
                   <Ligne key={c.id} onClick={() => { if (c.clients?.nom) navigate('/clients', { state: { q: c.clients.nom } }) }}
                     principal={c.nom + (c.type ? ' (' + c.type + ')' : '')}
@@ -290,38 +290,38 @@ export default function Recherche() {
               </Groupe>
             )}
             {resultats.facturesCli.length > 0 && (
-              <Groupe titre="Factures clients" icon="💶">
+              <Groupe titre="Factures clients">
                 {resultats.facturesCli.map(f => (
                   <Ligne key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_cli', focusId: f.id } })}
                     principal={f.numero} secondaire={[f.projets?.nom, fmtDate(f.date_facture)].filter(Boolean).join(' · ')}
-                    droite={<>{fmt(f.montant_ht)} <span style={badgeStyle}>{f.statut}</span></>} />
+                    droite={fmt(f.montant_ht) + ' · ' + f.statut} />
                 ))}
               </Groupe>
             )}
             {resultats.facturesFrs.length > 0 && (
-              <Groupe titre="Factures fournisseurs" icon="📄">
+              <Groupe titre="Factures fournisseurs">
                 {resultats.facturesFrs.map(f => (
                   <Ligne key={f.id} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_frs', focusId: f.id } })}
                     principal={f.numero} secondaire={[f.fournisseurs?.nom, f.projets?.nom, fmtDate(f.date_facture)].filter(Boolean).join(' · ')}
-                    droite={<>{fmt(f.montant_ht)} <span style={badgeStyle}>{f.statut}</span></>} />
+                    droite={fmt(f.montant_ht) + ' · ' + f.statut} />
                 ))}
               </Groupe>
             )}
             {resultats.commandes.length > 0 && (
-              <Groupe titre="Commandes fournisseurs" icon="🛒">
+              <Groupe titre="Commandes fournisseurs">
                 {resultats.commandes.map(c => (
                   <Ligne key={c.id} onClick={() => navigate('/projets/' + c.projet_id, { state: { tab: 'commandes', focusId: c.id } })}
                     principal={c.numero} secondaire={[c.fournisseurs?.nom, c.projets?.nom, fmtDate(c.date_commande)].filter(Boolean).join(' · ')}
-                    droite={<>{fmt(c.montant_ht)} <span style={badgeStyle}>{c.statut}</span></>} />
+                    droite={fmt(c.montant_ht) + ' · ' + c.statut} />
                 ))}
               </Groupe>
             )}
             {resultats.depenses.length > 0 && (
-              <Groupe titre="Dépenses" icon="💸">
+              <Groupe titre="Dépenses">
                 {resultats.depenses.map(d => (
                   <Ligne key={d.id} onClick={() => navigate('/depenses', { state: { q: d.libelle || d.numero } })}
                     principal={d.libelle || d.numero} secondaire={[d.categorie, d.fournisseurs?.nom, fmtDate(d.date_facture)].filter(Boolean).join(' · ')}
-                    droite={<>{fmt(d.montant_ht)} <span style={badgeStyle}>{d.statut}</span></>} />
+                    droite={fmt(d.montant_ht) + ' · ' + d.statut} />
                 ))}
               </Groupe>
             )}
@@ -332,13 +332,11 @@ export default function Recherche() {
   )
 }
 
-function Groupe({ titre, icon, children }) {
+function Groupe({ titre, children }) {
   return (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>{icon}</span>{titre}
-      </div>
-      <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, overflow: 'hidden' }}>
+    <div style={{ marginBottom: 28 }}>
+      <h2 style={sectionTitle}>{titre}</h2>
+      <div style={{ borderTop: '1px solid ' + colors.line, marginTop: 10 }}>
         {children}
       </div>
     </div>
@@ -348,14 +346,12 @@ function Groupe({ titre, icon, children }) {
 function Ligne({ onClick, principal, secondaire, droite }) {
   return (
     <div onClick={onClick}
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 14px', borderBottom: '1px solid #F3F4F6', cursor: 'pointer', fontSize: 13 }}
-      onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '11px 0', borderBottom: '1px solid ' + colors.line, cursor: 'pointer', fontSize: 13 }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 500, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{principal}</div>
-        {secondaire && <div style={{ fontSize: 11, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{secondaire}</div>}
+        <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{principal}</div>
+        {secondaire && <div style={{ fontSize: 11.5, color: colors.inkFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{secondaire}</div>}
       </div>
-      {droite && <div style={{ flexShrink: 0, fontSize: 12, color: '#6B7280', display: 'flex', alignItems: 'center', gap: 6 }}>{droite}</div>}
+      {droite && <div style={{ flexShrink: 0, fontSize: 12, color: colors.inkMuted, whiteSpace: 'nowrap' }}>{droite}</div>}
     </div>
   )
 }
