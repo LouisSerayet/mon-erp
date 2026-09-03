@@ -5,15 +5,18 @@ import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 import { genererFactureCliPDF } from '../lib/pdfFacture'
+import { envoyerFacturesPennylane } from '../lib/usePennylane'
 
 // Exports Excel pour la comptabilité — factures clients, factures
 // fournisseurs et commandes, tous projets confondus, avec un filtre de
 // période optionnel (utile pour un export par exercice/trimestre).
 //
-// Plus bas : export PDF groupé (factures clients régénérées à la volée,
-// factures fournisseurs = les PDF déjà archivés à l'upload), en ZIP, pour
-// une reprise en main manuelle côté Pennylane (import PDF natif, en
-// attendant que la synchro API fonctionne à nouveau — voir usePennylane.js).
+// Plus bas : envoi groupé vers Pennylane (factures clients régénérées à la
+// volée, factures fournisseurs = les PDF déjà archivés à l'upload), par
+// email vers les adresses d'import dédiées de Pennylane — repli tant que
+// l'abonnement Pennylane de la société n'inclut pas l'API (voir
+// usePennylane.js). Le ZIP à télécharger reste disponible en secours, pour
+// un import manuel glisser-déposer si besoin.
 
 function telechargerExcel(lignes, feuille, fichier) {
   const ws = XLSX.utils.json_to_sheet(lignes)
@@ -56,12 +59,13 @@ export default function Exports() {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
-  // ── Export PDF groupé (ZIP) ─────────────────────────────────────────
+  // ── Envoi groupé vers Pennylane (email) + ZIP de secours ────────────
   const [projets, setProjets] = useState([])
   const [typesLot, setTypesLot] = useState(() => new Set(['clients', 'fournisseurs']))
   const [statutLot, setStatutLot] = useState('toutes')
   const [projetLotId, setProjetLotId] = useState('')
-  const [busyLot, setBusyLot] = useState(false)
+  const [inclureEnvoyees, setInclureEnvoyees] = useState(false)
+  const [busyLot, setBusyLot] = useState('') // '' | 'email' | 'zip'
   const [errorLot, setErrorLot] = useState('')
   const [resumeLot, setResumeLot] = useState('')
 
@@ -156,74 +160,135 @@ export default function Exports() {
     setBusy('')
   }
 
-  // Regroupe en un ZIP les factures clients (régénérées en PDF à la volée,
-  // même mise en page que le PDF téléchargé depuis un projet) et/ou les
-  // factures fournisseurs (le PDF déjà archivé lors de l'upload — voir
-  // fichier_path sur factures_frs) qui correspondent aux filtres, tous
-  // projets confondus. Une fournisseur sans PDF archivé est ignorée (elle
-  // n'a rien à zipper) et comptée à part dans le résumé.
+  // Résumé textuel commun aux deux actions ci-dessous (email et ZIP).
+  function resumerCompte(nbCli, nbFrs, nbFrsIgnorees) {
+    const morceaux = []
+    if (typesLot.has('clients')) morceaux.push(nbCli + (nbCli > 1 ? ' factures clients' : ' facture client'))
+    if (typesLot.has('fournisseurs')) {
+      let m = nbFrs + (nbFrs > 1 ? ' factures fournisseurs' : ' facture fournisseur')
+      if (nbFrsIgnorees) m += ' (' + nbFrsIgnorees + ' ignorée' + (nbFrsIgnorees > 1 ? 's' : '') + ' — PDF manquant)'
+      morceaux.push(m)
+    }
+    return morceaux.join(' · ')
+  }
+
+  // Récupère, selon les filtres actifs (type/statut/projet/période, et par
+  // défaut en excluant celles déjà envoyées à Pennylane — voir
+  // inclureEnvoyees), les factures clients et fournisseurs concernées.
+  // Partagé par l'envoi par email et le ZIP de secours ci-dessous.
+  async function recupererFacturesFiltrees() {
+    let facturesCli = [], facturesFrs = []
+
+    if (typesLot.has('clients')) {
+      let q = supabase.from('factures_cli')
+        .select('id, numero, date_facture, date_echeance, montant_ht, statut, type_facture, paiement_comptant, projet_id, pennylane_synced_at, projets(nom, taux_tva, numero_bon_commande_client, clients(nom, email, telephone, adresse, rue, code_postal, ville))')
+        .is('deleted_at', null)
+        .order('date_facture', { ascending: true })
+      q = appliquerPeriode(q, 'date_facture')
+      if (projetLotId) q = q.eq('projet_id', projetLotId)
+      if (statutLot === 'payees') q = q.eq('statut', 'Payée')
+      if (statutLot === 'non_payees') q = q.in('statut', ['À envoyer', 'Envoyée'])
+      if (!inclureEnvoyees) q = q.is('pennylane_synced_at', null)
+      const { data, error: err } = await q
+      if (err) throw err
+      facturesCli = data || []
+    }
+
+    if (typesLot.has('fournisseurs')) {
+      let q = supabase.from('factures_frs')
+        .select('id, numero, date_facture, statut, fichier_path, projet_id, pennylane_synced_at')
+        .is('deleted_at', null)
+        .not('fichier_path', 'is', null)
+        .order('date_facture', { ascending: true })
+      q = appliquerPeriode(q, 'date_facture')
+      if (projetLotId) q = q.eq('projet_id', projetLotId)
+      if (statutLot === 'payees') q = q.eq('statut', 'Payée')
+      if (statutLot === 'non_payees') q = q.eq('statut', 'À payer')
+      if (!inclureEnvoyees) q = q.is('pennylane_synced_at', null)
+      const { data, error: err } = await q
+      if (err) throw err
+      facturesFrs = data || []
+    }
+
+    return { facturesCli, facturesFrs }
+  }
+
+  // Envoie directement les factures filtrées par email aux adresses
+  // d'import Pennylane (voir lib/usePennylane.js — envoyerFacturesPennylane)
+  // et marque chaque facture envoyée (pennylane_synced_at) pour qu'elle
+  // n'apparaisse plus "à envoyer" côté projet ni dans un futur envoi groupé
+  // (sauf à cocher "Inclure les factures déjà envoyées").
+  async function envoyerVersPennylane() {
+    if (!typesLot.size) { setErrorLot('Sélectionne au moins un type de facture.'); return }
+    setBusyLot('email'); setErrorLot(''); setResumeLot('')
+    try {
+      const { facturesCli, facturesFrs } = await recupererFacturesFiltrees()
+      let nbFrsIgnorees = 0, totalEmails = 0
+      const maintenant = new Date().toISOString()
+
+      if (facturesCli.length) {
+        const pieces = facturesCli.map(f => ({ name: (f.numero || f.id) + '.pdf', blob: genererFactureCliPDF(f, f.projets, 'fr').output('blob') }))
+        const res = await envoyerFacturesPennylane('ventes', pieces)
+        totalEmails += res.emails
+        await supabase.from('factures_cli').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', facturesCli.map(f => f.id))
+      }
+
+      const piecesFrs = []
+      for (const f of facturesFrs) {
+        const { data: blob, error: dlErr } = await supabase.storage.from('documents').download(f.fichier_path)
+        if (dlErr || !blob) { nbFrsIgnorees++; continue }
+        piecesFrs.push({ id: f.id, name: (f.numero || f.id) + '.pdf', blob })
+      }
+      if (piecesFrs.length) {
+        const res = await envoyerFacturesPennylane('achats', piecesFrs)
+        totalEmails += res.emails
+        await supabase.from('factures_frs').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', piecesFrs.map(p => p.id))
+      }
+
+      const nbFrsEnvoyees = piecesFrs.length
+      if (facturesCli.length + nbFrsEnvoyees === 0) {
+        throw new Error(inclureEnvoyees
+          ? 'Aucune facture ne correspond à ces filtres.'
+          : 'Aucune facture à envoyer (tout a déjà été envoyé, ou aucune ne correspond aux filtres) — coche "Inclure les factures déjà envoyées" pour les renvoyer.')
+      }
+
+      setResumeLot(resumerCompte(facturesCli.length, nbFrsEnvoyees, nbFrsIgnorees) + ' — ' + totalEmails + ' email' + (totalEmails > 1 ? 's' : '') + ' envoyé' + (totalEmails > 1 ? 's' : '') + ' à Pennylane.')
+    } catch (err) {
+      setErrorLot('Erreur envoi Pennylane : ' + err.message)
+    }
+    setBusyLot('')
+  }
+
+  // ZIP de secours (pas d'envoi ni de marquage "envoyée") — pour un import
+  // manuel glisser-déposer côté Pennylane si l'envoi par email pose souci.
   async function exporterFacturesPDF() {
     if (!typesLot.size) { setErrorLot('Sélectionne au moins un type de facture.'); return }
-    setBusyLot(true); setErrorLot(''); setResumeLot('')
+    setBusyLot('zip'); setErrorLot(''); setResumeLot('')
     try {
+      const { facturesCli, facturesFrs } = await recupererFacturesFiltrees()
       const zip = new JSZip()
-      let nbCli = 0, nbFrs = 0, nbFrsIgnorees = 0
+      let nbFrsIgnorees = 0
 
-      if (typesLot.has('clients')) {
-        let q = supabase.from('factures_cli')
-          .select('id, numero, date_facture, date_echeance, montant_ht, statut, type_facture, paiement_comptant, projet_id, projets(nom, taux_tva, numero_bon_commande_client, clients(nom, email, telephone, adresse, rue, code_postal, ville))')
-          .is('deleted_at', null)
-          .order('date_facture', { ascending: true })
-        q = appliquerPeriode(q, 'date_facture')
-        if (projetLotId) q = q.eq('projet_id', projetLotId)
-        if (statutLot === 'payees') q = q.eq('statut', 'Payée')
-        if (statutLot === 'non_payees') q = q.in('statut', ['À envoyer', 'Envoyée'])
-        const { data, error: err } = await q
-        if (err) throw err
-        for (const f of (data || [])) {
-          const doc = genererFactureCliPDF(f, f.projets, 'fr')
-          zip.file('Factures clients/' + (f.numero || f.id) + '.pdf', doc.output('blob'))
-          nbCli++
-        }
+      for (const f of facturesCli) {
+        const doc = genererFactureCliPDF(f, f.projets, 'fr')
+        zip.file('Factures clients/' + (f.numero || f.id) + '.pdf', doc.output('blob'))
+      }
+      for (const f of facturesFrs) {
+        const { data: blob, error: dlErr } = await supabase.storage.from('documents').download(f.fichier_path)
+        if (dlErr || !blob) { nbFrsIgnorees++; continue }
+        zip.file('Factures fournisseurs/' + (f.numero || f.id) + '.pdf', blob)
       }
 
-      if (typesLot.has('fournisseurs')) {
-        let q = supabase.from('factures_frs')
-          .select('id, numero, date_facture, statut, fichier_path, projet_id')
-          .is('deleted_at', null)
-          .not('fichier_path', 'is', null)
-          .order('date_facture', { ascending: true })
-        q = appliquerPeriode(q, 'date_facture')
-        if (projetLotId) q = q.eq('projet_id', projetLotId)
-        if (statutLot === 'payees') q = q.eq('statut', 'Payée')
-        if (statutLot === 'non_payees') q = q.eq('statut', 'À payer')
-        const { data, error: err } = await q
-        if (err) throw err
-        for (const f of (data || [])) {
-          const { data: blob, error: dlErr } = await supabase.storage.from('documents').download(f.fichier_path)
-          if (dlErr || !blob) { nbFrsIgnorees++; continue }
-          zip.file('Factures fournisseurs/' + (f.numero || f.id) + '.pdf', blob)
-          nbFrs++
-        }
-      }
-
-      if (nbCli + nbFrs === 0) throw new Error('Aucune facture ne correspond à ces filtres.')
+      const nbFrsInclues = facturesFrs.length - nbFrsIgnorees
+      if (facturesCli.length + nbFrsInclues === 0) throw new Error('Aucune facture ne correspond à ces filtres.')
 
       const contenu = await zip.generateAsync({ type: 'blob' })
       telechargerBlob(contenu, 'factures' + (du ? '_du-' + du : '') + (au ? '_au-' + au : '') + '.zip')
-
-      const morceaux = []
-      if (typesLot.has('clients')) morceaux.push(nbCli + (nbCli > 1 ? ' factures clients' : ' facture client'))
-      if (typesLot.has('fournisseurs')) {
-        let m = nbFrs + (nbFrs > 1 ? ' factures fournisseurs' : ' facture fournisseur')
-        if (nbFrsIgnorees) m += ' (' + nbFrsIgnorees + ' ignorée' + (nbFrsIgnorees > 1 ? 's' : '') + ' — PDF manquant)'
-        morceaux.push(m)
-      }
-      setResumeLot(morceaux.join(' · ') + ' exportées dans le ZIP.')
+      setResumeLot(resumerCompte(facturesCli.length, nbFrsInclues, nbFrsIgnorees) + ' — ZIP téléchargé.')
     } catch (err) {
       setErrorLot('Erreur export PDF : ' + err.message)
     }
-    setBusyLot(false)
+    setBusyLot('')
   }
 
   const CARTES = [
@@ -263,11 +328,11 @@ export default function Exports() {
         ))}
       </div>
 
-      {/* ── Export PDF groupé ────────────────────────────────────── */}
+      {/* ── Envoi groupé vers Pennylane ──────────────────────────── */}
       <div style={{ marginTop: 56, paddingTop: 28, borderTop: '1px solid ' + colors.line }}>
-        <h2 style={sectionTitle}>Export PDF groupé</h2>
+        <h2 style={sectionTitle}>Envoi groupé vers Pennylane</h2>
         <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0', maxWidth: 640 }}>
-          Un ZIP avec un PDF par facture (regénérées pour les factures clients, déjà archivées pour les factures fournisseurs) — utile pour un import manuel côté Pennylane.
+          Envoie directement les factures par email aux adresses d'import Pennylane (regénérées pour les factures clients, déjà archivées pour les factures fournisseurs) — chaque facture envoyée est marquée comme telle. Le ZIP reste disponible en secours pour un import manuel.
         </p>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, margin: '24px 0 20px' }}>
@@ -297,8 +362,18 @@ export default function Exports() {
               {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
             </select>
           </div>
-          <button onClick={exporterFacturesPDF} disabled={busyLot} style={{ ...quietLink, fontSize: 13, paddingBottom: 6 }}>
-            {busyLot ? 'Export en cours...' : 'Exporter en ZIP'}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: colors.inkMuted, cursor: 'pointer', paddingBottom: 8 }}>
+            <input type="checkbox" checked={inclureEnvoyees} onChange={e => { setInclureEnvoyees(e.target.checked); setResumeLot('') }} style={{ accentColor: colors.ink, cursor: 'pointer' }} />
+            Inclure les factures déjà envoyées
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', gap: 24, alignItems: 'center', marginTop: 22 }}>
+          <button onClick={envoyerVersPennylane} disabled={!!busyLot} style={{ ...quietLink, fontSize: 13, paddingBottom: 6 }}>
+            {busyLot === 'email' ? 'Envoi en cours...' : 'Envoyer à Pennylane'}
+          </button>
+          <button onClick={exporterFacturesPDF} disabled={!!busyLot} style={{ ...quietLink, fontSize: 12, color: colors.inkFaint, borderBottomColor: colors.inkFaint }}>
+            {busyLot === 'zip' ? 'Export en cours...' : 'ou télécharger en ZIP'}
           </button>
         </div>
 

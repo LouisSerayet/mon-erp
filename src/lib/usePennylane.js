@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { envoyerEmailOutlook } from './useOutlook'
 
 // Le proxy /api/pennylane renvoie toujours { error: <message générique>,
 // details: <réponse brute de Pennylane> } en cas d'échec. Le message utile
@@ -289,4 +290,67 @@ export async function syncFactureFrsStatut(facture) {
     pennylane_synced_at: new Date().toISOString(),
   }).eq('id', facture.id)
   return statut
+}
+
+// ── Envoi par email vers les adresses d'import Pennylane ────────────────
+// Repli tant que l'abonnement Pennylane de la société n'inclut pas l'API
+// (voir pushFactureClientPennylane/pushFactureFrsPennylane ci-dessus,
+// verrouillées derrière le plan "Essentiel" et supérieur) : Pennylane
+// fournit une adresse email dédiée par dossier pour chaque flux
+// (achats/ventes — Paramètres > Transmission de factures > Adresses
+// e-mail, côté Pennylane), qui importe automatiquement CHAQUE pièce
+// jointe comme une facture séparée, y compris plusieurs pièces jointes
+// dans un même email (confirmé par le centre d'aide Pennylane). On
+// regroupe donc les factures à transmettre en lots qui restent sous une
+// taille prudente par email : l'envoi simple de Microsoft Graph (voir
+// api/outlook.js) a une limite totale autour de 4 Mo, pièces jointes
+// encodées en base64 comprises.
+const PENNYLANE_EMAIL_ACHATS = import.meta.env.VITE_PENNYLANE_EMAIL_ACHATS
+const PENNYLANE_EMAIL_VENTES = import.meta.env.VITE_PENNYLANE_EMAIL_VENTES
+const TAILLE_MAX_LOT_OCTETS = 2.2 * 1024 * 1024 // ~2,2 Mo réels par lot ≈ 3 Mo une fois en base64
+
+function blobVersBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+// `pieces` : [{ name, blob }] — blob = Blob/File du PDF (généré à la volée
+// pour une facture client, déjà stocké pour une facture fournisseur).
+// Renvoie { factures, emails } — le nombre de factures transmises et le
+// nombre d'emails effectivement envoyés (plusieurs si le lot dépassait la
+// taille max par email).
+export async function envoyerFacturesPennylane(type, pieces) {
+  const adresse = type === 'achats' ? PENNYLANE_EMAIL_ACHATS : PENNYLANE_EMAIL_VENTES
+  if (!adresse) {
+    throw new Error(`Adresse Pennylane (${type}) non configurée — ajoute VITE_PENNYLANE_EMAIL_${type === 'achats' ? 'ACHATS' : 'VENTES'} dans les variables d'environnement Vercel (voir Paramètres > Transmission de factures > Adresses e-mail dans Pennylane).`)
+  }
+  if (!pieces.length) return { factures: 0, emails: 0 }
+
+  const lots = []
+  let lotCourant = [], tailleCourante = 0
+  for (const piece of pieces) {
+    const taille = piece.blob?.size || 0
+    if (lotCourant.length && tailleCourante + taille > TAILLE_MAX_LOT_OCTETS) {
+      lots.push(lotCourant); lotCourant = []; tailleCourante = 0
+    }
+    lotCourant.push(piece); tailleCourante += taille
+  }
+  if (lotCourant.length) lots.push(lotCourant)
+
+  for (let i = 0; i < lots.length; i++) {
+    const attachments = await Promise.all(lots[i].map(async p => ({
+      name: p.name, contentType: 'application/pdf', contentBytes: await blobVersBase64(p.blob),
+    })))
+    await envoyerEmailOutlook({
+      to: adresse,
+      subject: (type === 'achats' ? 'Factures fournisseurs' : 'Factures clients') + ' — import Pennylane' + (lots.length > 1 ? ` (lot ${i + 1}/${lots.length})` : ''),
+      body: attachments.length + ' facture(s) jointe(s) pour import automatique dans Pennylane.',
+      attachments,
+    })
+  }
+  return { factures: pieces.length, emails: lots.length }
 }

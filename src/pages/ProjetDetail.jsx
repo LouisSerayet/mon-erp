@@ -3257,6 +3257,10 @@ export default function ProjetDetail() {
                               {pennylaneBusy === f.id ? '...' : 'Actualiser'}
                             </button>
                           </div>
+                        ) : f.pennylane_synced_at ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
+                            <span style={marker(colors.success)} />Envoyée par email le {new Date(f.pennylane_synced_at).toLocaleDateString('fr-FR')}
+                          </span>
                         ) : (
                           <button onClick={() => envoyerFactureFrsVersPennylane(f)} disabled={pennylaneBusy === f.id} style={quietLink}>
                             {pennylaneBusy === f.id ? 'Envoi...' : 'Envoyer'}
@@ -3483,6 +3487,10 @@ export default function ProjetDetail() {
                               {pennylaneBusy === f.id ? '...' : 'Actualiser'}
                             </button>
                           </div>
+                        ) : f.pennylane_synced_at ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
+                            <span style={marker(colors.success)} />Envoyée par email le {new Date(f.pennylane_synced_at).toLocaleDateString('fr-FR')}
+                          </span>
                         ) : (
                           <button onClick={() => envoyerFactureCliVersPennylane(f)} disabled={pennylaneBusy === f.id} style={quietLink}>
                             {pennylaneBusy === f.id ? 'Envoi...' : 'Envoyer'}
