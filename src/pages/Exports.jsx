@@ -50,6 +50,7 @@ const STATUTS_LOT = [
 const TYPES_LOT = [
   { key: 'clients', label: 'Factures clients', color: colors.focus },
   { key: 'fournisseurs', label: 'Factures fournisseurs', color: colors.warning },
+  { key: 'depenses', label: 'Dépenses', color: colors.success },
 ]
 
 export default function Exports() {
@@ -61,7 +62,7 @@ export default function Exports() {
 
   // ── Envoi groupé vers Pennylane (email) + ZIP de secours ────────────
   const [projets, setProjets] = useState([])
-  const [typesLot, setTypesLot] = useState(() => new Set(['clients', 'fournisseurs']))
+  const [typesLot, setTypesLot] = useState(() => new Set(['clients', 'fournisseurs', 'depenses']))
   const [statutLot, setStatutLot] = useState('toutes')
   const [projetLotId, setProjetLotId] = useState('')
   const [inclureEnvoyees, setInclureEnvoyees] = useState(false)
@@ -161,7 +162,7 @@ export default function Exports() {
   }
 
   // Résumé textuel commun aux deux actions ci-dessous (email et ZIP).
-  function resumerCompte(nbCli, nbFrs, nbFrsIgnorees) {
+  function resumerCompte({ nbCli = 0, nbFrs = 0, nbFrsIgnorees = 0, nbDep = 0, nbDepIgnorees = 0 } = {}) {
     const morceaux = []
     if (typesLot.has('clients')) morceaux.push(nbCli + (nbCli > 1 ? ' factures clients' : ' facture client'))
     if (typesLot.has('fournisseurs')) {
@@ -169,15 +170,23 @@ export default function Exports() {
       if (nbFrsIgnorees) m += ' (' + nbFrsIgnorees + ' ignorée' + (nbFrsIgnorees > 1 ? 's' : '') + ' — PDF manquant)'
       morceaux.push(m)
     }
+    if (typesLot.has('depenses')) {
+      let m = nbDep + (nbDep > 1 ? ' dépenses' : ' dépense')
+      if (nbDepIgnorees) m += ' (' + nbDepIgnorees + ' ignorée' + (nbDepIgnorees > 1 ? 's' : '') + ' — justificatif manquant)'
+      morceaux.push(m)
+    }
     return morceaux.join(' · ')
   }
 
   // Récupère, selon les filtres actifs (type/statut/projet/période, et par
   // défaut en excluant celles déjà envoyées à Pennylane — voir
-  // inclureEnvoyees), les factures clients et fournisseurs concernées.
-  // Partagé par l'envoi par email et le ZIP de secours ci-dessous.
+  // inclureEnvoyees), les factures clients, factures fournisseurs et
+  // dépenses générales concernées. Partagé par l'envoi par email et le ZIP
+  // de secours ci-dessous. Les dépenses générales ne sont jamais liées à un
+  // projet (voir Depenses.jsx) : elles sont ignorées dès qu'un projet
+  // précis est sélectionné, puisqu'aucune ne pourrait y correspondre.
   async function recupererFacturesFiltrees() {
-    let facturesCli = [], facturesFrs = []
+    let facturesCli = [], facturesFrs = [], depenses = []
 
     if (typesLot.has('clients')) {
       let q = supabase.from('factures_cli')
@@ -210,20 +219,38 @@ export default function Exports() {
       facturesFrs = data || []
     }
 
-    return { facturesCli, facturesFrs }
+    if (typesLot.has('depenses') && !projetLotId) {
+      let q = supabase.from('depenses_generales')
+        .select('id, libelle, numero, date_facture, statut, fichier_path, pennylane_synced_at')
+        .is('deleted_at', null)
+        .not('fichier_path', 'is', null)
+        .order('date_facture', { ascending: true })
+      q = appliquerPeriode(q, 'date_facture')
+      if (statutLot === 'payees') q = q.eq('statut', 'Payée')
+      if (statutLot === 'non_payees') q = q.eq('statut', 'À payer')
+      if (!inclureEnvoyees) q = q.is('pennylane_synced_at', null)
+      const { data, error: err } = await q
+      if (err) throw err
+      depenses = data || []
+    }
+
+    return { facturesCli, facturesFrs, depenses }
   }
 
-  // Envoie directement les factures filtrées par email aux adresses
-  // d'import Pennylane (voir lib/usePennylane.js — envoyerFacturesPennylane)
-  // et marque chaque facture envoyée (pennylane_synced_at) pour qu'elle
-  // n'apparaisse plus "à envoyer" côté projet ni dans un futur envoi groupé
-  // (sauf à cocher "Inclure les factures déjà envoyées").
+  // Envoie directement les factures/dépenses filtrées par email aux
+  // adresses d'import Pennylane (voir lib/usePennylane.js —
+  // envoyerFacturesPennylane) et marque chaque élément envoyé
+  // (pennylane_synced_at) pour qu'il n'apparaisse plus "à envoyer" côté
+  // projet ni dans un futur envoi groupé (sauf à cocher "Inclure les
+  // factures déjà envoyées"). Les dépenses générales sont des achats comme
+  // les factures fournisseurs : elles partent dans le même lot d'emails,
+  // vers la même adresse "achats".
   async function envoyerVersPennylane() {
     if (!typesLot.size) { setErrorLot('Sélectionne au moins un type de facture.'); return }
     setBusyLot('email'); setErrorLot(''); setResumeLot('')
     try {
-      const { facturesCli, facturesFrs } = await recupererFacturesFiltrees()
-      let nbFrsIgnorees = 0, totalEmails = 0
+      const { facturesCli, facturesFrs, depenses } = await recupererFacturesFiltrees()
+      let nbFrsIgnorees = 0, nbDepIgnorees = 0, totalEmails = 0
       const maintenant = new Date().toISOString()
 
       if (facturesCli.length) {
@@ -239,20 +266,28 @@ export default function Exports() {
         if (dlErr || !blob) { nbFrsIgnorees++; continue }
         piecesFrs.push({ id: f.id, name: (f.numero || f.id) + '.pdf', blob })
       }
-      if (piecesFrs.length) {
-        const res = await envoyerFacturesPennylane('achats', piecesFrs)
+      const piecesDep = []
+      for (const d of depenses) {
+        const { data: blob, error: dlErr } = await supabase.storage.from('documents').download(d.fichier_path)
+        if (dlErr || !blob) { nbDepIgnorees++; continue }
+        piecesDep.push({ id: d.id, name: (d.numero || d.libelle || d.id) + '.pdf', blob })
+      }
+      const piecesAchats = [...piecesFrs, ...piecesDep]
+      if (piecesAchats.length) {
+        const res = await envoyerFacturesPennylane('achats', piecesAchats)
         totalEmails += res.emails
-        await supabase.from('factures_frs').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', piecesFrs.map(p => p.id))
+        if (piecesFrs.length) await supabase.from('factures_frs').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', piecesFrs.map(p => p.id))
+        if (piecesDep.length) await supabase.from('depenses_generales').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', piecesDep.map(p => p.id))
       }
 
-      const nbFrsEnvoyees = piecesFrs.length
-      if (facturesCli.length + nbFrsEnvoyees === 0) {
+      const nbFrsEnvoyees = piecesFrs.length, nbDepEnvoyees = piecesDep.length
+      if (facturesCli.length + nbFrsEnvoyees + nbDepEnvoyees === 0) {
         throw new Error(inclureEnvoyees
           ? 'Aucune facture ne correspond à ces filtres.'
           : 'Aucune facture à envoyer (tout a déjà été envoyé, ou aucune ne correspond aux filtres) — coche "Inclure les factures déjà envoyées" pour les renvoyer.')
       }
 
-      setResumeLot(resumerCompte(facturesCli.length, nbFrsEnvoyees, nbFrsIgnorees) + ' — ' + totalEmails + ' email' + (totalEmails > 1 ? 's' : '') + ' envoyé' + (totalEmails > 1 ? 's' : '') + ' à Pennylane.')
+      setResumeLot(resumerCompte({ nbCli: facturesCli.length, nbFrs: nbFrsEnvoyees, nbFrsIgnorees, nbDep: nbDepEnvoyees, nbDepIgnorees }) + ' — ' + totalEmails + ' email' + (totalEmails > 1 ? 's' : '') + ' envoyé' + (totalEmails > 1 ? 's' : '') + ' à Pennylane.')
     } catch (err) {
       setErrorLot('Erreur envoi Pennylane : ' + err.message)
     }
@@ -265,9 +300,9 @@ export default function Exports() {
     if (!typesLot.size) { setErrorLot('Sélectionne au moins un type de facture.'); return }
     setBusyLot('zip'); setErrorLot(''); setResumeLot('')
     try {
-      const { facturesCli, facturesFrs } = await recupererFacturesFiltrees()
+      const { facturesCli, facturesFrs, depenses } = await recupererFacturesFiltrees()
       const zip = new JSZip()
-      let nbFrsIgnorees = 0
+      let nbFrsIgnorees = 0, nbDepIgnorees = 0
 
       for (const f of facturesCli) {
         const doc = genererFactureCliPDF(f, f.projets, 'fr')
@@ -278,13 +313,19 @@ export default function Exports() {
         if (dlErr || !blob) { nbFrsIgnorees++; continue }
         zip.file('Factures fournisseurs/' + (f.numero || f.id) + '.pdf', blob)
       }
+      for (const d of depenses) {
+        const { data: blob, error: dlErr } = await supabase.storage.from('documents').download(d.fichier_path)
+        if (dlErr || !blob) { nbDepIgnorees++; continue }
+        zip.file('Dépenses/' + (d.numero || d.libelle || d.id) + '.pdf', blob)
+      }
 
       const nbFrsInclues = facturesFrs.length - nbFrsIgnorees
-      if (facturesCli.length + nbFrsInclues === 0) throw new Error('Aucune facture ne correspond à ces filtres.')
+      const nbDepInclues = depenses.length - nbDepIgnorees
+      if (facturesCli.length + nbFrsInclues + nbDepInclues === 0) throw new Error('Aucune facture ne correspond à ces filtres.')
 
       const contenu = await zip.generateAsync({ type: 'blob' })
       telechargerBlob(contenu, 'factures' + (du ? '_du-' + du : '') + (au ? '_au-' + au : '') + '.zip')
-      setResumeLot(resumerCompte(facturesCli.length, nbFrsInclues, nbFrsIgnorees) + ' — ZIP téléchargé.')
+      setResumeLot(resumerCompte({ nbCli: facturesCli.length, nbFrs: nbFrsInclues, nbFrsIgnorees, nbDep: nbDepInclues, nbDepIgnorees }) + ' — ZIP téléchargé.')
     } catch (err) {
       setErrorLot('Erreur export PDF : ' + err.message)
     }
@@ -332,7 +373,7 @@ export default function Exports() {
       <div style={{ marginTop: 56, paddingTop: 28, borderTop: '1px solid ' + colors.line }}>
         <h2 style={sectionTitle}>Envoi groupé vers Pennylane</h2>
         <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0', maxWidth: 640 }}>
-          Envoie directement les factures par email aux adresses d'import Pennylane (regénérées pour les factures clients, déjà archivées pour les factures fournisseurs) — chaque facture envoyée est marquée comme telle. Le ZIP reste disponible en secours pour un import manuel.
+          Envoie directement les factures et dépenses par email aux adresses d'import Pennylane (regénérées pour les factures clients, déjà archivées pour les factures fournisseurs et les dépenses) — chaque élément envoyé est marqué comme tel. Les dépenses partent avec les factures fournisseurs, vers l'adresse achats. Le ZIP reste disponible en secours pour un import manuel.
         </p>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, margin: '24px 0 20px' }}>

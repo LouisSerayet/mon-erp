@@ -420,6 +420,11 @@ export default function Depenses() {
                         ) : d.statut === 'Payée' ? (
                           <div style={{ fontSize: 10, marginTop: 4, color: colors.inkFaint }}>saisi manuellement</div>
                         ) : null}
+                        {d.pennylane_synced_at && (
+                          <div style={{ fontSize: 10, marginTop: 2, color: colors.inkFaint }}>
+                            Envoyée à Pennylane le {new Date(d.pennylane_synced_at).toLocaleDateString('fr-FR')}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         {d.fichier_path ? (
