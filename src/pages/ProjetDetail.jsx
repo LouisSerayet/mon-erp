@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import PdfPreviewModal from '../components/PdfPreviewModal'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -582,7 +583,10 @@ export default function ProjetDetail() {
     // ── CONDITIONS GÉNÉRALES DE VENTE (annexe) ────────────────
     ajouterPagesCGV(doc, lang)
     piedDePage(doc, projet.nom, lang)
-    doc.save(projet.nom.replace(/[^a-z0-9]/gi, '_') + t.devisSuffix)
+    // Ne télécharge plus directement : voir pdfPreview / ouvrirApercuDevis —
+    // le devis s'ouvre d'abord dans l'aperçu, le téléchargement se fait
+    // depuis là (bouton "Télécharger" de PdfPreviewModal).
+    return doc
   }
 
     const [modeCalc, setModeCalc] = useState('achat_coeff') // 'achat_coeff' | 'vente_coeff' | 'achat_vente'
@@ -591,7 +595,11 @@ export default function ProjetDetail() {
   // temps de la session) — une commande Validée est normalement figée, la
   // reprendre doit être une action volontaire et confirmée. Voir editCmd().
   const [cmdDeverrouillees, setCmdDeverrouillees] = useState(new Set())
-  const [showPdfPreview, setShowPdfPreview] = useState(null) // commande en preview PDF
+  // Aperçu visuel PDF (devis, commande, facture client) avant téléchargement
+  // ou envoi — voir PdfPreviewModal + ouvrirApercuDevis/Commande/FactureCli
+  // et previewDoc (calculé plus bas). { tipo, titre, filenameBase, lang,
+  // payload?, onEnvoyer? }
+  const [pdfPreview, setPdfPreview] = useState(null)
   // Modale d'aperçu/édition avant envoi d'un email (facture client ou
   // commande fournisseur), PDF joint automatiquement — voir
   // ouvrirEnvoiFactureCli / ouvrirEnvoiCommande / envoyerEmailDepuisModal.
@@ -1397,6 +1405,38 @@ export default function ProjetDetail() {
     return genererFactureCliPDF(f, projet, lang)
   }
 
+  // ── Aperçu visuel PDF (devis / commande / facture client) ───────────
+  // Ouvre PdfPreviewModal au lieu de télécharger directement — voir
+  // pdfPreview (état) et previewDoc (calculé plus bas, régénéré à chaque
+  // changement de langue). onEnvoyer, quand fourni, ferme l'aperçu et
+  // rouvre la modale d'envoi par email existante avec le même document.
+  function ouvrirApercuDevis(lang = 'fr') {
+    setPdfPreview({ tipo: 'devis', titre: 'Devis — ' + (projet?.nom || ''), filenameBase: projet.nom.replace(/[^a-z0-9]/gi, '_'), lang })
+  }
+  function ouvrirApercuCommande(cmd, lang = 'fr') {
+    setPdfPreview({ tipo: 'commande', titre: 'Commande ' + (cmd.numero || ''), filenameBase: cmd.numero || 'commande', payload: cmd, lang,
+      onEnvoyer: () => { setPdfPreview(null); ouvrirEnvoiCommande(cmd) } })
+  }
+  function ouvrirApercuFactureCli(f, lang = 'fr') {
+    setPdfPreview({ tipo: 'facture_cli', titre: 'Facture ' + (f.numero || ''), filenameBase: f.numero || 'facture', payload: f, lang,
+      onEnvoyer: () => { setPdfPreview(null); ouvrirEnvoiFactureCli(f) } })
+  }
+  // Régénère le doc jsPDF affiché à chaque changement de pdfPreview (type,
+  // langue ou document ciblé) — la génération est rapide (quelques tableaux),
+  // pas besoin de la mémoriser plus finement.
+  const previewDoc = useMemo(() => {
+    if (!pdfPreview) return null
+    if (pdfPreview.tipo === 'devis') return generateDevisPDF(pdfPreview.lang)
+    if (pdfPreview.tipo === 'commande') return generateCmdPDF(pdfPreview.payload, pdfPreview.lang)
+    return generateFactureCliPDF(pdfPreview.payload, pdfPreview.lang)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfPreview])
+  function telechargerApercu() {
+    if (!previewDoc || !pdfPreview) return
+    const suffixe = pdfPreview.tipo === 'devis' ? L[pdfPreview.lang].devisSuffix : (pdfPreview.lang === 'en' ? '_EN.pdf' : '.pdf')
+    previewDoc.save(pdfPreview.filenameBase + suffixe)
+  }
+
   // ── Envoi d'email (facture client / commande fournisseur) avec PDF joint ──
   // Même principe que la relance du Dashboard ("Ca doit pas partir direct") :
   // aucun envoi n'est déclenché directement au clic sur "Envoyer", tout passe
@@ -1885,8 +1925,8 @@ export default function ProjetDetail() {
             <span style={marker(statutProjetMarker[projet.statut])} />{projet.statut}
           </span>
           <div style={{ display: 'flex', gap: 16, flexShrink: 0 }}>
-            <button onClick={() => generateDevisPDF('fr')} title="Devis PDF en français" style={quietLink}>Devis FR</button>
-            <button onClick={() => generateDevisPDF('en')} title="Devis PDF in English" style={quietLink}>Devis EN</button>
+            <button onClick={() => ouvrirApercuDevis('fr')} title="Aperçu du devis (français)" style={quietLink}>Devis FR</button>
+            <button onClick={() => ouvrirApercuDevis('en')} title="Aperçu du devis (English)" style={quietLink}>Devis EN</button>
             <button onClick={() => setConfirmDupliquerOuvert(true)} disabled={dupliquerBusy} title="Dupliquer ce projet (devis + lignes) pour en repartir" style={quietLink}>
               {dupliquerBusy ? 'Duplication...' : 'Dupliquer'}
             </button>
@@ -1970,6 +2010,21 @@ export default function ProjetDetail() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Aperçu visuel PDF (devis / commande / facture client) — placée hors
+          des onglets pour rester accessible depuis l'en-tête (devis) comme
+          depuis n'importe quel onglet. Voir pdfPreview / previewDoc. */}
+      {pdfPreview && (
+        <PdfPreviewModal
+          titre={pdfPreview.titre}
+          doc={previewDoc}
+          lang={pdfPreview.lang}
+          onLangChange={lang => setPdfPreview(p => ({ ...p, lang }))}
+          onTelecharger={telechargerApercu}
+          onEnvoyer={pdfPreview.onEnvoyer}
+          onClose={() => setPdfPreview(null)}
+        />
       )}
 
       {/* Onglets */}
@@ -2849,35 +2904,6 @@ export default function ProjetDetail() {
         {/* ── COMMANDES ── */}
         {tab === 'commandes' && (
           <div>
-            {/* PDF Preview Modal */}
-            {showPdfPreview && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ background: colors.surface, padding: 28, width: 520, border: '1px solid ' + colors.line }}>
-                  <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 600 }}>Aperçu — {showPdfPreview.numero}</h3>
-                  <div style={{ borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line, padding: '16px 0', marginBottom: 20, fontSize: 13, lineHeight: 1.7 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-                      <div><div style={fieldLabel}>N° Commande</div><div style={{ fontWeight: 600 }}>{showPdfPreview.numero}</div></div>
-                      <div><div style={fieldLabel}>Date</div><div>{fmtDate(showPdfPreview.date_commande)}</div></div>
-                      <div><div style={fieldLabel}>Fournisseur</div><div style={{ fontWeight: 600 }}>{showPdfPreview.fournisseurs?.nom || '—'}</div></div>
-                      <div><div style={fieldLabel}>Montant HT</div><div style={{ fontWeight: 700, color: colors.success, fontSize: 15, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(showPdfPreview.montant_ht)}</div></div>
-                      <div><div style={fieldLabel}>TVA</div><div>{showPdfPreview.regime_tva === 'autoliquidation' ? 'Autoliquidation (0 %)' : 'Normale (20 %)'}</div></div>
-                    </div>
-                    <div><div style={fieldLabel}>Description</div><div style={{ color: colors.ink }}>{showPdfPreview.description}</div></div>
-                    <div style={{ marginTop: 12 }}><div style={fieldLabel}>Projet</div><div>{projet?.nom}</div></div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                    <button onClick={() => setShowPdfPreview(null)} style={btnGhost}>Fermer</button>
-                    <button onClick={() => { generateCmdPDF(showPdfPreview, 'fr').save((showPdfPreview.numero || 'commande') + '.pdf'); setShowPdfPreview(null) }} style={btnPrimary}>
-                      PDF FR
-                    </button>
-                    <button onClick={() => { generateCmdPDF(showPdfPreview, 'en').save((showPdfPreview.numero || 'commande') + '_EN.pdf'); setShowPdfPreview(null) }} style={btnPrimary}>
-                      PDF EN
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Commandes fournisseurs · <span style={{ color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalCommandes)}</span></div>
               <button onClick={() => { setShowForm(true); setError('');
@@ -3055,8 +3081,8 @@ export default function ProjetDetail() {
                               {isEdited && (
                                 <button onClick={() => saveCmd(c.id)} style={quietLink}>Enregistrer</button>
                               )}
-                              <button onClick={() => setShowPdfPreview({ ...c, ...cmdEditees[c.id], fournisseurs: fournisseurs.find(f => f.id === (cmdEditees[c.id]?.fournisseur_id || c.fournisseur_id)) })}
-                                style={quietLink}>PDF</button>
+                              <button onClick={() => ouvrirApercuCommande({ ...c, ...cmdEditees[c.id], fournisseurs: fournisseurs.find(f => f.id === (cmdEditees[c.id]?.fournisseur_id || c.fournisseur_id)) })}
+                                title="Aperçu du PDF" style={quietLink}>Aperçu</button>
                               {c.statut === 'Validée' && (
                                 <button onClick={() => ouvrirEnvoiCommande(c)} title="Envoyer la commande par email (PDF joint)" style={quietLink}>Envoyer</button>
                               )}
@@ -3502,10 +3528,8 @@ export default function ProjetDetail() {
                           {isEdited && (
                             <button onClick={() => saveFacCli(f)} disabled={pennylaneBusy === f.id} style={quietLink}>Enregistrer</button>
                           )}
-                          <button onClick={() => generateFactureCliPDF(f, 'fr').save((f.numero || 'facture') + '.pdf')}
-                            title="PDF en français" style={quietLink}>FR</button>
-                          <button onClick={() => generateFactureCliPDF(f, 'en').save((f.numero || 'facture') + '_EN.pdf')}
-                            title="PDF in English" style={quietLink}>EN</button>
+                          <button onClick={() => ouvrirApercuFactureCli(f, 'fr')}
+                            title="Aperçu du PDF (français)" style={quietLink}>Aperçu</button>
                           <button onClick={() => ouvrirEnvoiFactureCli(f)} title="Envoyer la facture par email (PDF joint)" style={quietLink}>Envoyer</button>
                           <button onClick={() => supprimer('factures_cli', f.id)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
                         </div>
