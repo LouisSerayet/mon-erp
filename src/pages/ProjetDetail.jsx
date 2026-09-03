@@ -6,7 +6,7 @@ import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
 import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
-import { NAVY, GRAY, fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
+import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, enTeteContinuation, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
@@ -296,11 +296,11 @@ export default function ProjetDetail() {
     // Nom du projet — retour à la ligne automatique si le nom est long,
     // sinon il continuait hors de la page (texte coupé sur le bord droit)
     // au lieu de passer à la ligne.
-    doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK)
     const nomLignes = doc.splitTextToSize(projet.nom, 182)
     doc.text(nomLignes, 14, y); y += nomLignes.length * 5.5 + 0.5
     if (projet.adresse_chantier) {
-      doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED)
       const adresseLignes = doc.splitTextToSize(projet.adresse_chantier, 182)
       doc.text(adresseLignes, 14, y); y += adresseLignes.length * 4.5 + 1.5
     }
@@ -308,7 +308,7 @@ export default function ProjetDetail() {
 
     // Infos projet
     if (projet.date_debut || projet.date_fin_prevue) {
-      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...NAVY)
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...INK)
       if (projet.date_debut) doc.text(t.debutTravaux + fmtDatePdf(projet.date_debut, lang), 14, y)
       if (projet.date_fin_prevue) doc.text(t.finPrevue + fmtDatePdf(projet.date_fin_prevue, lang), 111, y)
       y += 6
@@ -332,9 +332,9 @@ export default function ProjetDetail() {
       doc.setFontSize(8); doc.setFont('helvetica', 'italic')
       const notesLines = doc.splitTextToSize(projet.notes, 174)
       const notesBoxH = Math.max(20, notesLines.length * 4 + 10)
-      doc.setFillColor(255, 251, 235)
-      doc.roundedRect(14, y, 182, notesBoxH, 2, 2, 'F')
-      doc.setTextColor(120, 80, 0)
+      doc.setDrawColor(...LINE); doc.setLineWidth(0.2)
+      doc.rect(14, y, 182, notesBoxH)
+      doc.setTextColor(...MUTED)
       doc.text(notesLines, 18, y + 7)
       y += notesBoxH + 6
     }
@@ -359,19 +359,10 @@ export default function ProjetDetail() {
       doc.addPage()
       y = 26
 
-      // Bandeau de titre, même traitement visuel que les bandeaux des pages
-      // de détail par lot plus bas (fond marine, titre blanc) — cohérent
-      // avec le reste du document. Marge verticale généreuse entre le
-      // titre et la note en dessous pour ne jamais laisser les deux se
-      // toucher, même sur un petit écran/export basse résolution.
-      doc.setFillColor(...NAVY); doc.rect(0, 0, 210, 18, 'F')
-      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
-      doc.text(t.syntheseLots, 14, 10.5)
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
-      doc.text(t.syntheseLotsNote, 14, 15.5)
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
-      doc.text(fmtN(totalHT), 196, 11, { align: 'right' })
-      doc.setTextColor(...NAVY)
+      // Même traitement d'en-tête que les pages de détail par lot plus bas
+      // (titre + filet fin, plus de bandeau plein) — cohérent avec le reste
+      // du document.
+      enTeteContinuation(doc, { titre: t.syntheseLots, note: t.syntheseLotsNote, montant: fmtN(totalHT) })
 
       const bodySynthese = lotsAvecDetail.map(lot => ([
         t.lot(lot.numero),
@@ -391,7 +382,7 @@ export default function ProjetDetail() {
         columnStyles: {
           0: { cellWidth: 30 },
           1: { cellWidth: 'auto' },
-          2: { cellWidth: 40, halign: 'right', fontStyle: 'bold' },
+          2: { cellWidth: 40, halign: 'right', fontStyle: 'bold', font: 'courier' },
         },
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14 },
@@ -416,13 +407,7 @@ export default function ProjetDetail() {
       doc.addPage()
 
       // Header lot
-      doc.setFillColor(30, 41, 59); doc.rect(0, 0, 210, 16, 'F')
-      doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
-      doc.text(t.lot(lot.numero) + ' — ' + (lot.categorie || ''), 14, 10)
-      if (lot.descriptif) { doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.text(lot.descriptif, 14, 15) }
-      doc.setFontSize(9); doc.setFont('helvetica', 'bold')
-      doc.text(fmtN(lot.total_ht), 196, 10, { align: 'right' })
-      doc.setTextColor(30, 41, 59)
+      enTeteContinuation(doc, { titre: t.lot(lot.numero) + ' — ' + (lot.categorie || ''), sousTitre: lot.descriptif, montant: fmtN(lot.total_ht) })
 
       const body = []
       for (let li = 0; li < lgLot.length; li++) {
@@ -440,7 +425,7 @@ export default function ProjetDetail() {
           )
           if (hasLignesAvecMontant || l.categorie_ligne === 'texte') {
             body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
-              styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', fillColor: [241, 245, 249], textColor: [71, 85, 105], fontSize: 7 } }])
+              styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', fillColor: [255, 255, 255], textColor: INK, fontSize: 7, lineWidth: { bottom: 0.15 }, lineColor: LINE } }])
           }
         } else {
           // Ignorer les lignes sans montant ni prix
@@ -469,8 +454,8 @@ export default function ProjetDetail() {
           1: { cellWidth: 'auto' },
           2: { cellWidth: 14, halign: 'center' },
           3: { cellWidth: 12, halign: 'right' },
-          4: { cellWidth: 28, halign: 'right' },
-          5: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
+          4: { cellWidth: 28, halign: 'right', font: 'courier' },
+          5: { cellWidth: 28, halign: 'right', fontStyle: 'bold', font: 'courier' },
         },
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14 },
@@ -481,12 +466,7 @@ export default function ProjetDetail() {
     if (lignesSansLot.length) {
       const totalSansLot = lignesSansLot.filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)
       doc.addPage()
-      doc.setFillColor(30, 41, 59); doc.rect(0, 0, 210, 16, 'F')
-      doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
-      doc.text(t.lignesSansLot, 14, 10)
-      doc.setFontSize(9); doc.setFont('helvetica', 'bold')
-      doc.text(fmtN(totalSansLot), 196, 10, { align: 'right' })
-      doc.setTextColor(30, 41, 59)
+      enTeteContinuation(doc, { titre: t.lignesSansLot, montant: fmtN(totalSansLot) })
 
       const body = []
       for (let li = 0; li < lignesSansLot.length; li++) {
@@ -501,7 +481,7 @@ export default function ProjetDetail() {
           )
           if (hasLignesAvecMontant || l.categorie_ligne === 'texte') {
             body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
-              styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', fillColor: [241, 245, 249], textColor: [71, 85, 105], fontSize: 7 } }])
+              styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', fillColor: [255, 255, 255], textColor: INK, fontSize: 7, lineWidth: { bottom: 0.15 }, lineColor: LINE } }])
           }
         } else {
           if (!l.total_ht && !l.prix_unit_ht && !l.qte) continue
@@ -529,8 +509,8 @@ export default function ProjetDetail() {
           1: { cellWidth: 'auto' },
           2: { cellWidth: 14, halign: 'center' },
           3: { cellWidth: 12, halign: 'right' },
-          4: { cellWidth: 28, halign: 'right' },
-          5: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
+          4: { cellWidth: 28, halign: 'right', font: 'courier' },
+          5: { cellWidth: 28, halign: 'right', fontStyle: 'bold', font: 'courier' },
         },
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14 },
@@ -544,14 +524,10 @@ export default function ProjetDetail() {
     // (lib/calculs.js) pour la règle de calcul.
     if (lignesOptions.length) {
       doc.addPage()
-      doc.setFillColor(217, 119, 6); doc.rect(0, 0, 210, 16, 'F')
-      doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
-      doc.text(t.optionsProposees, 14, 10)
-      doc.setFontSize(9); doc.setFont('helvetica', 'bold')
-      doc.text(fmtN(totalOptions), 196, 10, { align: 'right' })
-      doc.setFontSize(7); doc.setFont('helvetica', 'normal')
-      doc.text(t.optionsNote, 14, 15)
-      doc.setTextColor(30, 41, 59)
+      // Seule page du devis qui garde une teinte de couleur (ambre) — c'est
+      // la seule où la couleur porte un vrai sens fonctionnel : signaler
+      // que ces lignes sont hors du total principal ci-dessus.
+      enTeteContinuation(doc, { titre: t.optionsProposees, note: t.optionsNote, montant: fmtN(totalOptions), accent: WARNING })
 
       // Regroupées par lot d'origine (un sous-en-tête "LOT X — Catégorie"
       // par groupe, même si ce lot n'a pas sa propre page détail ci-dessus)
@@ -566,7 +542,7 @@ export default function ProjetDetail() {
         l.total_ht > 0 ? fmtMontant(l.total_ht, lang) : '',
       ])
       const enteteGroupe = libelle => ([{ content: libelle.toUpperCase(), colSpan: 6,
-        styles: { fontStyle: 'bold', fillColor: [254, 243, 199], textColor: [120, 80, 0], fontSize: 7 } }])
+        styles: { fontStyle: 'bold', fillColor: WARNING_BG, textColor: WARNING, fontSize: 7 } }])
 
       const bodyOptions = []
       for (const lot of lotsData) {
@@ -587,15 +563,15 @@ export default function ProjetDetail() {
         body: bodyOptions,
         foot: [['', '', '', '', t.totalOptions, totalOptions > 0 ? fmtMontant(totalOptions, lang) : '']],
         styles: { ...TABLE_STYLE, fontSize: 7.5, cellPadding: 2 },
-        headStyles: { ...TABLE_HEAD_STYLE, fillColor: [217, 119, 6] },
-        footStyles: { ...TABLE_FOOT_STYLE, fillColor: [254, 243, 199], textColor: [120, 80, 0] },
+        headStyles: { ...TABLE_HEAD_STYLE, fillColor: WARNING_BG, textColor: WARNING, lineColor: WARNING },
+        footStyles: { ...TABLE_FOOT_STYLE, fillColor: WARNING_BG, textColor: WARNING, lineColor: WARNING },
         columnStyles: {
           0: { cellWidth: 14 },
           1: { cellWidth: 'auto' },
           2: { cellWidth: 14, halign: 'center' },
           3: { cellWidth: 12, halign: 'right' },
-          4: { cellWidth: 28, halign: 'right' },
-          5: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
+          4: { cellWidth: 28, halign: 'right', font: 'courier' },
+          5: { cellWidth: 28, halign: 'right', fontStyle: 'bold', font: 'courier' },
         },
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14 },
@@ -1362,11 +1338,11 @@ export default function ProjetDetail() {
       destinataire: { titre: t.fournisseur, lignes: [cmd.fournisseurs?.nom, ...lignesAdresse(cmd.fournisseurs, lang)] },
     })
     if (projet?.adresse_chantier) {
-      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED)
       doc.text(t.adresseChantier + projet.adresse_chantier, 14, y); y += 8
     }
 
-    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...NAVY)
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK)
     doc.text(t.objetCommande, 14, y); y += 6
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
     const descLines = doc.splitTextToSize(cmd.description || '', 182)
@@ -1380,7 +1356,7 @@ export default function ProjetDetail() {
       styles: TABLE_STYLE,
       headStyles: TABLE_HEAD_STYLE,
       alternateRowStyles: TABLE_ALT_ROW_STYLE,
-      columnStyles: { 1: { halign: 'right', cellWidth: 40, fontStyle: 'bold' } },
+      columnStyles: { 1: { halign: 'right', cellWidth: 40, fontStyle: 'bold', font: 'courier' } },
       margin: { left: 14, right: 14 },
     })
 
@@ -1399,13 +1375,13 @@ export default function ProjetDetail() {
     const totalTtc = totalHt + totalTva
     y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva: !autoliquidation, lang })
     if (autoliquidation) {
-      doc.setFontSize(7.5); doc.setFont('helvetica', 'italic'); doc.setTextColor(...GRAY)
+      doc.setFontSize(7.5); doc.setFont('helvetica', 'italic'); doc.setTextColor(...MUTED)
       const mentionLines = doc.splitTextToSize(t.mentionAutoliquidation, 182)
       doc.text(mentionLines, 14, y)
       y += 4.5 * mentionLines.length + 2
     }
 
-    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED)
     doc.text(t.statutLabel + (cmd.statut || ''), 14, y)
 
     piedDePage(doc, cmd.numero || projet?.nom || '', lang)
@@ -1451,7 +1427,7 @@ export default function ProjetDetail() {
       styles: TABLE_STYLE,
       headStyles: TABLE_HEAD_STYLE,
       alternateRowStyles: TABLE_ALT_ROW_STYLE,
-      columnStyles: { 1: { halign: 'right', cellWidth: 40, fontStyle: 'bold' } },
+      columnStyles: { 1: { halign: 'right', cellWidth: 40, fontStyle: 'bold', font: 'courier' } },
       margin: { left: 14, right: 14 },
     })
 

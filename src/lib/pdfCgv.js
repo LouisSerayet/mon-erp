@@ -14,7 +14,7 @@
 // paiement, de responsabilité et de compétence juridictionnelle. La
 // traduction anglaise doit être relue avec la même attention.
 import { ENTREPRISE } from './entreprise'
-import { NAVY, MARGIN_L, MARGIN_R } from './pdfStyle'
+import { INK, MARGIN_L, MARGIN_R } from './pdfStyle'
 import { L } from './pdfI18n'
 
 const E = ENTREPRISE
@@ -225,9 +225,9 @@ export function ajouterPagesCGV(doc, lang = 'fr') {
   let y = yTop
 
   function enTetePage(suite) {
-    doc.setTextColor(...NAVY); doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+    doc.setTextColor(...INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
     doc.text(t.cgvTitre + (suite ? t.suite : ''), MARGIN_L, 16)
-    doc.setDrawColor(...NAVY); doc.setLineWidth(0.6)
+    doc.setDrawColor(...INK); doc.setLineWidth(0.6)
     doc.line(MARGIN_L, 19, MARGIN_R, 19)
     doc.setLineWidth(0.2)
   }
@@ -254,7 +254,7 @@ export function ajouterPagesCGV(doc, lang = 'fr') {
   }
 
   for (const art of articles) {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.6); doc.setTextColor(...NAVY)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.6); doc.setTextColor(...INK)
     const titreLines = doc.splitTextToSize(art.titre, colW)
     if (y + titreLines.length * 3.4 > yBottom) nextColumn()
     doc.text(titreLines, x, y)
@@ -273,5 +273,5 @@ export function ajouterPagesCGV(doc, lang = 'fr') {
     y += 2.6
   }
 
-  doc.setTextColor(...NAVY)
+  doc.setTextColor(...INK)
 }
