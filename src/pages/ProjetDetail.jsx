@@ -115,6 +115,7 @@ export default function ProjetDetail() {
   // montant HT à partir d'un pourcentage d'avancement (situation de travaux).
   const [formFcliPct, setFormFcliPct] = useState('')
   const [fileFfrs, setFileFfrs] = useState(null) // PDF sélectionné pour la nouvelle facture fournisseur
+  const [fileCmd, setFileCmd] = useState(null) // PDF (devis ou facture fournisseur) obligatoire à la création d'une commande
   const [pennylaneBusy, setPennylaneBusy] = useState(null) // id de la facture en cours de synchro
   const [pennylaneError, setPennylaneError] = useState('')
   const [rapprochementBusy, setRapprochementBusy] = useState(null) // 'cli' | 'frs' | 'confirm:<id>' en cours
@@ -1277,19 +1278,32 @@ export default function ProjetDetail() {
     if (savingCmd) return
     setError('')
     if (!formCmd.description.trim()) { setError('La description est obligatoire.'); return }
+    // PDF obligatoire (devis ou facture fournisseur) : garantit qu'on a
+    // toujours la pièce justificative de la commande, archivée directement
+    // dans les "Pièces" de la commande (voir ajouterFactureFrs, même
+    // exigence côté factures fournisseurs).
+    if (!fileCmd) { setError('Le devis ou la facture fournisseur (PDF) est obligatoire pour créer une commande.'); return }
     setSavingCmd(true)
     const numeroAuto = formCmd.numero || genNumeroCommande(projet, commandes)
-    const { error } = await supabase.from('commandes').insert([{
+    const { data: inserted, error } = await supabase.from('commandes').insert([{
       ...formCmd,
       numero: numeroAuto,
       projet_id: id,
       montant_ht: parseFloat(formCmd.montant_ht) || 0,
       fournisseur_id: formCmd.fournisseur_id || null,
       date_commande: formCmd.date_commande || new Date().toISOString().split('T')[0]
-    }])
+    }]).select().single()
     if (error) { setError(error.message); setSavingCmd(false); return }
+
+    // Le document est archivé comme une "Pièce" de la commande (même
+    // mécanisme que le "+ Ajouter" de la zone Pièces jointes) plutôt que
+    // via une colonne fichier_path dédiée — la commande peut en avoir
+    // plusieurs (devis + facture) au fil du temps.
+    await uploadDoc(fileCmd, 'commandes/' + inserted.id, () => fetchCmdDocs(inserted.id))
+
     setShowForm(false)
     setFormCmd({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
+    setFileCmd(null)
     const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setCommandes(data || [])
     setSavingCmd(false)
@@ -1551,6 +1565,10 @@ export default function ProjetDetail() {
     if (savingFactureFrs) return
     setError('')
     if (!formFfrs.numero.trim()) { setError('Le numéro est obligatoire.'); return }
+    // PDF obligatoire : sans le document (devis ou facture) joint, aucune
+    // trace de la dépense n'existe en dehors de l'ERP — voir aussi
+    // ajouterCommande, même exigence côté commandes fournisseurs.
+    if (!fileFfrs) { setError('Le PDF de la facture est obligatoire — joins le document reçu du fournisseur.'); return }
     setSavingFactureFrs(true)
     const { data: inserted, error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null }]).select().single()
     if (error) { setError(error.message); setSavingFactureFrs(false); return }
@@ -2906,7 +2924,7 @@ export default function ProjetDetail() {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Commandes fournisseurs · <span style={{ color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalCommandes)}</span></div>
-              <button onClick={() => { setShowForm(true); setError('');
+              <button onClick={() => { setShowForm(true); setError(''); setFileCmd(null);
                 setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', statut: 'Brouillon', date_commande: new Date().toISOString().split('T')[0], regime_tva: 'normale' }) }}
                 style={btnPrimary}>
                 + Nouvelle commande
@@ -3005,9 +3023,14 @@ export default function ProjetDetail() {
                       <option value="autoliquidation">Autoliquidation (sous-traitance BTP)</option>
                     </select>
                   </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={fieldLabel}>Devis ou facture fournisseur (PDF) *</label>
+                    <input type="file" accept="application/pdf" onChange={e => setFileCmd(e.target.files[0] || null)}
+                      style={{ width: '100%', fontSize: 13, fontFamily: fonts.display }} />
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => { setShowForm(false); setError(''); setShowLignesSelector(false) }} style={btnGhost}>Annuler</button>
+                  <button onClick={() => { setShowForm(false); setError(''); setShowLignesSelector(false); setFileCmd(null) }} style={btnGhost}>Annuler</button>
                   <button onClick={ajouterCommande} disabled={savingCmd} style={btnPrimary}>{savingCmd ? 'Création...' : 'Créer la commande'}</button>
                 </div>
               </div>
@@ -3207,7 +3230,7 @@ export default function ProjetDetail() {
                       style={{ ...inputUnderline, cursor: 'pointer' }}>
                       {STATUTS_FFRS.map(s => <option key={s}>{s}</option>)}</select></div>
                   <div style={{ gridColumn: '1 / -1' }}>
-                    <label style={fieldLabel}>PDF de la facture (reçu du fournisseur — requis pour l'envoi vers Pennylane)</label>
+                    <label style={fieldLabel}>PDF de la facture (reçu du fournisseur) *</label>
                     <input type="file" accept="application/pdf" onChange={e => setFileFfrs(e.target.files[0] || null)}
                       style={{ width: '100%', fontSize: 13, fontFamily: fonts.display }} />
                   </div>
