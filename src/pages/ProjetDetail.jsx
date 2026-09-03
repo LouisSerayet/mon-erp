@@ -12,15 +12,16 @@ import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
+import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 
 const TABS = [
-  { id: 'infos', label: '📋 Infos' },
-  { id: 'lignes', label: '📐 Lignes' },
-  { id: 'commandes', label: '🛒 Commandes frs' },
-  { id: 'factures_frs', label: '📄 Factures frs' },
-  { id: 'factures_cli', label: '💶 Factures clients' },
-  { id: 'rentabilite', label: '📊 Rentabilité' },
-  { id: 'documents', label: '📁 Documents' },
+  { id: 'infos', label: 'Infos' },
+  { id: 'lignes', label: 'Lignes' },
+  { id: 'commandes', label: 'Commandes frs' },
+  { id: 'factures_frs', label: 'Factures frs' },
+  { id: 'factures_cli', label: 'Factures clients' },
+  { id: 'rentabilite', label: 'Rentabilité' },
+  { id: 'documents', label: 'Documents' },
 ]
 
 // 'Brouillon' = devis en cours de préparation, pas encore envoyé au client ;
@@ -29,36 +30,47 @@ const STATUTS_PROJET = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours'
 const STATUTS_CMD = ['Brouillon', 'Validée', 'Annulée']
 const STATUTS_FFRS = ['À payer', 'Payée']
 const STATUTS_FCLI = ['À envoyer', 'Envoyée', 'Payée']
+// Couleurs de statut, cohérentes avec les autres pages de l'app — voir
+// STATUT_COMMANDE_MARKER (Fournisseurs.jsx) et STATUT_MARKER
+// (FacturesClients.jsx / FacturesFournisseurs.jsx / CommandesFournisseurs.jsx)
+// pour ces mêmes statuts ailleurs dans l'app.
+const STATUT_COMMANDE_MARKER = { 'Brouillon': colors.inkFaint, 'Validée': colors.success, 'Annulée': colors.danger }
+const STATUT_FFRS_MARKER = { 'À payer': colors.warning, 'Payée': colors.success }
+const STATUT_FCLI_MARKER = { 'À envoyer': colors.inkFaint, 'Envoyée': colors.focus, 'Payée': colors.success }
+// Accent utilisé pour les éléments hors statut (marge/coefficient, synchro
+// Pennylane, pièces jointes) — distinct de colors.focus déjà réservé à la
+// colonne Achat dans les tableaux de lignes, pour garder ces informations
+// visuellement séparées.
+const ACCENT_MARGE = '#6b5b7a'
 // Supabase Storage n'a pas de vrais dossiers : list('projets/<id>') renvoie
 // aussi "officiels" comme une entrée (c'est le sous-dossier utilisé par la
-// section "🔏 Documents officiels" juste au-dessus, voir uploads plus bas)
+// section "Documents officiels" juste au-dessus, voir uploads plus bas)
 // et les éventuels fichiers techniques (.emptyFolderPlaceholder...). Cette
 // fonction filtre ces entrées fantômes pour ne garder que les vrais
-// documents affichés dans "📁 Documents du projet".
+// documents affichés dans "Documents du projet".
 const estUnDocumentReel = d => !!d.name && !d.name.startsWith('.') && d.name !== 'officiels'
 // Taux de TVA sélectionnables sur un projet (devis + facture client — les
 // commandes fournisseurs ont leur propre régime, voir "regime_tva" et
 // generateCmdPDF, car un même projet peut mêler fournisseurs classiques et
 // sous-traitants BTP en autoliquidation).
 const TAUX_TVA_OPTIONS = [20, 10, 5.5, 0]
-const STATUT_COLOR = {
-  'Brouillon':    '#9CA3AF',
-  'Devis envoyé': '#EA580C',
-  'Devis signé':  '#7C3AED',
-  'En cours':     '#2563EB',
-  'Finalisation': '#059669',
-  'Clôturé':      '#6B7280',
-  'Perdu':        '#DC2626',
+
+const inputUnderline = {
+  width: '100%', padding: '8px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
 }
-const STATUT_ICON = {
-  'Brouillon':    '📝',
-  'Devis envoyé': '📤',
-  'Devis signé':  '✍️',
-  'En cours':     '🔨',
-  'Finalisation': '✅',
-  'Clôturé':      '🏁',
-  'Perdu':        '❌',
-}
+const fieldLabel = { display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }
+const btnPrimary = { background: colors.ink, color: colors.surface, border: 'none', padding: '9px 18px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
+const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px solid ' + colors.line, padding: '9px 16px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
+const btnPrimarySmall = { ...btnPrimary, padding: '6px 14px', fontSize: 12 }
+// Style des champs d'édition inline dans les tableaux — souligné, teinte
+// warning tant que la ligne a des changements non enregistrés (voir
+// cellInput dans Depenses.jsx pour le même principe).
+const cellInput = isEdited => ({
+  padding: '3px 6px', border: 'none', borderBottom: '1px solid ' + (isEdited ? colors.warning : 'transparent'),
+  fontSize: 12, background: 'transparent', boxSizing: 'border-box', width: '100%', fontFamily: fonts.display, color: colors.ink,
+})
 
 export default function ProjetDetail() {
   const { id } = useParams()
@@ -1894,8 +1906,8 @@ export default function ProjetDetail() {
   const totalFfrs = facturesFrs.reduce((s, f) => s + (f.montant_ht || 0), 0)
   const totalFcli = facturesCli.reduce((s, f) => s + (f.montant_ht || 0), 0)
 
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Chargement...</div>
-  if (!projet) return <div style={{ padding: 40, textAlign: 'center', color: '#DC2626' }}>Projet introuvable</div>
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: colors.inkFaint }}>Chargement...</div>
+  if (!projet) return <div style={{ padding: 40, textAlign: 'center', color: colors.danger }}>Projet introuvable</div>
 
   const lots = lignes.filter(l => l.type === 'lot')
   const lignesParLot = lignes.reduce((acc, l) => {
@@ -1918,7 +1930,7 @@ export default function ProjetDetail() {
   const resteAFacturer = totalVenteGlobal - totalFcli
 
   return (
-    <div style={{ fontFamily: 'Inter, sans-serif', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ fontFamily: fonts.display, color: colors.ink, height: '100vh', display: 'flex', flexDirection: 'column', background: colors.bg }}>
       <style>{`
         input[type=number]::-webkit-inner-spin-button,
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -1926,40 +1938,31 @@ export default function ProjetDetail() {
       `}</style>
 
       {/* Header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #E5E7EB', padding: isMobile ? '10px 14px' : '14px 24px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 8 : 16, flexShrink: 0 }}>
+      <div style={{ background: colors.surface, borderBottom: '1px solid ' + colors.line, padding: isMobile ? '10px 14px' : '14px 24px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 8 : 16, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 16 }}>
-          <button onClick={() => navigate('/projets')}
-            style={{ background: 'none', border: '1px solid #E5E7EB', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, color: '#374151', flexShrink: 0 }}>← Projets</button>
+          <button onClick={() => navigate('/projets')} style={{ ...quietLink, flexShrink: 0 }}>← Projets</button>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{projet.nom}</h1>
-            <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {projet.clients?.nom ? '👤 ' + projet.clients.nom : ''}
-              {projet.date_debut ? ' · 📅 ' + fmtDate(projet.date_debut) + (projet.date_fin_prevue ? ' → ' + fmtDate(projet.date_fin_prevue) : '') : ''}
+            <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: colors.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{projet.nom}</h1>
+            <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {projet.clients?.nom || ''}
+              {projet.date_debut ? ' · ' + fmtDate(projet.date_debut) + (projet.date_fin_prevue ? ' → ' + fmtDate(projet.date_fin_prevue) : '') : ''}
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, justifyContent: isMobile ? 'space-between' : 'flex-start' }}>
-          <div style={{ fontWeight: 700, fontSize: 17, color: '#111827' }}>{fmt(projet.montant_ht)}</div>
-          <span style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, background: (STATUT_COLOR[projet.statut] || '#2563EB') + '18', color: STATUT_COLOR[projet.statut] || '#2563EB', fontWeight: 600 }}>
-            {STATUT_ICON[projet.statut]} {projet.statut}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0, justifyContent: isMobile ? 'space-between' : 'flex-start' }}>
+          <div style={{ fontWeight: 700, fontSize: 17, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(projet.montant_ht)}</div>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.inkMuted }}>
+            <span style={marker(statutProjetMarker[projet.statut])} />{projet.statut}
           </span>
-          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-            <button onClick={() => generateDevisPDF('fr')} title="Devis PDF en français"
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-              ⬇ Devis FR
-            </button>
-            <button onClick={() => generateDevisPDF('en')} title="Devis PDF in English"
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-              ⬇ Devis EN
-            </button>
-            <button onClick={() => setConfirmDupliquerOuvert(true)} disabled={dupliquerBusy} title="Dupliquer ce projet (devis + lignes) pour en repartir"
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#F9FAFB', color: '#374151', cursor: dupliquerBusy ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, opacity: dupliquerBusy ? 0.6 : 1 }}>
-              {dupliquerBusy ? '⏳ Duplication...' : '⧉ Dupliquer'}
+          <div style={{ display: 'flex', gap: 16, flexShrink: 0 }}>
+            <button onClick={() => generateDevisPDF('fr')} title="Devis PDF en français" style={quietLink}>Devis FR</button>
+            <button onClick={() => generateDevisPDF('en')} title="Devis PDF in English" style={quietLink}>Devis EN</button>
+            <button onClick={() => setConfirmDupliquerOuvert(true)} disabled={dupliquerBusy} title="Dupliquer ce projet (devis + lignes) pour en repartir" style={quietLink}>
+              {dupliquerBusy ? 'Duplication...' : 'Dupliquer'}
             </button>
             {['Brouillon', 'Devis envoyé', 'Devis signé'].includes(projet.statut) && (
-              <button onClick={marquerProjetPerdu} title="Marquer ce devis/projet comme perdu"
-                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                ❌ Marquer perdu
+              <button onClick={marquerProjetPerdu} title="Marquer ce devis/projet comme perdu" style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>
+                Marquer perdu
               </button>
             )}
           </div>
@@ -1971,17 +1974,16 @@ export default function ProjetDetail() {
           plus haut (contournement d'un blocage silencieux possible sous
           Safari). */}
       {confirmDupliquerOuvert && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: 14 }}>
-          <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 460, maxWidth: '100%', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-            <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>⧉ Dupliquer ce projet ?</h3>
-            <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: colors.surface, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 460, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>Dupliquer ce projet ?</h3>
+            <p style={{ fontSize: 13, color: colors.inkMuted, marginBottom: 20 }}>
               Une nouvelle fiche « {projet.nom} (copie) » sera créée avec les mêmes lignes de devis (lots, lignes, titres) — hors commandes et factures.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmDupliquerOuvert(false)}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={() => setConfirmDupliquerOuvert(false)} style={btnGhost}>Annuler</button>
               <button onClick={confirmerDuplication} disabled={dupliquerBusy}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: dupliquerBusy ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: dupliquerBusy ? 0.7 : 1 }}>
+                style={{ ...btnPrimary, cursor: dupliquerBusy ? 'default' : 'pointer', opacity: dupliquerBusy ? 0.7 : 1 }}>
                 {dupliquerBusy ? 'Duplication...' : 'Dupliquer'}
               </button>
             </div>
@@ -1995,47 +1997,44 @@ export default function ProjetDetail() {
           onglets pour rester visible quel que soit l'onglet actif. L'email
           ne part jamais tant qu'on n'a pas validé son contenu ici. */}
       {envoiEmailModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: colors.surface, padding: 28, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
             <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600 }}>
               {envoiEmailModal.type === 'facture_cli' ? 'Envoyer la facture par email' : 'Envoyer la commande par email'}
             </h3>
 
             {envoiEmailError && (
-              <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+              <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 14, fontSize: 13 }}>
                 {envoiEmailError}
               </div>
             )}
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>À</label>
+            <label style={fieldLabel}>À</label>
             <input value={envoiEmailModal.to} onChange={e => setEnvoiEmailModal(p => ({ ...p, to: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+              style={{ ...inputUnderline, marginBottom: 14 }} />
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Objet</label>
+            <label style={fieldLabel}>Objet</label>
             <input value={envoiEmailModal.subject} onChange={e => setEnvoiEmailModal(p => ({ ...p, subject: e.target.value }))}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 14 }} />
+              style={{ ...inputUnderline, marginBottom: 14 }} />
 
-            <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Message</label>
+            <label style={fieldLabel}>Message</label>
             <textarea value={envoiEmailModal.body} onChange={e => setEnvoiEmailModal(p => ({ ...p, body: e.target.value }))} rows={9}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'inherit', resize: 'vertical' }} />
+              style={{ ...inputUnderline, marginBottom: 10, resize: 'vertical' }} />
 
             {envoiEmailModal.attachment && (
-              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
-                📎 {envoiEmailModal.attachment.name}
+              <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 20 }}>
+                Pièce jointe : {envoiEmailModal.attachment.name}
               </div>
             )}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
-              <button onClick={creerBrouillonEmailDepuisModal} disabled={envoiEmailBusy || envoiEmailDraftBusy || !envoiEmailModal.to}
-                style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}>
-                {envoiEmailDraftBusy ? '⏳ Création du brouillon...' : 'ou créer un brouillon dans Outlook'}
+              <button onClick={creerBrouillonEmailDepuisModal} disabled={envoiEmailBusy || envoiEmailDraftBusy || !envoiEmailModal.to} style={quietLink}>
+                {envoiEmailDraftBusy ? 'Création du brouillon...' : 'ou créer un brouillon dans Outlook'}
               </button>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setEnvoiEmailModal(null)} disabled={envoiEmailBusy}
-                  style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                <button onClick={envoyerEmailDepuisModal} disabled={envoiEmailBusy || envoiEmailDraftBusy || !envoiEmailModal.to}
-                  style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                  {envoiEmailBusy ? '⏳ Envoi...' : '✉️ Envoyer'}
+                <button onClick={() => setEnvoiEmailModal(null)} disabled={envoiEmailBusy} style={btnGhost}>Annuler</button>
+                <button onClick={envoyerEmailDepuisModal} disabled={envoiEmailBusy || envoiEmailDraftBusy || !envoiEmailModal.to} style={btnPrimary}>
+                  {envoiEmailBusy ? 'Envoi...' : 'Envoyer'}
                 </button>
               </div>
             </div>
@@ -2044,7 +2043,7 @@ export default function ProjetDetail() {
       )}
 
       {/* Onglets */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #E5E7EB', display: 'flex', paddingLeft: 16, overflowX: 'auto', flexShrink: 0 }}>
+      <div style={{ background: colors.surface, borderBottom: '1px solid ' + colors.line, display: 'flex', paddingLeft: 16, overflowX: 'auto', flexShrink: 0 }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => {
               setTab(t.id); setShowForm(false); setError('')
@@ -2053,9 +2052,9 @@ export default function ProjetDetail() {
               // de lignes qui n'existent plus) en y revenant plus tard.
               if (t.id !== 'lignes') setLignesSelectionnees(new Set())
             }}
-            style={{ padding: '11px 16px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap',
-              fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? '#2563EB' : '#6B7280',
-              borderBottom: tab === t.id ? '2px solid #2563EB' : '2px solid transparent' }}>
+            style={{ padding: '11px 16px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap', fontFamily: fonts.display,
+              fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? colors.ink : colors.inkFaint,
+              borderBottom: tab === t.id ? '2px solid ' + colors.ink : '2px solid transparent' }}>
             {t.label}
           </button>
         ))}
@@ -2067,31 +2066,28 @@ export default function ProjetDetail() {
         {/* ── INFOS ── */}
         {tab === 'infos' && (
           <div style={{ maxWidth: 720 }}>
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>Informations du projet</div>
+            <div style={{ background: colors.surface, border: '1px solid ' + colors.line }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid ' + colors.line, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={sectionTitle}>Informations du projet</div>
                 {!editInfos && (
                   <button onClick={() => { setEditInfos(true); setInfosError(''); setFormInfos({ nom: projet.nom, statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20, numero_bon_commande_client: projet.numero_bon_commande_client || '' }) }}
-                    style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 12 }}>✏️ Modifier</button>
+                    style={quietLink}>Modifier</button>
                 )}
               </div>
 
               {/* Bandeau progression */}
             {projet.statut === 'Perdu' ? (
-              <div style={{ background: '#FEF2F2', borderRadius: 12, border: '1px solid #FECACA', padding: '16px 20px', margin: '0 0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 13, color: '#991B1B' }}>
-                  ❌ Ce devis/projet a été marqué comme <strong>perdu</strong> — il est sorti du flux actif.
+              <div style={{ borderLeft: '2px solid ' + colors.danger, padding: '16px 20px', margin: '0 0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 13, color: colors.ink }}>
+                  Ce devis/projet a été marqué comme <strong>perdu</strong> — il est sorti du flux actif.
                 </div>
-                <button onClick={reactiverProjetPerdu}
-                  style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                  ↩️ Réactiver (repasser en Brouillon)
+                <button onClick={reactiverProjetPerdu} style={quietLink}>
+                  Réactiver (repasser en Brouillon)
                 </button>
               </div>
             ) : (() => {
               const flux = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']
               const currentIdx = flux.indexOf(projet.statut)
-              const icons = ['📝', '📤', '✍️', '🔨', '✅', '🏁']
-              const colors = ['#9CA3AF', '#EA580C', '#7C3AED', '#2563EB', '#059669', '#6B7280']
               const nextStatut = flux[currentIdx + 1]
               const prevStatut = flux[currentIdx - 1]
 
@@ -2148,70 +2144,66 @@ export default function ProjetDetail() {
                 <>
                 {/* Modale de validation */}
                 {showValidation && nextStatut && (
-                  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
-                    <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 460, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-                      <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>Passer à : {icons[currentIdx + 1]} {nextStatut}</h3>
-                      <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+                  <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.5)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
+                    <div style={{ background: colors.surface, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 460, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+                      <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>Passer à : {nextStatut}</h3>
+                      <p style={{ fontSize: 13, color: colors.inkMuted, marginBottom: 20 }}>
                         Pour valider ce changement d'étape, merci de fournir la preuve requise.
                       </p>
 
-                      {validationError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{validationError}</div>}
+                      {validationError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 14, fontSize: 13 }}>{validationError}</div>}
 
                       {preuves[nextStatut]?.type === 'upload' && (
                         <div style={{ marginBottom: 16 }}>
-                          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 6 }}>📎 {preuves[nextStatut].label}</label>
+                          <label style={fieldLabel}>{preuves[nextStatut].label}</label>
                           <input type="file" accept=".pdf,.jpg,.jpeg,.png"
                             onChange={e => setValidationDoc(e.target.files[0])}
-                            style={{ fontSize: 13 }} />
-                          {validationDoc && <div style={{ fontSize: 12, color: '#059669', marginTop: 6 }}>✓ {validationDoc.name}</div>}
+                            style={{ fontSize: 13, fontFamily: fonts.display }} />
+                          {validationDoc && <div style={{ fontSize: 12, color: colors.success, marginTop: 6 }}>{validationDoc.name}</div>}
                         </div>
                       )}
 
                       {preuves[nextStatut]?.type === 'date' && (
                         <div style={{ marginBottom: 16 }}>
-                          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 6 }}>📅 {preuves[nextStatut].label}</label>
+                          <label style={fieldLabel}>{preuves[nextStatut].label}</label>
                           <input type="date" value={validationDate} onChange={e => setValidationDate(e.target.value)}
-                            style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                            style={inputUnderline} />
                         </div>
                       )}
 
                       {preuves[nextStatut]?.type === 'auto' && (
-                        <div style={{ background: '#F9FAFB', borderRadius: 8, padding: '12px 14px', marginBottom: 16, fontSize: 13, color: '#374151' }}>
-                          ℹ️ {preuves[nextStatut].label}
+                        <div style={{ borderLeft: '2px solid ' + colors.line, padding: '8px 14px', marginBottom: 16, fontSize: 13, color: colors.inkMuted }}>
+                          {preuves[nextStatut].label}
                         </div>
                       )}
 
                       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                        <button onClick={() => { setShowValidation(false); setValidationError(''); setValidationDoc(null); setValidationDate('') }}
-                          style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                        <button onClick={validerEtape} disabled={validating}
-                          style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: colors[currentIdx + 1], color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
-                          {validating ? '⏳...' : 'Valider ✓'}
+                        <button onClick={() => { setShowValidation(false); setValidationError(''); setValidationDoc(null); setValidationDate('') }} style={btnGhost}>Annuler</button>
+                        <button onClick={validerEtape} disabled={validating} style={btnPrimary}>
+                          {validating ? '...' : 'Valider'}
                         </button>
                       </div>
                     </div>
                   </div>
                 )}
 
-                <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '16px 20px', marginBottom: 16 }}>
+                <div style={{ background: colors.surface, borderBottom: '1px solid ' + colors.line, padding: '16px 20px', marginBottom: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Avancement du projet</div>
-                    <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: colors.ink }}>Avancement du projet</div>
+                    <div style={{ display: 'flex', gap: 18 }}>
                       {prevStatut && (
                         <button onClick={async () => {
                           if (!confirm('Revenir à "' + prevStatut + '" ?')) return
                           const { error } = await supabase.from('projets').update({ statut: prevStatut }).eq('id', id)
                           if (error) { alert('Erreur lors du changement de statut : ' + error.message); return }
                           setProjet(prev => ({ ...prev, statut: prevStatut }))
-                        }}
-                          style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#6B7280', cursor: 'pointer', fontSize: 12 }}>
+                        }} style={quietLink}>
                           ← Revenir
                         </button>
                       )}
                       {nextStatut && (
-                        <button onClick={() => setShowValidation(true)}
-                          style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: colors[currentIdx + 1], color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                          Passer à : {icons[currentIdx + 1]} {nextStatut}
+                        <button onClick={() => setShowValidation(true)} style={quietLink}>
+                          Passer à : {nextStatut}
                         </button>
                       )}
                     </div>
@@ -2223,13 +2215,13 @@ export default function ProjetDetail() {
                       return (
                         <div key={s} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
-                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: done ? colors[idx] : '#E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, border: active ? '3px solid ' + colors[idx] : 'none', boxShadow: active ? '0 0 0 4px ' + colors[idx] + '22' : 'none', transition: 'all 0.2s' }}>
-                              {done ? <span>{icons[idx]}</span> : <span style={{ fontSize: 11, color: '#9CA3AF' }}>{idx + 1}</span>}
+                            <div style={{ width: 24, height: 24, background: done ? colors.ink : colors.line, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, border: active ? '2px solid ' + colors.ink : 'none' }}>
+                              <span style={{ color: done ? colors.surface : colors.inkFaint }}>{idx + 1}</span>
                             </div>
-                            <div style={{ fontSize: 9, color: done ? colors[idx] : '#9CA3AF', fontWeight: active ? 700 : 400, marginTop: 4, textAlign: 'center', whiteSpace: 'nowrap' }}>{s}</div>
+                            <div style={{ fontSize: 9, color: done ? colors.ink : colors.inkFaint, fontWeight: active ? 700 : 400, marginTop: 4, textAlign: 'center', whiteSpace: 'nowrap' }}>{s}</div>
                           </div>
                           {idx < flux.length - 1 && (
-                            <div style={{ height: 2, flex: 0.5, background: idx < currentIdx ? colors[idx] : '#E5E7EB', marginBottom: 16 }} />
+                            <div style={{ height: 1, flex: 0.5, background: idx < currentIdx ? colors.ink : colors.line, marginBottom: 16 }} />
                           )}
                         </div>
                       )
@@ -2242,67 +2234,67 @@ export default function ProjetDetail() {
 
             {editInfos ? (
                 <div style={{ padding: isMobile ? 14 : 20 }}>
-                  {infosError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{infosError}</div>}
+                  {infosError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 14, fontSize: 13 }}>{infosError}</div>}
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14, marginBottom: 14 }}>
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Nom du projet</label>
+                      <label style={fieldLabel}>Nom du projet</label>
                       <input value={formInfos.nom || ''} onChange={e => setFormInfos(p => ({ ...p, nom: e.target.value }))}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        style={inputUnderline} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
+                      <label style={fieldLabel}>Statut</label>
                       <select value={formInfos.statut || ''} onChange={e => setFormInfos(p => ({ ...p, statut: e.target.value }))}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                        style={{ ...inputUnderline, cursor: 'pointer' }}>
                         {STATUTS_PROJET.map(s => <option key={s}>{s}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Surface (m²)</label>
+                      <label style={fieldLabel}>Surface (m²)</label>
                       <input value={formInfos.surface || ''} onChange={e => setFormInfos(p => ({ ...p, surface: e.target.value }))} placeholder="465"
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        style={inputUnderline} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date début</label>
+                      <label style={fieldLabel}>Date début</label>
                       <input type="date" value={formInfos.date_debut || ''} onChange={e => setFormInfos(p => ({ ...p, date_debut: e.target.value }))}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        style={inputUnderline} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date fin prévue</label>
+                      <label style={fieldLabel}>Date fin prévue</label>
                       <input type="date" value={formInfos.date_fin_prevue || ''} onChange={e => setFormInfos(p => ({ ...p, date_fin_prevue: e.target.value }))}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        style={inputUnderline} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>TVA (devis / facture client)</label>
+                      <label style={fieldLabel}>TVA (devis / facture client)</label>
                       <select value={formInfos.taux_tva ?? 20} onChange={e => setFormInfos(p => ({ ...p, taux_tva: parseFloat(e.target.value) }))}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                        style={{ ...inputUnderline, cursor: 'pointer' }}>
                         {TAUX_TVA_OPTIONS.map(tx => <option key={tx} value={tx}>{tx === 0 ? '0 % (non applicable)' : tx + ' %'}</option>)}
                       </select>
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Adresse chantier</label>
+                      <label style={fieldLabel}>Adresse chantier</label>
                       <input value={formInfos.adresse_chantier || ''} onChange={e => setFormInfos(p => ({ ...p, adresse_chantier: e.target.value }))} placeholder="12 rue de la Paix, 75001 Paris"
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        style={inputUnderline} />
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Accès / Livraison</label>
+                      <label style={fieldLabel}>Accès / Livraison</label>
                       <input value={formInfos.acces_livraison || ''} onChange={e => setFormInfos(p => ({ ...p, acces_livraison: e.target.value }))} placeholder="Livraison quai nord, accès badge..."
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        style={inputUnderline} />
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° bon de commande client</label>
+                      <label style={fieldLabel}>N° bon de commande client</label>
                       <input value={formInfos.numero_bon_commande_client || ''} onChange={e => setFormInfos(p => ({ ...p, numero_bon_commande_client: e.target.value }))} placeholder="Ex : PO-2026-0142"
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
-                      <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }}>Repris automatiquement sur toutes les factures clients générées pour ce projet.</div>
+                        style={inputUnderline} />
+                      <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 3 }}>Repris automatiquement sur toutes les factures clients générées pour ce projet.</div>
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Notes</label>
+                      <label style={fieldLabel}>Notes</label>
                       <textarea value={formInfos.notes || ''} onChange={e => setFormInfos(p => ({ ...p, notes: e.target.value }))} rows={3}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', resize: 'vertical' }} />
+                        style={{ ...inputUnderline, resize: 'vertical' }} />
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 10 }}>
-                    <button onClick={() => { setEditInfos(false); setInfosError('') }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                    <button onClick={saveInfos} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>Sauvegarder</button>
+                    <button onClick={() => { setEditInfos(false); setInfosError('') }} style={btnGhost}>Annuler</button>
+                    <button onClick={saveInfos} style={btnPrimary}>Sauvegarder</button>
                   </div>
                 </div>
               ) : (
@@ -2321,22 +2313,22 @@ export default function ProjetDetail() {
                       ['N° bon de commande client', projet.numero_bon_commande_client],
                     ].map(([label, value]) => value ? (
                       <div key={label}>
-                        <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{label}</div>
-                        <div style={{ fontSize: 14, color: '#111827', fontWeight: 500 }}>{value}</div>
+                        <div style={fieldLabel}>{label}</div>
+                        <div style={{ fontSize: 14, color: colors.ink, fontWeight: 500 }}>{value}</div>
                       </div>
                     ) : null)}
                   </div>
                   {projet.notes && (
-                    <div style={{ marginTop: 16, padding: 12, background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 13, color: '#374151' }}>
-                      📝 {projet.notes}
+                    <div style={{ marginTop: 16, padding: '10px 14px', borderLeft: '2px solid ' + colors.line, fontSize: 13, color: colors.inkMuted }}>
+                      {projet.notes}
                     </div>
                   )}
                   {projet.clients && (
-                    <div style={{ marginTop: 16, padding: 14, background: '#F8FAFC', borderRadius: 8, fontSize: 13 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 4 }}>👤 {projet.clients.nom}</div>
-                      {projet.clients.email && <div style={{ color: '#6B7280' }}>✉️ {projet.clients.email}</div>}
-                      {projet.clients.telephone && <div style={{ color: '#6B7280' }}>📞 {projet.clients.telephone}</div>}
-                      {projet.clients.adresse && <div style={{ color: '#6B7280' }}>📍 {projet.clients.adresse}</div>}
+                    <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid ' + colors.line, fontSize: 13 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>{projet.clients.nom}</div>
+                      {projet.clients.email && <div style={{ color: colors.inkMuted }}>{projet.clients.email}</div>}
+                      {projet.clients.telephone && <div style={{ color: colors.inkMuted }}>{projet.clients.telephone}</div>}
+                      {projet.clients.adresse && <div style={{ color: colors.inkMuted }}>{projet.clients.adresse}</div>}
                     </div>
                   )}
                 </div>
@@ -2351,43 +2343,39 @@ export default function ProjetDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>
                 Lignes du projet
-                {lignes.length > 0 && <span style={{ marginLeft: 8, fontSize: 13, color: '#6B7280', fontWeight: 400 }}>{lots.length} lots · {lignes.filter(l => l.type === 'ligne').length} lignes</span>}
+                {lignes.length > 0 && <span style={{ marginLeft: 8, fontSize: 13, color: colors.inkMuted, fontWeight: 400 }}>{lots.length} lots · {lignes.filter(l => l.type === 'ligne').length} lignes</span>}
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setShowAddLot(!showAddLot)}
-                  style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+              <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+                <button onClick={() => setShowAddLot(!showAddLot)} style={quietLink}>
                   + Nouveau lot
                 </button>
-                <button onClick={() => setShowAddLigne(!showAddLigne)}
-                  style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+                <button onClick={() => setShowAddLigne(!showAddLigne)} style={quietLink}>
                   + Ligne manuelle
                 </button>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', background: '#2563EB', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
-                  {importing ? '⏳ Import...' : '⬆ Importer Excel'}
+                <label style={{ ...btnPrimarySmall, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {importing ? 'Import...' : 'Importer Excel'}
                   <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleImportLignes} />
                 </label>
               </div>
             </div>
 
-            {importError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{importError}</div>}
+            {importError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>{importError}</div>}
 
             {/* Barre d'action groupée — apparaît dès qu'au moins une ligne
                 est cochée (checkbox dans la colonne N° de chaque tableau
                 ci-dessous). Suppression groupée en un seul appel plutôt
                 qu'un clic sur ✕ par ligne. */}
             {lignesSelectionnees.size > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '9px 14px', marginBottom: 16, position: 'sticky', top: 0, zIndex: 5 }}>
-                <span style={{ fontSize: 13, color: '#1E3A8A', fontWeight: 500 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '2px solid ' + colors.focus, padding: '9px 14px', marginBottom: 16, position: 'sticky', top: 0, zIndex: 5, background: colors.bg }}>
+                <span style={{ fontSize: 13, color: colors.ink, fontWeight: 500 }}>
                   {lignesSelectionnees.size} ligne{lignesSelectionnees.size > 1 ? 's' : ''} sélectionnée{lignesSelectionnees.size > 1 ? 's' : ''}
                 </span>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setLignesSelectionnees(new Set())}
-                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+                <div style={{ display: 'flex', gap: 18 }}>
+                  <button onClick={() => setLignesSelectionnees(new Set())} style={quietLink}>
                     Annuler
                   </button>
-                  <button onClick={() => setConfirmSuppressionLignesOuvert(true)}
-                    style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
-                    🗑 Supprimer
+                  <button onClick={() => setConfirmSuppressionLignesOuvert(true)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>
+                    Supprimer
                   </button>
                 </div>
               </div>
@@ -2396,19 +2384,18 @@ export default function ProjetDetail() {
             {/* Confirmation "maison" (voir confirmDupliquerOuvert plus haut
                 pour la même logique anti-Safari) avant suppression groupée. */}
             {confirmSuppressionLignesOuvert && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: 14 }}>
-                <div style={{ background: '#fff', borderRadius: isMobile ? '14px 14px 0 0' : 14, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 460, maxWidth: '100%', boxSizing: 'border-box', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-                  <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>🗑 Supprimer {lignesSelectionnees.size} ligne{lignesSelectionnees.size > 1 ? 's' : ''} ?</h3>
-                  <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: 14 }}>
+                <div style={{ background: colors.surface, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 460, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+                  <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>Supprimer {lignesSelectionnees.size} ligne{lignesSelectionnees.size > 1 ? 's' : ''} ?</h3>
+                  <p style={{ fontSize: 13, color: colors.inkMuted, marginBottom: 20 }}>
                     Les lignes sélectionnées seront supprimées (récupérables depuis la Corbeille pendant 30 jours).
                   </p>
                   <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                    <button onClick={() => setConfirmSuppressionLignesOuvert(false)} disabled={suppressionLignesBusy}
-                      style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+                    <button onClick={() => setConfirmSuppressionLignesOuvert(false)} disabled={suppressionLignesBusy} style={btnGhost}>
                       Annuler
                     </button>
                     <button onClick={supprimerLignesSelectionnees} disabled={suppressionLignesBusy}
-                      style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, opacity: suppressionLignesBusy ? 0.7 : 1 }}>
+                      style={{ background: colors.danger, color: colors.surface, border: 'none', padding: '9px 16px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer', fontWeight: 500, opacity: suppressionLignesBusy ? 0.7 : 1 }}>
                       {suppressionLignesBusy ? 'Suppression...' : 'Supprimer'}
                     </button>
                   </div>
@@ -2421,31 +2408,29 @@ export default function ProjetDetail() {
                 d'import Excel) et qu'il n'y a donc rien à choisir dans le
                 menu déroulant "N° Lot" du formulaire de ligne. */}
             {showAddLot && (
-              <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+              <div style={{ background: colors.surface, border: '1px solid ' + colors.line, padding: 20, marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouveau lot</h4>
-                {lotError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{lotError}</div>}
+                {lotError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{lotError}</div>}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° Lot *</label>
+                    <label style={fieldLabel}>N° Lot *</label>
                     <input value={formLot.numero} onChange={e => setFormLot(p => ({ ...p, numero: e.target.value }))} placeholder="Ex. 01"
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      style={inputUnderline} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Catégorie *</label>
+                    <label style={fieldLabel}>Catégorie *</label>
                     <input value={formLot.categorie} onChange={e => setFormLot(p => ({ ...p, categorie: e.target.value }))} placeholder="Ex. Électricité"
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      style={inputUnderline} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Descriptif</label>
+                    <label style={fieldLabel}>Descriptif</label>
                     <input value={formLot.descriptif} onChange={e => setFormLot(p => ({ ...p, descriptif: e.target.value }))} placeholder="Optionnel"
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      style={inputUnderline} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setShowAddLot(false); setLotError(''); setFormLot({ numero: '', categorie: '', descriptif: '' }) }}
-                    style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                  <button onClick={ajouterLot} disabled={savingLot}
-                    style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                  <button onClick={() => { setShowAddLot(false); setLotError(''); setFormLot({ numero: '', categorie: '', descriptif: '' }) }} style={btnGhost}>Annuler</button>
+                  <button onClick={ajouterLot} disabled={savingLot} style={btnPrimary}>
                     {savingLot ? 'Création...' : 'Créer le lot'}
                   </button>
                 </div>
@@ -2454,56 +2439,56 @@ export default function ProjetDetail() {
 
             {/* Formulaire ajout ligne manuelle */}
             {showAddLigne && (
-              <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+              <div style={{ background: colors.surface, border: '1px solid ' + colors.line, padding: 20, marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle ligne</h4>
-                {ligneError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{ligneError}</div>}
+                {ligneError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{ligneError}</div>}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° Lot</label>
+                    <label style={fieldLabel}>N° Lot</label>
                     <select value={formLigne.lot} onChange={e => setFormLigne(p => ({ ...p, lot: e.target.value }))}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       <option value=''>— Sans lot —</option>
                       {lots.map(l => <option key={l.numero} value={l.numero}>LOT {l.numero} — {l.categorie}</option>)}
                     </select>
                   </div>
                   <div style={{ gridColumn: '2 / -1' }}>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Désignation *</label>
+                    <label style={fieldLabel}>Désignation *</label>
                     <input value={formLigne.descriptif} onChange={e => setFormLigne(p => ({ ...p, descriptif: e.target.value }))}
                       placeholder="Description de la prestation"
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      style={inputUnderline} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Unité</label>
+                    <label style={fieldLabel}>Unité</label>
                     <input value={formLigne.unite} onChange={e => setFormLigne(p => ({ ...p, unite: e.target.value }))} placeholder="m², ens, U..."
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      style={inputUnderline} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Quantité</label>
+                    <label style={fieldLabel}>Quantité</label>
                     <input type="number" min="0" value={formLigne.qte} onChange={e => setFormLigne(p => ({ ...p, qte: e.target.value }))} placeholder="1"
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      style={inputUnderline} />
                   </div>
                   {formLigne.nature === 'honoraire' ? (
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Prix de vente HT (€) — sans achat</label>
+                      <label style={fieldLabel}>Prix de vente HT (€) — sans achat</label>
                       <input type="number" min="0" value={formLigne.prix_vente_ht} onChange={e => setFormLigne(p => ({ ...p, prix_vente_ht: e.target.value }))} placeholder="0"
-                        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        style={inputUnderline} />
                     </div>
                   ) : (<>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Prix achat HT (€)</label>
+                      <label style={fieldLabel}>Prix achat HT (€)</label>
                       <input type="number" min="0" value={formLigne.prix_achat_ht} onChange={e => setFormLigne(p => ({ ...p, prix_achat_ht: e.target.value }))} placeholder="0"
-                        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        style={inputUnderline} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Coefficient</label>
+                      <label style={fieldLabel}>Coefficient</label>
                       <input type="number" min="0" value={formLigne.coeff} onChange={e => setFormLigne(p => ({ ...p, coeff: e.target.value }))} placeholder="1.30"
-                        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                        style={inputUnderline} />
                     </div>
                   </>)}
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Nature</label>
+                    <label style={fieldLabel}>Nature</label>
                     <select value={formLigne.nature} onChange={e => setFormLigne(p => ({ ...p, nature: e.target.value }))}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       {NATURE_LIGNE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </div>
@@ -2511,63 +2496,60 @@ export default function ProjetDetail() {
                 {/* Preview du prix vente */}
                 {formLigne.nature === 'honoraire' ? (
                   formLigne.prix_vente_ht && (
-                    <div style={{ fontSize: 12, color: '#059669', marginBottom: 12, fontWeight: 500 }}>
+                    <div style={{ fontSize: 12, color: colors.success, marginBottom: 12, fontWeight: 500 }}>
                       → Prix vente HT : {parseFloat(formLigne.prix_vente_ht).toFixed(2)} €
                       {formLigne.qte ? ` · Total : ${(parseFloat(formLigne.qte) * parseFloat(formLigne.prix_vente_ht)).toFixed(2)} €` : ''} · sans achat (honoraire)
                     </div>
                   )
                 ) : (
                   formLigne.prix_achat_ht && formLigne.coeff && (
-                    <div style={{ fontSize: 12, color: '#059669', marginBottom: 12, fontWeight: 500 }}>
+                    <div style={{ fontSize: 12, color: colors.success, marginBottom: 12, fontWeight: 500 }}>
                       → Prix vente HT : {(parseFloat(formLigne.prix_achat_ht) * parseFloat(formLigne.coeff)).toFixed(2)} €
                       {formLigne.qte ? ` · Total : ${(parseFloat(formLigne.qte) * parseFloat(formLigne.prix_achat_ht) * parseFloat(formLigne.coeff)).toFixed(2)} €` : ''}
                     </div>
                   )
                 )}
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => setShowAddLigne(false)}
-                    style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                  <button onClick={ajouterLigne} disabled={savingLigne}
-                    style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                    {savingLigne ? '⏳...' : '+ Ajouter'}
+                  <button onClick={() => setShowAddLigne(false)} style={btnGhost}>Annuler</button>
+                  <button onClick={ajouterLigne} disabled={savingLigne} style={btnPrimary}>
+                    {savingLigne ? '...' : '+ Ajouter'}
                   </button>
                 </div>
               </div>
             )}
 
             {/* Sélecteur de mode de calcul */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>Mode de calcul :</span>
+            <div style={{ display: 'flex', gap: 18, marginBottom: 16, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: colors.inkMuted, fontWeight: 500 }}>Mode de calcul :</span>
               {[
                 { id: 'achat_coeff', label: 'Achat × Coeff → Vente' },
                 { id: 'vente_coeff', label: 'Vente ÷ Coeff → Achat' },
                 { id: 'achat_vente', label: 'Vente ÷ Achat → Coeff' },
               ].map(m => (
                 <button key={m.id} onClick={() => setModeCalc(m.id)}
-                  style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid ' + (modeCalc === m.id ? '#2563EB' : '#E5E7EB'),
-                    background: modeCalc === m.id ? '#EFF6FF' : '#fff', color: modeCalc === m.id ? '#2563EB' : '#6B7280',
-                    cursor: 'pointer', fontSize: 12, fontWeight: modeCalc === m.id ? 600 : 400 }}>
+                  style={{ background: 'none', border: 'none', padding: '0 0 3px', borderBottom: '1px solid ' + (modeCalc === m.id ? colors.ink : 'transparent'),
+                    color: modeCalc === m.id ? colors.ink : colors.inkMuted,
+                    cursor: 'pointer', fontSize: 12, fontFamily: fonts.display, fontWeight: modeCalc === m.id ? 600 : 400 }}>
                   {m.label}
                 </button>
               ))}
             </div>
 
             {Object.keys(lignesEditees).length > 0 && (
-              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: '#92400E', fontWeight: 500 }}>⚠️ {Object.keys(lignesEditees).length} ligne(s) modifiée(s) non sauvegardée(s)</span>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setLignesEditees({})} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                  <button onClick={saveLignes} disabled={savingLignes} style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                    {savingLignes ? '⏳ Sauvegarde...' : '✓ Sauvegarder'}
+              <div style={{ borderLeft: '2px solid ' + colors.warning, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                <span style={{ fontSize: 13, color: colors.ink, fontWeight: 500 }}>{Object.keys(lignesEditees).length} ligne(s) modifiée(s) non sauvegardée(s)</span>
+                <div style={{ display: 'flex', gap: 18 }}>
+                  <button onClick={() => setLignesEditees({})} style={quietLink}>Annuler</button>
+                  <button onClick={saveLignes} disabled={savingLignes} style={quietLink}>
+                    {savingLignes ? 'Sauvegarde...' : 'Sauvegarder'}
                   </button>
                 </div>
               </div>
             )}
 
             {lignes.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>📐</div>
-                <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>Aucune ligne</div>
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
+                <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, color: colors.ink }}>Aucune ligne</div>
                 <div style={{ fontSize: 13 }}>Importe ton Excel (même format que le devis)</div>
               </div>
             ) : (<>
@@ -2585,16 +2567,16 @@ export default function ProjetDetail() {
                 const margeGlobal = totalVenteGlobal - totalAchatGlobal
                 const tauxGlobal = totalVenteGlobal > 0 ? ((margeGlobal / totalVenteGlobal) * 100).toFixed(1) : 0
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid ' + colors.line }}>
                     {[
-                      { label: 'Total Vente HT', value: totalVenteGlobal, color: '#059669', bg: '#F0FDF4', border: '#BBF7D0' },
-                      { label: 'Total Achat HT', value: totalAchatGlobal, color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' },
-                      { label: 'Marge brute', value: margeGlobal, color: margeGlobal >= 0 ? '#059669' : '#DC2626', bg: margeGlobal >= 0 ? '#F0FDF4' : '#FEF2F2', border: margeGlobal >= 0 ? '#BBF7D0' : '#FCA5A5' },
-                      { label: 'Taux de marge', value: tauxGlobal + '%', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', isText: true },
-                    ].map(({ label, value, color, bg, border, isText }) => (
-                      <div key={label} style={{ background: bg, border: '1px solid ' + border, borderRadius: 10, padding: '12px 16px' }}>
-                        <div style={{ fontSize: 11, color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>{label}</div>
-                        <div style={{ fontSize: 18, fontWeight: 700, color }}>{isText ? value : Number(value).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}</div>
+                      { label: 'Total Vente HT', value: totalVenteGlobal, color: colors.success },
+                      { label: 'Total Achat HT', value: totalAchatGlobal, color: colors.focus },
+                      { label: 'Marge brute', value: margeGlobal, color: margeGlobal >= 0 ? colors.success : colors.danger },
+                      { label: 'Taux de marge', value: tauxGlobal + '%', color: ACCENT_MARGE, isText: true },
+                    ].map(({ label, value, color, isText }) => (
+                      <div key={label}>
+                        <div style={eyebrow}>{label}</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color, marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{isText ? value : Number(value).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}</div>
                       </div>
                     ))}
                   </div>
@@ -2612,52 +2594,45 @@ export default function ProjetDetail() {
                 const idsGroupeLot = (lignesParLot[lot.numero] || []).filter(l => l.type === 'ligne').map(l => l.id)
                 const toutSelectionneLot = idsGroupeLot.length > 0 && idsGroupeLot.every(i => lignesSelectionnees.has(i))
                 return (
-                <div key={lot.numero} style={{ marginBottom: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+                <div key={lot.numero} style={{ marginBottom: 12, border: '1px solid ' + colors.line }}>
                   <div onClick={() => setLotsReduits(prev => ({ ...prev, [lot.numero]: !prev[lot.numero] }))}
-                    style={{ background: '#1E293B', color: '#fff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                    style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, color: colors.ink, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexWrap: 'wrap', gap: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontSize: 14, color: '#94A3B8', transition: 'transform 0.2s', display: 'inline-block', transform: estReduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+                      <span style={{ fontSize: 14, color: colors.inkFaint, transition: 'transform 0.2s', display: 'inline-block', transform: estReduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
                       <span style={{ fontWeight: 600, fontSize: 13 }}>LOT {lot.numero} — {lot.categorie}{lot.descriptif ? ' · ' + lot.descriptif : ''}</span>
                     </div>
                     <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, color: '#86EFAC' }}>Vente : {Number(totalVenteLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
-                      <span style={{ fontSize: 12, color: '#93C5FD' }}>Achat : {Number(totalAchatLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
-                      <span style={{ fontSize: 12, color: margeLot >= 0 ? '#86EFAC' : '#FCA5A5', fontWeight: 600 }}>Marge : {Number(margeLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
-                      <button onClick={e => { e.stopPropagation(); ouvrirEditionLot(lot) }} title="Modifier ce lot (N°, catégorie, descriptif)"
-                        style={{ background: 'none', border: 'none', color: '#93C5FD', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, opacity: 0.7 }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                        onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>✏️</button>
-                      <button onClick={e => { e.stopPropagation(); supprimerLot(lot) }} title="Supprimer ce lot"
-                        style={{ background: 'none', border: 'none', color: '#FCA5A5', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, opacity: 0.7 }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                        onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>✕</button>
+                      <span style={{ fontSize: 12, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>Vente : {Number(totalVenteLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      <span style={{ fontSize: 12, color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>Achat : {Number(totalAchatLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      <span style={{ fontSize: 12, color: margeLot >= 0 ? colors.success : colors.danger, fontWeight: 600, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>Marge : {Number(margeLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      <button onClick={e => { e.stopPropagation(); ouvrirEditionLot(lot) }} title="Modifier ce lot (N°, catégorie, descriptif)" style={{ ...quietLink, padding: 0 }}>Modifier</button>
+                      <button onClick={e => { e.stopPropagation(); supprimerLot(lot) }} title="Supprimer ce lot" style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger, padding: 0 }}>Supprimer</button>
                     </div>
                   </div>
                   {lotEnEdition === lot.numero && (
-                    <div style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB', padding: 16 }}>
-                      {lotEditError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{lotEditError}</div>}
+                    <div style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, padding: 16 }}>
+                      {lotEditError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{lotEditError}</div>}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
                         <div>
-                          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° Lot *</label>
+                          <label style={fieldLabel}>N° Lot *</label>
                           <input value={formLotEdit.numero} onChange={e => setFormLotEdit(p => ({ ...p, numero: e.target.value }))}
-                            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                            style={inputUnderline} />
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Catégorie *</label>
+                          <label style={fieldLabel}>Catégorie *</label>
                           <input value={formLotEdit.categorie} onChange={e => setFormLotEdit(p => ({ ...p, categorie: e.target.value }))}
-                            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                            style={inputUnderline} />
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Descriptif</label>
+                          <label style={fieldLabel}>Descriptif</label>
                           <input value={formLotEdit.descriptif} onChange={e => setFormLotEdit(p => ({ ...p, descriptif: e.target.value }))} placeholder="Optionnel"
-                            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                            style={inputUnderline} />
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 10 }}>
-                        <button onClick={annulerEditionLot} disabled={savingLotEdit}
-                          style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                        <button onClick={annulerEditionLot} disabled={savingLotEdit} style={btnGhost}>Annuler</button>
                         <button onClick={enregistrerEditionLot} disabled={savingLotEdit}
-                          style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingLotEdit ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingLotEdit ? 0.7 : 1 }}>
+                          style={{ ...btnPrimary, cursor: savingLotEdit ? 'default' : 'pointer', opacity: savingLotEdit ? 0.7 : 1 }}>
                           {savingLotEdit ? 'Enregistrement...' : 'Enregistrer'}
                         </button>
                       </div>
@@ -2665,8 +2640,8 @@ export default function ProjetDetail() {
                   )}
                   {!estReduit && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
-                      <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                        <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500, width: 50 }}>
+                      <tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
+                        <th style={{ padding: '7px 10px', textAlign: 'left', color: colors.inkMuted, fontWeight: 500, width: 50 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             {idsGroupeLot.length > 0 && (
                               <input type="checkbox" checked={toutSelectionneLot} onChange={() => toggleSelectionGroupe(idsGroupeLot)}
@@ -2675,26 +2650,26 @@ export default function ProjetDetail() {
                             N°
                           </div>
                         </th>
-                        <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500 }}>Désignation</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 50 }}>Unité</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#6B7280', fontWeight: 500, width: 50 }}>Qté</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#059669', fontWeight: 600, width: 95 }}>P.U. Vente</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#059669', fontWeight: 600, width: 100 }}>Total Vente</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#6B7280', fontWeight: 500, width: 60 }}>Coeff.</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB', fontWeight: 600, width: 95 }}>P.U. Achat</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB', fontWeight: 600, width: 100 }}>Total Achat</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 80 }}>Mode</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 110 }}>Nature</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'left', color: colors.inkMuted, fontWeight: 500 }}>Désignation</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', color: colors.inkMuted, fontWeight: 500, width: 50 }}>Unité</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.inkMuted, fontWeight: 500, width: 50 }}>Qté</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.success, fontWeight: 600, width: 95 }}>P.U. Vente</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.success, fontWeight: 600, width: 100 }}>Total Vente</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.inkMuted, fontWeight: 500, width: 60 }}>Coeff.</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.focus, fontWeight: 600, width: 95 }}>P.U. Achat</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.focus, fontWeight: 600, width: 100 }}>Total Achat</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', color: colors.inkMuted, fontWeight: 500, width: 80 }}>Mode</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', color: colors.inkMuted, fontWeight: 500, width: 110 }}>Nature</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(lignesParLot[lot.numero] || []).map((l, i) => {
                         const isEdited = !!lignesEditees[l.id]
-                        const inputStyle = { width: '100%', padding: '3px 6px', borderRadius: 4, border: '1px solid #BFDBFE', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: '#EFF6FF' }
+                        const inputStyle = cellInput(isEdited)
                         if (l.type === 'titre') return (
-                          <tr key={i} style={{ background: '#F1F5F9' }}>
-                            <td style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
-                            <td colSpan={10} style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
+                          <tr key={i} style={{ background: colors.bg }}>
+                            <td style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
+                            <td colSpan={10} style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
                           </tr>
                         )
                         const qte = parseFloat(getLigneVal(l, 'qte')) || 0
@@ -2710,83 +2685,83 @@ export default function ProjetDetail() {
                         const modeLocal = estHonoraire ? 'honoraire' : (modeLignes[l.id] || 'ac')
                         const compteDansTotal = nature !== 'option' && nature !== 'texte' && nature !== 'variante_inactive'
                         return (
-                          <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : !compteDansTotal ? '#FAFAF9' : i % 2 === 0 ? '#fff' : '#FAFAFA', opacity: compteDansTotal ? 1 : 0.7 }}>
-                            <td style={{ padding: '4px 6px', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
+                          <tr key={i} style={{ borderBottom: '1px solid ' + colors.line, opacity: compteDansTotal ? 1 : 0.7 }}>
+                            <td style={{ padding: '4px 6px', color: colors.inkFaint, whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                                 <input type="checkbox" checked={lignesSelectionnees.has(l.id)} onChange={() => toggleLigneSelection(l.id)}
                                   style={{ cursor: 'pointer' }} />
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
                                 <button onClick={() => supprimerLigne(l.id)}
-                                  style={{ background: 'none', border: 'none', color: '#FCA5A5', cursor: 'pointer', fontSize: 11, padding: '0 2px', lineHeight: 1, opacity: 0.6 }}
+                                  style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 11, padding: '0 2px', lineHeight: 1, opacity: 0.6 }}
                                   onMouseEnter={e => e.currentTarget.style.opacity = '1'}
                                   onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}>✕</button>
                               </div>
                             </td>
-                            <td style={{ padding: '4px 6px', color: '#374151' }}>
+                            <td style={{ padding: '4px 6px', color: colors.ink }}>
                               <input value={getLigneVal(l, 'descriptif')} title={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
-                                style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, background: isEdited ? '#EFF6FF' : 'transparent', boxSizing: 'border-box' }} />
+                                style={{ ...inputStyle, textAlign: 'left' }} />
                             </td>
                             <td style={{ padding: '4px 4px', textAlign: 'center' }}>
                               <input value={getLigneVal(l, 'unite')} onChange={e => editLigne(l.id, 'unite', e.target.value, l)}
-                                style={{ width: 44, padding: '3px 4px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, textAlign: 'center', background: isEdited ? '#EFF6FF' : 'transparent' }} />
+                                style={{ ...inputStyle, width: 44, textAlign: 'center' }} />
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               <input type="number" min="0" value={getLigneVal(l, 'qte')} onChange={e => editLigne(l.id, 'qte', e.target.value, l)}
-                                style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent' }} />
+                                style={inputStyle} />
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               {/* P.U. Vente — bloqué en mode A×C (calculé) */}
                               {modeLocal === 'ac' ? (
-                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>
+                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>
                                   {getLigneVal(l, 'prix_unit_ht') || '—'}
                                 </div>
                               ) : (
                                 <input type="number" min="0" value={getLigneVal(l, 'prix_unit_ht')} onChange={e => editLigne(l.id, 'prix_unit_ht', e.target.value, l)}
-                                  style={{ ...inputStyle, border: isEdited ? '1px solid #BBF7D0' : '1px solid transparent', background: isEdited ? '#F0FDF4' : 'transparent', color: '#065F46' }} />
+                                  style={{ ...inputStyle, color: colors.success }} />
                               )}
                             </td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente > 0 ? '#065F46' : '#9CA3AF' }}>
+                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente > 0 ? colors.success : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                               {totalVente > 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               {/* Coeff — sans objet pour une ligne Honoraire, bloqué en mode V÷A (calculé) */}
                               {estHonoraire ? (
-                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
+                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>—</div>
                               ) : modeLocal === 'av' ? (
-                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>
+                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>
                                   {getLigneVal(l, 'coeff') || '—'}
                                 </div>
                               ) : (
                                 <input type="number" min="0" value={getLigneVal(l, 'coeff')} onChange={e => editLigne(l.id, 'coeff', e.target.value, l)}
-                                  style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #E9D5FF' : '1px solid transparent', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: isEdited ? '#F5F3FF' : 'transparent', color: '#7C3AED' }} />
+                                  style={{ ...inputStyle, color: ACCENT_MARGE }} />
                               )}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               {/* P.U. Achat — sans objet pour une ligne Honoraire, bloqué en mode V÷C (calculé) */}
                               {estHonoraire ? (
-                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
+                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>—</div>
                               ) : modeLocal === 'vc' ? (
-                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>
+                                <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>
                                   {getLigneVal(l, 'prix_achat_ht') || '—'}
                                 </div>
                               ) : (
                                 <input type="number" min="0" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)}
-                                  style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent', color: '#2563EB' }} />
+                                  style={{ ...inputStyle, color: colors.focus }} />
                               )}
                             </td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? '#2563EB' : '#9CA3AF' }}>
+                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? colors.focus : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                               {estHonoraire ? '—' : totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px', whiteSpace: 'nowrap' }}>
                               {estHonoraire ? (
-                                <span style={{ fontSize: 10, color: '#9CA3AF' }} title="Ligne Honoraire : vente seule, sans achat">vente seule</span>
+                                <span style={{ fontSize: 10, color: colors.inkFaint }} title="Ligne Honoraire : vente seule, sans achat">vente seule</span>
                               ) : (
-                                <div style={{ display: 'flex', gap: 2 }}>
+                                <div style={{ display: 'flex', gap: 8 }}>
                                   {[['ac', 'A×C'], ['vc', 'V÷C'], ['av', 'V÷A']].map(([mode, label]) => (
                                     <button key={mode} onClick={() => setModeLignes(prev => ({ ...prev, [l.id]: mode }))}
-                                      style={{ padding: '2px 5px', borderRadius: 4, border: '1px solid ' + (modeLocal === mode ? '#7C3AED' : '#E5E7EB'),
-                                        background: modeLocal === mode ? '#F5F3FF' : '#fff', color: modeLocal === mode ? '#7C3AED' : '#9CA3AF',
-                                        cursor: 'pointer', fontSize: 10, fontWeight: modeLocal === mode ? 600 : 400 }}>
+                                      style={{ background: 'none', border: 'none', padding: '0 0 2px', borderBottom: '1px solid ' + (modeLocal === mode ? colors.ink : 'transparent'),
+                                        color: modeLocal === mode ? colors.ink : colors.inkFaint,
+                                        cursor: 'pointer', fontSize: 10, fontFamily: fonts.display, fontWeight: modeLocal === mode ? 600 : 400 }}>
                                       {label}
                                     </button>
                                   ))}
@@ -2795,7 +2770,7 @@ export default function ProjetDetail() {
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               <select value={nature} onChange={e => editLigneNature(l.id, e.target.value)} title="Nature de la ligne — pilote si elle compte dans le total du devis"
-                                style={{ width: '100%', padding: '3px 4px', borderRadius: 4, border: '1px solid ' + (compteDansTotal ? '#E5E7EB' : '#FDE68A'), fontSize: 10, cursor: 'pointer', background: compteDansTotal ? '#fff' : '#FFFBEB', color: '#374151' }}>
+                                style={{ width: '100%', padding: '3px 4px', border: 'none', borderBottom: '1px solid ' + (compteDansTotal ? colors.line : colors.warning), fontSize: 10, cursor: 'pointer', background: 'transparent', color: colors.ink, fontFamily: fonts.display }}>
                                 {NATURE_LIGNE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.shortLabel}</option>)}
                               </select>
                             </td>
@@ -2809,17 +2784,17 @@ export default function ProjetDetail() {
               })}
               {/* Lignes sans lot */}
               {(lignesParLot['sans'] || []).filter(l => l.type === 'ligne' || l.type === 'titre').length > 0 && (
-                <div style={{ marginBottom: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
-                  <div style={{ background: '#374151', color: '#fff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ marginBottom: 12, border: '1px solid ' + colors.line }}>
+                  <div style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, color: colors.ink, padding: '10px 16px', display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>Lignes sans lot</span>
-                    <span style={{ fontSize: 12, color: '#D1FAE5' }}>
+                    <span style={{ fontSize: 12, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                       Vente : {Number((lignesParLot['sans'] || []).filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </span>
                   </div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
-                      <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
-                        <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500, width: 50 }}>
+                      <tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
+                        <th style={{ padding: '7px 10px', textAlign: 'left', color: colors.inkMuted, fontWeight: 500, width: 50 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             {(() => {
                               const idsGroupeSansLot = (lignesParLot['sans'] || []).filter(l => l.type === 'ligne').map(l => l.id)
@@ -2831,26 +2806,26 @@ export default function ProjetDetail() {
                             N°
                           </div>
                         </th>
-                        <th style={{ padding: '7px 10px', textAlign: 'left', color: '#6B7280', fontWeight: 500 }}>Désignation</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 50 }}>Unité</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#6B7280', fontWeight: 500, width: 50 }}>Qté</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#059669', fontWeight: 600, width: 95 }}>P.U. Vente</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#059669', fontWeight: 600, width: 100 }}>Total Vente</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#6B7280', fontWeight: 500, width: 60 }}>Coeff.</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB', fontWeight: 600, width: 95 }}>P.U. Achat</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'right', color: '#2563EB', fontWeight: 600, width: 100 }}>Total Achat</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 80 }}>Mode</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'center', color: '#6B7280', fontWeight: 500, width: 110 }}>Nature</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'left', color: colors.inkMuted, fontWeight: 500 }}>Désignation</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', color: colors.inkMuted, fontWeight: 500, width: 50 }}>Unité</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.inkMuted, fontWeight: 500, width: 50 }}>Qté</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.success, fontWeight: 600, width: 95 }}>P.U. Vente</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.success, fontWeight: 600, width: 100 }}>Total Vente</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.inkMuted, fontWeight: 500, width: 60 }}>Coeff.</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.focus, fontWeight: 600, width: 95 }}>P.U. Achat</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'right', color: colors.focus, fontWeight: 600, width: 100 }}>Total Achat</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', color: colors.inkMuted, fontWeight: 500, width: 80 }}>Mode</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', color: colors.inkMuted, fontWeight: 500, width: 110 }}>Nature</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(lignesParLot['sans'] || []).map((l, i) => {
                         const isEdited = !!lignesEditees[l.id]
-                        const inputStyle = { width: '100%', padding: '3px 6px', borderRadius: 4, border: '1px solid #BFDBFE', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: '#EFF6FF' }
+                        const inputStyle = cellInput(isEdited)
                         if (l.type === 'titre') return (
-                          <tr key={i} style={{ background: '#F1F5F9' }}>
-                            <td style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
-                            <td colSpan={10} style={{ padding: '6px 10px', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
+                          <tr key={i} style={{ background: colors.bg }}>
+                            <td style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
+                            <td colSpan={10} style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
                           </tr>
                         )
                         const qte = parseFloat(getLigneVal(l, 'qte')) || 0
@@ -2867,56 +2842,56 @@ export default function ProjetDetail() {
                         const compteDansTotal = nature !== 'option' && nature !== 'texte' && nature !== 'variante_inactive'
                         return (
                           <>
-                          <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: isEdited ? '#FFFBEB' : !compteDansTotal ? '#FAFAF9' : i % 2 === 0 ? '#fff' : '#FAFAFA', opacity: compteDansTotal ? 1 : 0.7 }}>
-                            <td style={{ padding: '4px 6px', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
+                          <tr key={i} style={{ borderBottom: '1px solid ' + colors.line, opacity: compteDansTotal ? 1 : 0.7 }}>
+                            <td style={{ padding: '4px 6px', color: colors.inkFaint, whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                                 <input type="checkbox" checked={lignesSelectionnees.has(l.id)} onChange={() => toggleLigneSelection(l.id)}
                                   style={{ cursor: 'pointer' }} />
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
-                                <button onClick={() => supprimerLigne(l.id)} style={{ background: 'none', border: 'none', color: '#FCA5A5', cursor: 'pointer', fontSize: 11, padding: '0 2px', opacity: 0.6 }}
+                                <button onClick={() => supprimerLigne(l.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 11, padding: '0 2px', opacity: 0.6 }}
                                   onMouseEnter={e => e.currentTarget.style.opacity='1'} onMouseLeave={e => e.currentTarget.style.opacity='0.6'}>✕</button>
                               </div>
                             </td>
-                            <td style={{ padding: '4px 6px', color: '#374151' }}>
+                            <td style={{ padding: '4px 6px', color: colors.ink }}>
                               <input value={getLigneVal(l, 'descriptif')} title={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
-                                style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, background: isEdited ? '#EFF6FF' : 'transparent', boxSizing: 'border-box' }} />
+                                style={{ ...inputStyle, textAlign: 'left' }} />
                             </td>
                             <td style={{ padding: '4px 4px', textAlign: 'center' }}>
                               <input value={getLigneVal(l, 'unite')} onChange={e => editLigne(l.id, 'unite', e.target.value, l)}
-                                style={{ width: 44, padding: '3px 4px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, textAlign: 'center', background: isEdited ? '#EFF6FF' : 'transparent' }} />
+                                style={{ ...inputStyle, width: 44, textAlign: 'center' }} />
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               <input type="number" min="0" value={getLigneVal(l, 'qte')} onChange={e => editLigne(l.id, 'qte', e.target.value, l)}
-                                style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent' }} />
+                                style={inputStyle} />
                             </td>
                             <td style={{ padding: '4px 4px' }}>
-                              {modeLocal === 'ac' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'prix_unit_ht') || '—'}</div>
-                              : <input type="number" min="0" value={getLigneVal(l, 'prix_unit_ht')} onChange={e => editLigne(l.id, 'prix_unit_ht', e.target.value, l)} style={{ ...inputStyle, border: isEdited ? '1px solid #BBF7D0' : '1px solid transparent', background: isEdited ? '#F0FDF4' : 'transparent', color: '#065F46' }} />}
+                              {modeLocal === 'ac' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>{getLigneVal(l, 'prix_unit_ht') || '—'}</div>
+                              : <input type="number" min="0" value={getLigneVal(l, 'prix_unit_ht')} onChange={e => editLigne(l.id, 'prix_unit_ht', e.target.value, l)} style={{ ...inputStyle, color: colors.success }} />}
                             </td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente > 0 ? '#065F46' : '#9CA3AF' }}>
+                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente > 0 ? colors.success : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                               {totalVente > 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
-                              {estHonoraire ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
-                              : modeLocal === 'av' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'coeff') || '—'}</div>
-                              : <input type="number" min="0" value={getLigneVal(l, 'coeff')} onChange={e => editLigne(l.id, 'coeff', e.target.value, l)} style={{ width: '100%', padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #E9D5FF' : '1px solid transparent', fontSize: 12, textAlign: 'right', boxSizing: 'border-box', background: isEdited ? '#F5F3FF' : 'transparent', color: '#7C3AED' }} />}
+                              {estHonoraire ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>—</div>
+                              : modeLocal === 'av' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>{getLigneVal(l, 'coeff') || '—'}</div>
+                              : <input type="number" min="0" value={getLigneVal(l, 'coeff')} onChange={e => editLigne(l.id, 'coeff', e.target.value, l)} style={{ ...inputStyle, color: ACCENT_MARGE }} />}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
-                              {estHonoraire ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#D1D5DB' }}>—</div>
-                              : modeLocal === 'vc' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: '#9CA3AF', background: '#F3F4F6', borderRadius: 4, border: '1px solid #E5E7EB' }}>{getLigneVal(l, 'prix_achat_ht') || '—'}</div>
-                              : <input type="number" min="0" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)} style={{ ...inputStyle, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', background: isEdited ? '#EFF6FF' : 'transparent', color: '#2563EB' }} />}
+                              {estHonoraire ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>—</div>
+                              : modeLocal === 'vc' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>{getLigneVal(l, 'prix_achat_ht') || '—'}</div>
+                              : <input type="number" min="0" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)} style={{ ...inputStyle, color: colors.focus }} />}
                             </td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? '#2563EB' : '#9CA3AF' }}>
+                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? colors.focus : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                               {estHonoraire ? '—' : totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px', whiteSpace: 'nowrap' }}>
                               {estHonoraire ? (
-                                <span style={{ fontSize: 10, color: '#9CA3AF' }} title="Ligne Honoraire : vente seule, sans achat">vente seule</span>
+                                <span style={{ fontSize: 10, color: colors.inkFaint }} title="Ligne Honoraire : vente seule, sans achat">vente seule</span>
                               ) : (
-                                <div style={{ display: 'flex', gap: 2 }}>
+                                <div style={{ display: 'flex', gap: 8 }}>
                                   {[['ac', 'A×C'], ['vc', 'V÷C'], ['av', 'V÷A']].map(([mode, label]) => (
                                     <button key={mode} onClick={() => setModeLignes(prev => ({ ...prev, [l.id]: mode }))}
-                                      style={{ padding: '2px 5px', borderRadius: 4, border: '1px solid ' + (modeLocal === mode ? '#7C3AED' : '#E5E7EB'), background: modeLocal === mode ? '#F5F3FF' : '#fff', color: modeLocal === mode ? '#7C3AED' : '#9CA3AF', cursor: 'pointer', fontSize: 10, fontWeight: modeLocal === mode ? 600 : 400 }}>
+                                      style={{ background: 'none', border: 'none', padding: '0 0 2px', borderBottom: '1px solid ' + (modeLocal === mode ? colors.ink : 'transparent'), color: modeLocal === mode ? colors.ink : colors.inkFaint, cursor: 'pointer', fontSize: 10, fontFamily: fonts.display, fontWeight: modeLocal === mode ? 600 : 400 }}>
                                       {label}
                                     </button>
                                   ))}
@@ -2925,7 +2900,7 @@ export default function ProjetDetail() {
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               <select value={nature} onChange={e => editLigneNature(l.id, e.target.value)} title="Nature de la ligne — pilote si elle compte dans le total du devis"
-                                style={{ width: '100%', padding: '3px 4px', borderRadius: 4, border: '1px solid ' + (compteDansTotal ? '#E5E7EB' : '#FDE68A'), fontSize: 10, cursor: 'pointer', background: compteDansTotal ? '#fff' : '#FFFBEB', color: '#374151' }}>
+                                style={{ width: '100%', padding: '3px 4px', border: 'none', borderBottom: '1px solid ' + (compteDansTotal ? colors.line : colors.warning), fontSize: 10, cursor: 'pointer', background: 'transparent', color: colors.ink, fontFamily: fonts.display }}>
                                 {NATURE_LIGNE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.shortLabel}</option>)}
                               </select>
                             </td>
@@ -2946,29 +2921,27 @@ export default function ProjetDetail() {
           <div>
             {/* PDF Preview Modal */}
             {showPdfPreview && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ background: colors.surface, padding: 28, width: 520, border: '1px solid ' + colors.line }}>
                   <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 600 }}>Aperçu — {showPdfPreview.numero}</h3>
-                  <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 20, marginBottom: 20, fontSize: 13, lineHeight: 1.7 }}>
+                  <div style={{ borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line, padding: '16px 0', marginBottom: 20, fontSize: 13, lineHeight: 1.7 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-                      <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 2 }}>N° Commande</div><div style={{ fontWeight: 600 }}>{showPdfPreview.numero}</div></div>
-                      <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 2 }}>Date</div><div>{fmtDate(showPdfPreview.date_commande)}</div></div>
-                      <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 2 }}>Fournisseur</div><div style={{ fontWeight: 600 }}>{showPdfPreview.fournisseurs?.nom || '—'}</div></div>
-                      <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 2 }}>Montant HT</div><div style={{ fontWeight: 700, color: '#059669', fontSize: 15 }}>{fmt(showPdfPreview.montant_ht)}</div></div>
-                      <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 2 }}>TVA</div><div>{showPdfPreview.regime_tva === 'autoliquidation' ? 'Autoliquidation (0 %)' : 'Normale (20 %)'}</div></div>
+                      <div><div style={fieldLabel}>N° Commande</div><div style={{ fontWeight: 600 }}>{showPdfPreview.numero}</div></div>
+                      <div><div style={fieldLabel}>Date</div><div>{fmtDate(showPdfPreview.date_commande)}</div></div>
+                      <div><div style={fieldLabel}>Fournisseur</div><div style={{ fontWeight: 600 }}>{showPdfPreview.fournisseurs?.nom || '—'}</div></div>
+                      <div><div style={fieldLabel}>Montant HT</div><div style={{ fontWeight: 700, color: colors.success, fontSize: 15, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(showPdfPreview.montant_ht)}</div></div>
+                      <div><div style={fieldLabel}>TVA</div><div>{showPdfPreview.regime_tva === 'autoliquidation' ? 'Autoliquidation (0 %)' : 'Normale (20 %)'}</div></div>
                     </div>
-                    <div><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 4 }}>Description</div><div style={{ color: '#374151' }}>{showPdfPreview.description}</div></div>
-                    <div style={{ marginTop: 12 }}><div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 4 }}>Projet</div><div>{projet?.nom}</div></div>
+                    <div><div style={fieldLabel}>Description</div><div style={{ color: colors.ink }}>{showPdfPreview.description}</div></div>
+                    <div style={{ marginTop: 12 }}><div style={fieldLabel}>Projet</div><div>{projet?.nom}</div></div>
                   </div>
                   <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                    <button onClick={() => setShowPdfPreview(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Fermer</button>
-                    <button onClick={() => { generateCmdPDF(showPdfPreview, 'fr').save((showPdfPreview.numero || 'commande') + '.pdf'); setShowPdfPreview(null) }}
-                      style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                      ⬇ PDF FR
+                    <button onClick={() => setShowPdfPreview(null)} style={btnGhost}>Fermer</button>
+                    <button onClick={() => { generateCmdPDF(showPdfPreview, 'fr').save((showPdfPreview.numero || 'commande') + '.pdf'); setShowPdfPreview(null) }} style={btnPrimary}>
+                      PDF FR
                     </button>
-                    <button onClick={() => { generateCmdPDF(showPdfPreview, 'en').save((showPdfPreview.numero || 'commande') + '_EN.pdf'); setShowPdfPreview(null) }}
-                      style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                      ⬇ PDF EN
+                    <button onClick={() => { generateCmdPDF(showPdfPreview, 'en').save((showPdfPreview.numero || 'commande') + '_EN.pdf'); setShowPdfPreview(null) }} style={btnPrimary}>
+                      PDF EN
                     </button>
                   </div>
                 </div>
@@ -2976,38 +2949,38 @@ export default function ProjetDetail() {
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Commandes fournisseurs · <span style={{ color: '#2563EB' }}>{fmt(totalCommandes)}</span></div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Commandes fournisseurs · <span style={{ color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalCommandes)}</span></div>
               <button onClick={() => { setShowForm(true); setError('');
                 setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', statut: 'Brouillon', date_commande: new Date().toISOString().split('T')[0], regime_tva: 'normale' }) }}
-                style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
+                style={btnPrimary}>
                 + Nouvelle commande
               </button>
             </div>
 
             {showForm && (
-              <div style={{ background: '#fff', borderRadius: 12, padding: 20, border: '1px solid #E5E7EB', marginBottom: 16 }}>
+              <div style={{ background: colors.surface, padding: 20, border: '1px solid ' + colors.line, marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle commande</h4>
-                {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
+                {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{error}</div>}
                 {(() => {
                   const saisie = parseFloat(formCmd.montant_ht) || 0
                   const resteApres = resteAchatDisponible - saisie
                   return (
-                    <div style={{ background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 10, padding: '12px 14px', marginBottom: 14, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    <div style={{ borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line, padding: '12px 0', marginBottom: 14, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                       <div>
-                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>Budget achat (devis)</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B' }}>{fmt(totalAchatGlobal)}</div>
+                        <div style={fieldLabel}>Budget achat (devis)</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalAchatGlobal)}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>Déjà commandé</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#2563EB' }}>{fmt(totalCommandesActives)}</div>
+                        <div style={fieldLabel}>Déjà commandé</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalCommandesActives)}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{saisie > 0 ? 'Reste après cette commande' : 'Reste disponible'}</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: resteApres >= 0 ? '#059669' : '#DC2626' }}>{fmt(resteApres)}</div>
+                        <div style={fieldLabel}>{saisie > 0 ? 'Reste après cette commande' : 'Reste disponible'}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: resteApres >= 0 ? colors.success : colors.danger, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(resteApres)}</div>
                       </div>
                       {resteApres < 0 && (
-                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#DC2626', marginTop: 2 }}>
-                          ⚠️ Ce montant dépasse le budget achat prévu au devis de {fmt(Math.abs(resteApres))}.
+                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: colors.danger, marginTop: 2 }}>
+                          Ce montant dépasse le budget achat prévu au devis de {fmt(Math.abs(resteApres))}.
                         </div>
                       )}
                     </div>
@@ -3015,35 +2988,32 @@ export default function ProjetDetail() {
                 })()}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Fournisseur</label>
+                    <label style={fieldLabel}>Fournisseur</label>
                     <select value={formCmd.fournisseur_id} onChange={e => setFormCmd(p => ({ ...p, fournisseur_id: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       <option value=''>— Aucun —</option>
                       {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° commande (auto)</label>
+                    <label style={fieldLabel}>N° commande (auto)</label>
                     <input value={formCmd.numero} onChange={e => setFormCmd(p => ({ ...p, numero: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', background: '#F9FAFB' }} />
+                      style={inputUnderline} />
                   </div>
                   <div style={{ gridColumn: '1 / -1' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <label style={{ fontSize: 12, color: '#6B7280' }}>Description *</label>
-                      <button onClick={() => setShowLignesSelector(!showLignesSelector)}
-                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer' }}>
-                        📐 Depuis lignes projet
+                      <label style={{ ...fieldLabel, marginBottom: 0 }}>Description *</label>
+                      <button onClick={() => setShowLignesSelector(!showLignesSelector)} style={quietLink}>
+                        Depuis lignes projet
                       </button>
                     </div>
                     {showLignesSelector && (
-                      <div style={{ background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 8, padding: 10, marginBottom: 8, maxHeight: 200, overflow: 'auto' }}>
-                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 6 }}>Cliquer sur un lot ou une ligne pour l'utiliser :</div>
+                      <div style={{ border: '1px solid ' + colors.line, padding: 10, marginBottom: 8, maxHeight: 200, overflow: 'auto' }}>
+                        <div style={{ fontSize: 11, color: colors.inkMuted, marginBottom: 6 }}>Cliquer sur un lot ou une ligne pour l'utiliser :</div>
                         {lignes.filter(l => l.type === 'lot').map(lot => (
                           <div key={lot.id}>
                             <div onClick={() => { setFormCmd(p => ({ ...p, description: 'LOT ' + lot.numero + ' — ' + (lot.categorie || '') + (lot.descriptif ? ' · ' + lot.descriptif : ''), montant_ht: lot.total_achat || lot.total_ht || '' })); setShowLignesSelector(false) }}
-                              style={{ padding: '5px 8px', cursor: 'pointer', borderRadius: 4, fontWeight: 600, fontSize: 12, color: '#1E293B', background: '#E2E8F0', marginBottom: 2 }}
-                              onMouseEnter={e => e.currentTarget.style.background = '#CBD5E1'}
-                              onMouseLeave={e => e.currentTarget.style.background = '#E2E8F0'}>
+                              style={{ padding: '5px 8px', cursor: 'pointer', fontWeight: 600, fontSize: 12, color: colors.ink, background: colors.neutralChip, marginBottom: 2 }}>
                               LOT {lot.numero} — {lot.categorie} · {lot.total_achat > 0 ? Number(lot.total_achat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : ''}
                             </div>
                           </div>
@@ -3051,83 +3021,84 @@ export default function ProjetDetail() {
                       </div>
                     )}
                     <input value={formCmd.description} onChange={e => setFormCmd(p => ({ ...p, description: e.target.value }))} placeholder="Ex: Cloisons vitrées lot 3"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      style={inputUnderline} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
+                    <label style={fieldLabel}>Montant HT (€)</label>
                     <input type="number" min="0" value={formCmd.montant_ht} onChange={e => setFormCmd(p => ({ ...p, montant_ht: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      style={inputUnderline} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date commande</label>
+                    <label style={fieldLabel}>Date commande</label>
                     <input type="date" value={formCmd.date_commande} onChange={e => setFormCmd(p => ({ ...p, date_commande: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} />
+                      style={inputUnderline} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
+                    <label style={fieldLabel}>Statut</label>
                     <select value={formCmd.statut} onChange={e => setFormCmd(p => ({ ...p, statut: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       {STATUTS_CMD.map(s => <option key={s}>{s}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>TVA</label>
+                    <label style={fieldLabel}>TVA</label>
                     <select value={formCmd.regime_tva || 'normale'} onChange={e => setFormCmd(p => ({ ...p, regime_tva: e.target.value }))}
                       title="Autoliquidation : le fournisseur facture hors taxe, vous déclarez la TVA vous-même (sous-traitance BTP, article 283 du CGI)."
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       <option value="normale">Normale (20 %)</option>
                       <option value="autoliquidation">Autoliquidation (sous-traitance BTP)</option>
                     </select>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => { setShowForm(false); setError(''); setShowLignesSelector(false) }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                  <button onClick={ajouterCommande} disabled={savingCmd} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', cursor: savingCmd ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingCmd ? 0.7 : 1 }}>{savingCmd ? 'Création...' : 'Créer la commande'}</button>
+                  <button onClick={() => { setShowForm(false); setError(''); setShowLignesSelector(false) }} style={btnGhost}>Annuler</button>
+                  <button onClick={ajouterCommande} disabled={savingCmd} style={btnPrimary}>{savingCmd ? 'Création...' : 'Créer la commande'}</button>
                 </div>
               </div>
             )}
 
             {commandes.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>🛒</div><div style={{ fontSize: 14, fontWeight: 500 }}>Aucune commande</div>
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: colors.ink }}>Aucune commande</div>
               </div>
             ) : (
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+              <div style={{ background: colors.surface, border: '1px solid ' + colors.line, overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
-                    <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+                    <tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
                       {['Code CF', 'Statut', 'Date', 'Fournisseur', 'Description', 'Achat HT', 'TVA', 'Actions'].map(h => (
-                        <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Achat HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                        <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Achat HT' ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {commandes.map((c, i) => {
+                    {commandes.map((c) => {
                       const isEdited = !!cmdEditees[c.id]
-                      const inStyle = { padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #BFDBFE' : '1px solid transparent', fontSize: 12, background: isEdited ? '#EFF6FF' : 'transparent', boxSizing: 'border-box', width: '100%' }
+                      const inStyle = cellInput(isEdited)
                       return (
                         <>
-                        <tr key={c.id} id={'row-' + c.id} style={{ borderBottom: '1px solid #F3F4F6', background: c.id === focusId ? '#FEF9C3' : isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                          <td style={{ padding: '8px 14px', fontWeight: 600, color: '#2563EB', fontSize: 12, whiteSpace: 'nowrap' }}>
+                        <tr key={c.id} id={'row-' + c.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: c.id === focusId ? '2px solid ' + colors.focus : 'none' }}>
+                          <td style={{ padding: '8px 14px', fontWeight: 600, color: colors.ink, fontSize: 12, whiteSpace: 'nowrap' }}>
                             <input value={getCmdVal(c, 'numero')} onChange={e => editCmd(c.id, 'numero', e.target.value)}
-                              style={{ ...inStyle, width: 140, fontWeight: 600, color: '#2563EB' }} />
+                              style={{ ...inStyle, width: 140, fontWeight: 600, color: colors.ink }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
-                            <select value={getCmdVal(c, 'statut')} onChange={e => { editCmd(c.id, 'statut', e.target.value) }}
-                              style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer',
-                                background: c.statut === 'Validée' ? '#ECFDF5' : c.statut === 'Annulée' ? '#FEF2F2' : '#F3F4F6',
-                                color: c.statut === 'Validée' ? '#059669' : c.statut === 'Annulée' ? '#DC2626' : '#6B7280' }}
-                              title={c.statut === 'Validée' ? 'Commande validée — une confirmation sera demandée avant modification' : ''}>
-                              {STATUTS_CMD.map(s => <option key={s}>{s}</option>)}
-                            </select>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
+                              <span style={marker(STATUT_COMMANDE_MARKER[getCmdVal(c, 'statut')])} />
+                              <select value={getCmdVal(c, 'statut')} onChange={e => { editCmd(c.id, 'statut', e.target.value) }}
+                                style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display }}
+                                title={c.statut === 'Validée' ? 'Commande validée — une confirmation sera demandée avant modification' : ''}>
+                                {STATUTS_CMD.map(s => <option key={s}>{s}</option>)}
+                              </select>
+                            </span>
                           </td>
-                          <td style={{ padding: '8px 14px', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '8px 14px', color: colors.inkFaint, whiteSpace: 'nowrap' }}>
                             <input type="date" value={getCmdVal(c, 'date_commande')} onChange={e => editCmd(c.id, 'date_commande', e.target.value)}
-                              style={{ ...inStyle, width: 120, color: '#6B7280' }} />
+                              style={{ ...inStyle, width: 120, color: colors.inkMuted }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
                             <select value={getCmdVal(c, 'fournisseur_id') || ''} onChange={e => editCmd(c.id, 'fournisseur_id', e.target.value)}
-                              style={{ ...inStyle, width: 160 }}>
+                              style={{ ...inStyle, width: 160, cursor: 'pointer' }}>
                               <option value=''>— Aucun —</option>
                               {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
                             </select>
@@ -3138,47 +3109,42 @@ export default function ProjetDetail() {
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right' }}>
                             <input type="number" min="0" value={getCmdVal(c, 'montant_ht')} onChange={e => editCmd(c.id, 'montant_ht', e.target.value)}
-                              style={{ ...inStyle, width: 100, textAlign: 'right', fontWeight: 600, color: '#111827' }} />
+                              style={{ ...inStyle, width: 100, textAlign: 'right', fontWeight: 600, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
                             <select value={getCmdVal(c, 'regime_tva') || 'normale'} onChange={e => editCmd(c.id, 'regime_tva', e.target.value)}
                               title="Autoliquidation : le fournisseur facture hors taxe, vous déclarez la TVA vous-même (sous-traitance BTP, article 283 du CGI)."
-                              style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer',
-                                background: getCmdVal(c, 'regime_tva') === 'autoliquidation' ? '#FFFBEB' : '#F3F4F6',
-                                color: getCmdVal(c, 'regime_tva') === 'autoliquidation' ? '#92400E' : '#6B7280' }}>
+                              style={{ border: 'none', borderBottom: '1px solid ' + (getCmdVal(c, 'regime_tva') === 'autoliquidation' ? colors.warning : 'transparent'), background: 'transparent', fontSize: 11, cursor: 'pointer', padding: '3px 2px', fontFamily: fonts.display,
+                                color: getCmdVal(c, 'regime_tva') === 'autoliquidation' ? colors.warning : colors.inkMuted }}>
                               <option value="normale">Normale</option>
                               <option value="autoliquidation">Autoliq.</option>
                             </select>
                           </td>
                           <td style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
                               {isEdited && (
-                                <button onClick={() => saveCmd(c.id)}
-                                  style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>✓</button>
+                                <button onClick={() => saveCmd(c.id)} style={quietLink}>Enregistrer</button>
                               )}
                               <button onClick={() => setShowPdfPreview({ ...c, ...cmdEditees[c.id], fournisseurs: fournisseurs.find(f => f.id === (cmdEditees[c.id]?.fournisseur_id || c.fournisseur_id)) })}
-                                style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 11 }}>👁 PDF</button>
+                                style={quietLink}>PDF</button>
                               {c.statut === 'Validée' && (
-                                <button onClick={() => ouvrirEnvoiCommande(c)} title="Envoyer la commande par email (PDF joint)"
-                                  style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontSize: 11 }}>✉️ Envoyer</button>
+                                <button onClick={() => ouvrirEnvoiCommande(c)} title="Envoyer la commande par email (PDF joint)" style={quietLink}>Envoyer</button>
                               )}
-                              <button onClick={() => { if (expandedCmd === c.id) { setExpandedCmd(null) } else { setExpandedCmd(c.id); fetchCmdDocs(c.id) } }}
-                                style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #E9D5FF', background: '#F5F3FF', color: '#7C3AED', cursor: 'pointer', fontSize: 11 }}>
-                                📎 {cmdDocs[c.id]?.length > 0 ? cmdDocs[c.id].length : ''}
+                              <button onClick={() => { if (expandedCmd === c.id) { setExpandedCmd(null) } else { setExpandedCmd(c.id); fetchCmdDocs(c.id) } }} style={{ ...quietLink, color: ACCENT_MARGE, borderBottomColor: ACCENT_MARGE }}>
+                                Pièces{cmdDocs[c.id]?.length > 0 ? ' (' + cmdDocs[c.id].length + ')' : ''}
                               </button>
-                              <button onClick={() => supprimer('commandes', c.id)}
-                                style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 13 }}>✕</button>
+                              <button onClick={() => supprimer('commandes', c.id)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
                             </div>
                           </td>
                         </tr>
                         {/* Zone documents commande */}
                         {expandedCmd === c.id && (
-                          <tr key={c.id + '_docs'} style={{ background: '#F5F3FF' }}>
+                          <tr key={c.id + '_docs'} style={{ background: colors.bg }}>
                             <td colSpan={8} style={{ padding: '12px 20px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: '#7C3AED' }}>📎 Pièces jointes — {c.numero}</span>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, background: '#7C3AED', color: '#fff', fontSize: 11, fontWeight: 500, cursor: 'pointer' }}>
-                                  {uploadingDoc === c.id ? '⏳' : '+ Ajouter'}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10 }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: ACCENT_MARGE }}>Pièces jointes — {c.numero}</span>
+                                <label style={{ ...quietLink, cursor: 'pointer' }}>
+                                  {uploadingDoc === c.id ? '...' : '+ Ajouter'}
                                   <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style={{ display: 'none' }}
                                     onChange={async (e) => {
                                       const file = e.target.files[0]; if (!file) return
@@ -3190,18 +3156,16 @@ export default function ProjetDetail() {
                                 </label>
                               </div>
                               {!cmdDocs[c.id] || cmdDocs[c.id].length === 0 ? (
-                                <div style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>Aucun document — ajoutez le devis fournisseur, bon de livraison...</div>
+                                <div style={{ fontSize: 12, color: colors.inkFaint, fontStyle: 'italic' }}>Aucun document — ajoutez le devis fournisseur, bon de livraison...</div>
                               ) : (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
                                   {cmdDocs[c.id].map(doc => (
-                                    <div key={doc.name} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: '#fff', borderRadius: 8, border: '1px solid #DDD6FE', fontSize: 12 }}>
-                                      <span>{doc.name.includes('.pdf') ? '📄' : doc.name.match(/\.(jpg|jpeg|png)/) ? '🖼' : '📎'}</span>
-                                      <a href={getDocUrl('commandes/' + c.id + '/' + doc.name)} target="_blank" rel="noopener noreferrer"
-                                        style={{ color: '#7C3AED', textDecoration: 'none', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <div key={doc.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', fontSize: 12 }}>
+                                      <a href={getDocUrl('commandes/' + c.id + '/' + doc.name)} target="_blank" rel="noopener noreferrer" style={{ ...quietLink, color: ACCENT_MARGE, borderBottomColor: ACCENT_MARGE, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {doc.name.replace(/^\d+_/, '')}
                                       </a>
                                       <button onClick={() => deleteCmdDoc(c.id, 'commandes/' + c.id + '/' + doc.name)}
-                                        style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 11, padding: 0 }}>✕</button>
+                                        style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 11, padding: 0 }}>✕</button>
                                     </div>
                                   ))}
                                 </div>
@@ -3223,158 +3187,158 @@ export default function ProjetDetail() {
         {tab === 'factures_frs' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Factures fournisseurs · <span style={{ color: '#EA580C' }}>{fmt(totalFfrs)}</span></div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={verifierQontoFrs} disabled={rapprochementBusy === 'frs'}
-                  style={{ background: '#fff', color: '#EA580C', border: '1px solid #FED7AA', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                  {rapprochementBusy === 'frs' ? '⏳ Vérification...' : '🔗 Vérifier sur Qonto'}
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Factures fournisseurs · <span style={{ color: colors.warning, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalFfrs)}</span></div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={verifierQontoFrs} disabled={rapprochementBusy === 'frs'} style={btnGhost}>
+                  {rapprochementBusy === 'frs' ? 'Vérification...' : 'Vérifier sur Qonto'}
                 </button>
-                <button onClick={() => { setShowForm(true); setError(''); setEcheanceFfrsVerrouillee(true) }} style={{ background: '#EA580C', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
+                <button onClick={() => { setShowForm(true); setError(''); setEcheanceFfrsVerrouillee(true) }} style={btnPrimary}>+ Nouvelle facture</button>
               </div>
             </div>
-            {rapprochementError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ {rapprochementError}</div>}
+            {rapprochementError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{rapprochementError}</div>}
             {suggestionsQontoFrs.length > 0 && (
-              <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10, padding: 14, marginBottom: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#9A3412', marginBottom: 8 }}>Correspondances Qonto à valider ({suggestionsQontoFrs.length})</div>
+              <div style={{ borderLeft: '2px solid ' + colors.warning, padding: '10px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: colors.ink, marginBottom: 8 }}>Correspondances Qonto à valider ({suggestionsQontoFrs.length})</div>
                 {suggestionsQontoFrs.map(r => (
-                  <div key={r.facture.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid #FED7AA' }}>
+                  <div key={r.facture.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid ' + colors.line }}>
                     <div style={{ fontSize: 12 }}>
                       <strong>{r.facture.numero}</strong> ({fmt(r.facture.montant_ht)} HT) ↔ {r.transaction.label || r.transaction.reference || 'Transaction Qonto'} — {(Number(r.transaction.amount_cents || 0) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € ({r.base})
                     </div>
-                    <button onClick={() => confirmerSuggestionQonto('factures_frs', r)} disabled={rapprochementBusy === 'confirm:' + r.facture.id}
-                      style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#EA580C', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
-                      {rapprochementBusy === 'confirm:' + r.facture.id ? '⏳' : '✓ Marquer payée'}
+                    <button onClick={() => confirmerSuggestionQonto('factures_frs', r)} disabled={rapprochementBusy === 'confirm:' + r.facture.id} style={quietLink}>
+                      {rapprochementBusy === 'confirm:' + r.facture.id ? '...' : 'Marquer payée'}
                     </button>
                   </div>
                 ))}
               </div>
             )}
             {showForm && (
-              <div style={{ background: '#fff', borderRadius: 12, padding: 20, border: '1px solid #E5E7EB', marginBottom: 16 }}>
+              <div style={{ background: colors.surface, padding: 20, border: '1px solid ' + colors.line, marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle facture fournisseur</h4>
-                {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
+                {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{error}</div>}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° facture *</label>
+                  <div><label style={fieldLabel}>N° facture *</label>
                     <input value={formFfrs.numero} onChange={e => setFormFfrs(p => ({ ...p, numero: e.target.value }))} placeholder="FAC-2026-001"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Fournisseur</label>
+                      style={inputUnderline} /></div>
+                  <div><label style={fieldLabel}>Fournisseur</label>
                     <select value={formFfrs.fournisseur_id} onChange={e => { const fournisseur_id = e.target.value; setFormFfrs(p => ({ ...p, fournisseur_id, date_echeance: echeanceFfrsVerrouillee ? echeanceFfrsAuto(p.date_facture, fournisseur_id) : p.date_echeance })) }}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       <option value=''>— Aucun —</option>{fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}</select></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Commande liée</label>
+                  <div><label style={fieldLabel}>Commande liée</label>
                     <select value={formFfrs.commande_id} onChange={e => setFormFfrs(p => ({ ...p, commande_id: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       <option value=''>— Aucune —</option>{commandes.map(c => <option key={c.id} value={c.id}>{c.numero || c.description}</option>)}</select></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
+                  <div><label style={fieldLabel}>Montant HT (€)</label>
                     <input type="number" min="0" value={formFfrs.montant_ht} onChange={e => setFormFfrs(p => ({ ...p, montant_ht: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture</label>
+                      style={inputUnderline} /></div>
+                  <div><label style={fieldLabel}>Date facture</label>
                     <input type="date" value={formFfrs.date_facture} onChange={e => { const date_facture = e.target.value; setFormFfrs(p => ({ ...p, date_facture, date_echeance: echeanceFfrsVerrouillee ? echeanceFfrsAuto(date_facture, p.fournisseur_id) : p.date_echeance })) }}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date échéance {echeanceFfrsVerrouillee && <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(auto)</span>}</label>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                      style={inputUnderline} /></div>
+                  <div><label style={fieldLabel}>Date échéance {echeanceFfrsVerrouillee && <span style={{ color: colors.inkFaint, fontWeight: 400, textTransform: 'none' }}>(auto)</span>}</label>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                       <input type="date" value={formFfrs.date_echeance} disabled={echeanceFfrsVerrouillee} onChange={e => setFormFfrs(p => ({ ...p, date_echeance: e.target.value }))}
-                        style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', background: echeanceFfrsVerrouillee ? '#F9FAFB' : '#fff', color: echeanceFfrsVerrouillee ? '#6B7280' : '#111827' }} />
+                        style={{ ...inputUnderline, flex: 1, color: echeanceFfrsVerrouillee ? colors.inkMuted : colors.ink }} />
                       {echeanceFfrsVerrouillee ? (
                         <button type="button" title="Modifier l'échéance manuellement"
                           onClick={() => { if (confirm('L\'échéance est calculée automatiquement à partir des conditions de paiement du fournisseur. La modifier manuellement ?')) setEcheanceFfrsVerrouillee(false) }}
-                          style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>🔓</button>
+                          style={quietLink}>Déverrouiller</button>
                       ) : (
                         <button type="button" title="Revenir au calcul automatique" onClick={() => { setEcheanceFfrsVerrouillee(true); setFormFfrs(p => ({ ...p, date_echeance: echeanceFfrsAuto(p.date_facture, p.fournisseur_id) })) }}
-                          style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>↺</button>
+                          style={quietLink}>Auto</button>
                       )}
                     </div></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
+                  <div><label style={fieldLabel}>Statut</label>
                     <select value={formFfrs.statut} onChange={e => setFormFfrs(p => ({ ...p, statut: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       {STATUTS_FFRS.map(s => <option key={s}>{s}</option>)}</select></div>
                   <div style={{ gridColumn: '1 / -1' }}>
-                    <label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>PDF de la facture (reçu du fournisseur — requis pour l'envoi vers Pennylane)</label>
+                    <label style={fieldLabel}>PDF de la facture (reçu du fournisseur — requis pour l'envoi vers Pennylane)</label>
                     <input type="file" accept="application/pdf" onChange={e => setFileFfrs(e.target.files[0] || null)}
-                      style={{ width: '100%', fontSize: 13 }} />
+                      style={{ width: '100%', fontSize: 13, fontFamily: fonts.display }} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => { setShowForm(false); setError(''); setFileFfrs(null) }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                  <button onClick={ajouterFactureFrs} disabled={savingFactureFrs} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', cursor: savingFactureFrs ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingFactureFrs ? 0.7 : 1 }}>{savingFactureFrs ? 'Ajout...' : 'Ajouter'}</button>
+                  <button onClick={() => { setShowForm(false); setError(''); setFileFfrs(null) }} style={btnGhost}>Annuler</button>
+                  <button onClick={ajouterFactureFrs} disabled={savingFactureFrs} style={btnPrimary}>{savingFactureFrs ? 'Ajout...' : 'Ajouter'}</button>
                 </div>
               </div>
             )}
-            {pennylaneError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ Pennylane : {pennylaneError}</div>}
+            {pennylaneError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>Pennylane : {pennylaneError}</div>}
             {facturesFrs.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>📄</div><div style={{ fontSize: 14, fontWeight: 500 }}>Aucune facture fournisseur</div>
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: colors.ink }}>Aucune facture fournisseur</div>
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: 12, overflow: 'hidden', border: '1px solid #E5E7EB', fontSize: 13 }}>
-                <thead><tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+              <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: colors.surface, border: '1px solid ' + colors.line, fontSize: 13 }}>
+                <thead><tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
                   {['N°', 'Fournisseur', 'Commande', 'Date', 'Échéance', 'Montant HT', 'Statut', 'Pennylane', ''].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500 }}>{h}</th>
+                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500 }}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
-                  {facturesFrs.map((f, i) => {
+                  {facturesFrs.map((f) => {
                     const isEdited = !!facFrsEditees[f.id]
-                    const inStyle = { padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #FED7AA' : '1px solid transparent', fontSize: 12, background: isEdited ? '#FFF7ED' : 'transparent', boxSizing: 'border-box', width: '100%' }
+                    const inStyle = cellInput(isEdited)
+                    const enRetard = f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date()
                     return (
-                    <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid #F3F4F6', background: f.id === focusId ? '#FEF9C3' : isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                    <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: f.id === focusId ? '2px solid ' + colors.focus : enRetard ? '2px solid ' + colors.danger : 'none' }}>
                       <td style={{ padding: '8px 14px', fontWeight: 500 }}>
                         <input value={getFacFrsVal(f, 'numero')} onChange={e => editFacFrs(f.id, 'numero', e.target.value)} style={{ ...inStyle, width: 110, fontWeight: 600 }} />
                       </td>
                       <td style={{ padding: '10px 14px' }}>{f.fournisseurs?.nom || '—'}</td>
-                      <td style={{ padding: '10px 14px', color: '#9CA3AF', fontSize: 12 }}>{f.commandes?.numero || '—'}</td>
-                      <td style={{ padding: '8px 14px', color: '#9CA3AF' }}>
+                      <td style={{ padding: '10px 14px', color: colors.inkFaint, fontSize: 12 }}>{f.commandes?.numero || '—'}</td>
+                      <td style={{ padding: '8px 14px', color: colors.inkFaint }}>
                         <input type="date" value={getFacFrsVal(f, 'date_facture')} onChange={e => editFacFrs(f.id, 'date_facture', e.target.value)} style={{ ...inStyle, width: 130 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <input type="date" value={getFacFrsVal(f, 'date_echeance')} onChange={e => editFacFrsEcheance(f.id, e.target.value)}
-                          style={{ ...inStyle, width: 130, color: f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date() ? '#DC2626' : '#374151' }} />
+                          style={{ ...inStyle, width: 130, color: enRetard ? colors.danger : colors.ink }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" min="0" value={getFacFrsVal(f, 'montant_ht')} onChange={e => editFacFrs(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600 }} />
+                        <input type="number" min="0" value={getFacFrsVal(f, 'montant_ht')} onChange={e => editFacFrs(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <select value={getFacFrsVal(f, 'statut')} onChange={e => editFacFrs(f.id, 'statut', e.target.value)}
-                          style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer', background: f.statut === 'Payée' ? '#ECFDF5' : '#FFF7ED', color: f.statut === 'Payée' ? '#059669' : '#EA580C' }}>
-                          {STATUTS_FFRS.map(s => <option key={s}>{s}</option>)}
-                        </select>
-                        {f.statut !== 'Payée' && f.date_echeance && new Date(f.date_echeance) < new Date() && (
-                          <div style={{ fontSize: 10, marginTop: 4, color: '#DC2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
-                            ⚠️ Impayée (en retard)
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
+                          <span style={marker(STATUT_FFRS_MARKER[getFacFrsVal(f, 'statut')])} />
+                          <select value={getFacFrsVal(f, 'statut')} onChange={e => editFacFrs(f.id, 'statut', e.target.value)}
+                            style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display }}>
+                            {STATUTS_FFRS.map(s => <option key={s}>{s}</option>)}
+                          </select>
+                        </span>
+                        {enRetard && (
+                          <div style={{ fontSize: 10, marginTop: 4, color: colors.danger, fontWeight: 600 }}>
+                            Impayée (en retard)
                           </div>
                         )}
                         {f.qonto_transaction_id ? (
                           <div title={'Rapproché avec une transaction Qonto (' + (f.qonto_match_confiance === 'exact' ? 'numéro + montant' : 'montant seul') + '), le ' + (f.qonto_matched_at ? new Date(f.qonto_matched_at).toLocaleDateString('fr-FR') : '?')}
-                            style={{ fontSize: 10, marginTop: 4, color: '#2563EB', display: 'flex', alignItems: 'center', gap: 3 }}>
-                            🔗 Qonto{f.qonto_match_confiance === 'montant' ? ' (manuel)' : ''}
+                            style={{ fontSize: 10, marginTop: 4, color: colors.focus }}>
+                            Qonto{f.qonto_match_confiance === 'montant' ? ' (manuel)' : ''}
                           </div>
                         ) : f.statut === 'Payée' ? (
-                          <div style={{ fontSize: 10, marginTop: 4, color: '#9CA3AF' }}>saisi manuellement</div>
+                          <div style={{ fontSize: 10, marginTop: 4, color: colors.inkFaint }}>saisi manuellement</div>
                         ) : null}
                       </td>
                       <td style={{ padding: '10px 14px' }}>
                         {f.pennylane_invoice_id ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#F5F3FF', color: '#7C3AED', fontWeight: 500 }}>{f.pennylane_statut || 'Envoyée'}</span>
-                            <button onClick={() => actualiserFactureFrsPennylane(f)} disabled={pennylaneBusy === f.id}
-                              style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #DDD6FE', background: '#fff', color: '#7C3AED', cursor: 'pointer', fontSize: 11 }}>
-                              {pennylaneBusy === f.id ? '⏳' : '↻'}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 11, color: ACCENT_MARGE, fontWeight: 500 }}>{f.pennylane_statut || 'Envoyée'}</span>
+                            <button onClick={() => actualiserFactureFrsPennylane(f)} disabled={pennylaneBusy === f.id} style={{ ...quietLink, color: ACCENT_MARGE, borderBottomColor: ACCENT_MARGE }}>
+                              {pennylaneBusy === f.id ? '...' : 'Actualiser'}
                             </button>
                           </div>
                         ) : (
-                          <button onClick={() => envoyerFactureFrsVersPennylane(f)} disabled={pennylaneBusy === f.id}
-                            style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #FED7AA', background: '#FFF7ED', color: '#EA580C', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>
-                            {pennylaneBusy === f.id ? '⏳ Envoi...' : '↗ Envoyer'}
+                          <button onClick={() => envoyerFactureFrsVersPennylane(f)} disabled={pennylaneBusy === f.id} style={quietLink}>
+                            {pennylaneBusy === f.id ? 'Envoi...' : 'Envoyer'}
                           </button>
                         )}
                       </td>
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
                           {isEdited && (
-                            <button onClick={() => saveFacFrs(f)} disabled={pennylaneBusy === f.id}
-                              style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>✓</button>
+                            <button onClick={() => saveFacFrs(f)} disabled={pennylaneBusy === f.id} style={quietLink}>Enregistrer</button>
                           )}
-                          <button onClick={() => supprimer('factures_frs', f.id)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}>✕</button>
+                          <button onClick={() => supprimer('factures_frs', f.id)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
                         </div>
                       </td>
                     </tr>
@@ -3382,6 +3346,7 @@ export default function ProjetDetail() {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}
@@ -3390,76 +3355,74 @@ export default function ProjetDetail() {
         {tab === 'factures_cli' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Factures clients · <span style={{ color: '#059669' }}>{fmt(totalFcli)}</span></div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={verifierQontoCli} disabled={rapprochementBusy === 'cli'}
-                  style={{ background: '#fff', color: '#059669', border: '1px solid #BBF7D0', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>
-                  {rapprochementBusy === 'cli' ? '⏳ Vérification...' : '🔗 Vérifier sur Qonto'}
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Factures clients · <span style={{ color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalFcli)}</span></div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={verifierQontoCli} disabled={rapprochementBusy === 'cli'} style={btnGhost}>
+                  {rapprochementBusy === 'cli' ? 'Vérification...' : 'Vérifier sur Qonto'}
                 </button>
-                <button onClick={() => { setShowForm(true); setError(''); setEcheanceFcliVerrouillee(true) }} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 500, fontSize: 13 }}>+ Nouvelle facture</button>
+                <button onClick={() => { setShowForm(true); setError(''); setEcheanceFcliVerrouillee(true) }} style={btnPrimary}>+ Nouvelle facture</button>
               </div>
             </div>
-            {rapprochementError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ {rapprochementError}</div>}
+            {rapprochementError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{rapprochementError}</div>}
             {suggestionsQontoCli.length > 0 && (
-              <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: 14, marginBottom: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#065F46', marginBottom: 8 }}>Correspondances Qonto à valider ({suggestionsQontoCli.length})</div>
+              <div style={{ borderLeft: '2px solid ' + colors.success, padding: '10px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: colors.ink, marginBottom: 8 }}>Correspondances Qonto à valider ({suggestionsQontoCli.length})</div>
                 {suggestionsQontoCli.map(r => (
-                  <div key={r.facture.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid #BBF7D0' }}>
+                  <div key={r.facture.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid ' + colors.line }}>
                     <div style={{ fontSize: 12 }}>
                       <strong>{r.facture.numero}</strong> ({fmt(r.facture.montant_ht)} HT) ↔ {r.transaction.label || r.transaction.reference || 'Transaction Qonto'} — {(Number(r.transaction.amount_cents || 0) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € ({r.base})
                     </div>
-                    <button onClick={() => confirmerSuggestionQonto('factures_cli', r)} disabled={rapprochementBusy === 'confirm:' + r.facture.id}
-                      style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#059669', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
-                      {rapprochementBusy === 'confirm:' + r.facture.id ? '⏳' : '✓ Marquer payée'}
+                    <button onClick={() => confirmerSuggestionQonto('factures_cli', r)} disabled={rapprochementBusy === 'confirm:' + r.facture.id} style={quietLink}>
+                      {rapprochementBusy === 'confirm:' + r.facture.id ? '...' : 'Marquer payée'}
                     </button>
                   </div>
                 ))}
               </div>
             )}
             {showForm && (
-              <div style={{ background: '#fff', borderRadius: 12, padding: 20, border: '1px solid #E5E7EB', marginBottom: 16 }}>
+              <div style={{ background: colors.surface, padding: 20, border: '1px solid ' + colors.line, marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle facture client</h4>
-                {error && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
+                {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{error}</div>}
                 {(() => {
                   const saisie = parseFloat(formFcli.montant_ht) || 0
                   const resteApres = resteAFacturer - saisie
                   const pctSaisi = totalVenteGlobal > 0 ? (saisie / totalVenteGlobal * 100) : 0
                   return (
-                    <div style={{ background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 10, padding: '12px 14px', marginBottom: 14, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    <div style={{ borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line, padding: '12px 0', marginBottom: 14, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                       <div>
-                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>Budget vente (devis)</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B' }}>{fmt(totalVenteGlobal)}</div>
+                        <div style={fieldLabel}>Budget vente (devis)</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalVenteGlobal)}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>Déjà facturé</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>{fmt(totalFcli)}{totalVenteGlobal > 0 && <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 400 }}> · {(totalFcli / totalVenteGlobal * 100).toFixed(1)}%</span>}</div>
+                        <div style={fieldLabel}>Déjà facturé</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalFcli)}{totalVenteGlobal > 0 && <span style={{ fontSize: 11, color: colors.inkMuted, fontWeight: 400 }}> · {(totalFcli / totalVenteGlobal * 100).toFixed(1)}%</span>}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{saisie > 0 ? 'Reste après cette facture' : 'Reste à facturer'}</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: resteApres >= 0 ? '#059669' : '#DC2626' }}>{fmt(resteApres)}</div>
+                        <div style={fieldLabel}>{saisie > 0 ? 'Reste après cette facture' : 'Reste à facturer'}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: resteApres >= 0 ? colors.success : colors.danger, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(resteApres)}</div>
                       </div>
                       {saisie > 0 && (
-                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#6B7280' }}>
-                          Cette facture représente <strong style={{ color: '#1E293B' }}>{pctSaisi.toFixed(1)}%</strong> du budget vente du devis.
+                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: colors.inkMuted }}>
+                          Cette facture représente <strong style={{ color: colors.ink }}>{pctSaisi.toFixed(1)}%</strong> du budget vente du devis.
                         </div>
                       )}
                       {resteApres < 0 && (
-                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#DC2626' }}>
-                          ⚠️ Ce montant dépasse le reste à facturer sur le devis de {fmt(Math.abs(resteApres))}.
+                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: colors.danger }}>
+                          Ce montant dépasse le reste à facturer sur le devis de {fmt(Math.abs(resteApres))}.
                         </div>
                       )}
                     </div>
                   )
                 })()}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>N° facture</label>
-                    <div style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px dashed #E5E7EB', fontSize: 13, boxSizing: 'border-box', color: '#9CA3AF', fontStyle: 'italic' }}>
+                  <div><label style={fieldLabel}>N° facture</label>
+                    <div style={{ fontSize: 13, color: colors.inkFaint, fontStyle: 'italic', padding: '8px 2px' }}>
                       Généré automatiquement à la création
                     </div></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Montant HT (€)</label>
+                  <div><label style={fieldLabel}>Montant HT (€)</label>
                     <input type="number" min="0" value={formFcli.montant_ht} onChange={e => { setFormFcli(p => ({ ...p, montant_ht: e.target.value })); setFormFcliPct('') }}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>— ou % du devis</label>
+                      style={inputUnderline} /></div>
+                  <div><label style={fieldLabel}>— ou % du devis</label>
                     <div style={{ position: 'relative' }}>
                       <input type="number" min="0" max="100" value={formFcliPct} placeholder="Ex: 30" disabled={totalVenteGlobal <= 0}
                         onChange={e => {
@@ -3468,30 +3431,30 @@ export default function ProjetDetail() {
                           const montant = totalVenteGlobal > 0 && pct !== '' ? (totalVenteGlobal * parseFloat(pct) / 100) : ''
                           setFormFcli(p => ({ ...p, montant_ht: montant === '' ? '' : montant.toFixed(2) }))
                         }}
-                        style={{ width: '100%', padding: '8px 28px 8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', background: totalVenteGlobal <= 0 ? '#F9FAFB' : '#fff' }} />
-                      <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#9CA3AF' }}>%</span>
+                        style={{ ...inputUnderline, paddingRight: 20 }} />
+                      <span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: colors.inkFaint }}>%</span>
                     </div></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date facture</label>
+                  <div><label style={fieldLabel}>Date facture</label>
                     <input type="date" value={formFcli.date_facture} onChange={e => { const date_facture = e.target.value; setFormFcli(p => ({ ...p, date_facture, date_echeance: echeanceFcliVerrouillee ? echeanceFcliAuto(date_facture, p.type_facture === 'acompte' && p.paiement_comptant) : p.date_echeance })) }}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box' }} /></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Date échéance {echeanceFcliVerrouillee && <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(auto)</span>}</label>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                      style={inputUnderline} /></div>
+                  <div><label style={fieldLabel}>Date échéance {echeanceFcliVerrouillee && <span style={{ color: colors.inkFaint, fontWeight: 400, textTransform: 'none' }}>(auto)</span>}</label>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                       <input type="date" value={formFcli.date_echeance} disabled={echeanceFcliVerrouillee} onChange={e => setFormFcli(p => ({ ...p, date_echeance: e.target.value }))}
-                        style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, boxSizing: 'border-box', background: echeanceFcliVerrouillee ? '#F9FAFB' : '#fff', color: echeanceFcliVerrouillee ? '#6B7280' : '#111827' }} />
+                        style={{ ...inputUnderline, flex: 1, color: echeanceFcliVerrouillee ? colors.inkMuted : colors.ink }} />
                       {echeanceFcliVerrouillee ? (
                         <button type="button" title="Modifier l'échéance manuellement"
                           onClick={() => { if (confirm('L\'échéance est calculée automatiquement à partir des conditions de paiement du client. La modifier manuellement ?')) setEcheanceFcliVerrouillee(false) }}
-                          style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>🔓</button>
+                          style={quietLink}>Déverrouiller</button>
                       ) : (
                         <button type="button" title="Revenir au calcul automatique" onClick={() => { setEcheanceFcliVerrouillee(true); setFormFcli(p => ({ ...p, date_echeance: echeanceFcliAuto(p.date_facture, p.type_facture === 'acompte' && p.paiement_comptant) })) }}
-                          style={{ padding: '0 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>↺</button>
+                          style={quietLink}>Auto</button>
                       )}
                     </div></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Statut</label>
+                  <div><label style={fieldLabel}>Statut</label>
                     <select value={formFcli.statut} onChange={e => setFormFcli(p => ({ ...p, statut: e.target.value }))}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       {STATUTS_FCLI.map(s => <option key={s}>{s}</option>)}</select></div>
-                  <div><label style={{ display: 'block', fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Type de facture</label>
+                  <div><label style={fieldLabel}>Type de facture</label>
                     <select value={formFcli.type_facture} onChange={e => {
                         const type_facture = e.target.value
                         // La case "paiement comptant" n'a de sens que pour une
@@ -3500,112 +3463,113 @@ export default function ProjetDetail() {
                         const paiement_comptant = type_facture === 'acompte' ? formFcli.paiement_comptant : false
                         setFormFcli(p => ({ ...p, type_facture, paiement_comptant, date_echeance: echeanceFcliVerrouillee ? echeanceFcliAuto(p.date_facture, type_facture === 'acompte' && paiement_comptant) : p.date_echeance }))
                       }}
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13, cursor: 'pointer' }}>
+                      style={{ ...inputUnderline, cursor: 'pointer' }}>
                       <option value="avancement">Facture d'avancement</option>
                       <option value="acompte">Facture d'acompte</option>
                     </select></div>
                   {formFcli.type_facture === 'acompte' && (
                     <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 8 }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: '#374151', cursor: 'pointer' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: colors.ink, cursor: 'pointer' }}>
                         <input type="checkbox" checked={formFcli.paiement_comptant} onChange={e => {
                             const paiement_comptant = e.target.checked
                             setFormFcli(p => ({ ...p, paiement_comptant, date_echeance: echeanceFcliVerrouillee ? echeanceFcliAuto(p.date_facture, paiement_comptant) : p.date_echeance }))
                           }} />
-                        Paiement comptant <span style={{ color: '#9CA3AF' }}>(pas de délai de 30 jours — échéance = date de facture)</span>
+                        Paiement comptant <span style={{ color: colors.inkFaint }}>(pas de délai de 30 jours — échéance = date de facture)</span>
                       </label>
                     </div>
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => { setShowForm(false); setError('') }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-                  <button onClick={ajouterFactureCli} disabled={savingFactureCli} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', cursor: savingFactureCli ? 'default' : 'pointer', fontWeight: 500, fontSize: 13, opacity: savingFactureCli ? 0.7 : 1 }}>{savingFactureCli ? 'Ajout...' : 'Ajouter'}</button>
+                  <button onClick={() => { setShowForm(false); setError('') }} style={btnGhost}>Annuler</button>
+                  <button onClick={ajouterFactureCli} disabled={savingFactureCli} style={btnPrimary}>{savingFactureCli ? 'Ajout...' : 'Ajouter'}</button>
                 </div>
               </div>
             )}
-            {pennylaneError && <div style={{ background: '#FEF2F2', color: '#DC2626', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>⚠️ Pennylane : {pennylaneError}</div>}
+            {pennylaneError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>Pennylane : {pennylaneError}</div>}
             {facturesCli.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 12, border: '2px dashed #E5E7EB' }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>💶</div><div style={{ fontSize: 14, fontWeight: 500 }}>Aucune facture client</div>
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: colors.ink }}>Aucune facture client</div>
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: 12, overflow: 'hidden', border: '1px solid #E5E7EB', fontSize: 13 }}>
-                <thead><tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E5E7EB' }}>
+              <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: colors.surface, border: '1px solid ' + colors.line, fontSize: 13 }}>
+                <thead><tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
                   {['N°', 'Date', 'Échéance', 'Montant HT', 'Statut', 'Pennylane', ''].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: '#6B7280', fontWeight: 500 }}>{h}</th>
+                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500 }}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
-                  {facturesCli.map((f, i) => {
+                  {facturesCli.map((f) => {
                     const isEdited = !!facCliEditees[f.id]
-                    const inStyle = { padding: '3px 6px', borderRadius: 4, border: isEdited ? '1px solid #BBF7D0' : '1px solid transparent', fontSize: 12, background: isEdited ? '#F0FDF4' : 'transparent', boxSizing: 'border-box', width: '100%' }
+                    const inStyle = cellInput(isEdited)
+                    const enRetard = f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date()
                     return (
-                    <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid #F3F4F6', background: f.id === focusId ? '#FEF9C3' : isEdited ? '#FFFBEB' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                      <td style={{ padding: '8px 14px', fontWeight: 600, color: '#111827' }} title="Numéro non modifiable (obligation légale de numérotation séquentielle)">
+                    <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: f.id === focusId ? '2px solid ' + colors.focus : enRetard ? '2px solid ' + colors.danger : 'none' }}>
+                      <td style={{ padding: '8px 14px', fontWeight: 600, color: colors.ink }} title="Numéro non modifiable (obligation légale de numérotation séquentielle)">
                         {f.numero}
                         {f.type_facture === 'acompte' && (
-                          <div style={{ marginTop: 3, fontSize: 10, fontWeight: 500, color: '#7C3AED' }}>
+                          <div style={{ marginTop: 3, fontSize: 10, fontWeight: 500, color: ACCENT_MARGE }}>
                             Acompte{f.paiement_comptant ? ' · comptant' : ''}
                           </div>
                         )}
                       </td>
-                      <td style={{ padding: '8px 14px', color: '#9CA3AF' }}>
+                      <td style={{ padding: '8px 14px', color: colors.inkFaint }}>
                         <input type="date" value={getFacCliVal(f, 'date_facture')} onChange={e => editFacCli(f.id, 'date_facture', e.target.value, f)} style={{ ...inStyle, width: 130 }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <input type="date" value={getFacCliVal(f, 'date_echeance')} onChange={e => editFacCliEcheance(f.id, e.target.value)}
-                          style={{ ...inStyle, width: 130, color: f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date() ? '#DC2626' : '#374151' }} />
+                          style={{ ...inStyle, width: 130, color: enRetard ? colors.danger : colors.ink }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" min="0" value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: '#059669' }} />
+                        <input type="number" min="0" value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <select value={getFacCliVal(f, 'statut')} onChange={e => editFacCli(f.id, 'statut', e.target.value)}
-                          style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 11, cursor: 'pointer', background: f.statut === 'Payée' ? '#ECFDF5' : f.statut === 'Envoyée' ? '#EFF6FF' : '#F9FAFB', color: f.statut === 'Payée' ? '#059669' : f.statut === 'Envoyée' ? '#2563EB' : '#6B7280' }}>
-                          {STATUTS_FCLI.map(s => <option key={s}>{s}</option>)}
-                        </select>
-                        {f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date() && (
-                          <div style={{ fontSize: 10, marginTop: 4, color: '#DC2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
-                            ⚠️ Impayée (en retard)
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
+                          <span style={marker(STATUT_FCLI_MARKER[getFacCliVal(f, 'statut')])} />
+                          <select value={getFacCliVal(f, 'statut')} onChange={e => editFacCli(f.id, 'statut', e.target.value)}
+                            style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display }}>
+                            {STATUTS_FCLI.map(s => <option key={s}>{s}</option>)}
+                          </select>
+                        </span>
+                        {enRetard && (
+                          <div style={{ fontSize: 10, marginTop: 4, color: colors.danger, fontWeight: 600 }}>
+                            Impayée (en retard)
                           </div>
                         )}
                         {f.qonto_transaction_id ? (
                           <div title={'Rapproché avec une transaction Qonto (' + (f.qonto_match_confiance === 'exact' ? 'numéro + montant' : 'montant seul') + '), le ' + (f.qonto_matched_at ? new Date(f.qonto_matched_at).toLocaleDateString('fr-FR') : '?')}
-                            style={{ fontSize: 10, marginTop: 4, color: '#2563EB', display: 'flex', alignItems: 'center', gap: 3 }}>
-                            🔗 Qonto{f.qonto_match_confiance === 'montant' ? ' (manuel)' : ''}
+                            style={{ fontSize: 10, marginTop: 4, color: colors.focus }}>
+                            Qonto{f.qonto_match_confiance === 'montant' ? ' (manuel)' : ''}
                           </div>
                         ) : f.statut === 'Payée' ? (
-                          <div style={{ fontSize: 10, marginTop: 4, color: '#9CA3AF' }}>saisi manuellement</div>
+                          <div style={{ fontSize: 10, marginTop: 4, color: colors.inkFaint }}>saisi manuellement</div>
                         ) : null}
                       </td>
                       <td style={{ padding: '10px 14px' }}>
                         {f.pennylane_invoice_id ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: '#F5F3FF', color: '#7C3AED', fontWeight: 500 }}>{f.pennylane_statut || 'Envoyée'}</span>
-                            <button onClick={() => actualiserFactureCliPennylane(f)} disabled={pennylaneBusy === f.id}
-                              style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #DDD6FE', background: '#fff', color: '#7C3AED', cursor: 'pointer', fontSize: 11 }}>
-                              {pennylaneBusy === f.id ? '⏳' : '↻'}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 11, color: ACCENT_MARGE, fontWeight: 500 }}>{f.pennylane_statut || 'Envoyée'}</span>
+                            <button onClick={() => actualiserFactureCliPennylane(f)} disabled={pennylaneBusy === f.id} style={{ ...quietLink, color: ACCENT_MARGE, borderBottomColor: ACCENT_MARGE }}>
+                              {pennylaneBusy === f.id ? '...' : 'Actualiser'}
                             </button>
                           </div>
                         ) : (
-                          <button onClick={() => envoyerFactureCliVersPennylane(f)} disabled={pennylaneBusy === f.id}
-                            style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#059669', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>
-                            {pennylaneBusy === f.id ? '⏳ Envoi...' : '↗ Envoyer'}
+                          <button onClick={() => envoyerFactureCliVersPennylane(f)} disabled={pennylaneBusy === f.id} style={quietLink}>
+                            {pennylaneBusy === f.id ? 'Envoi...' : 'Envoyer'}
                           </button>
                         )}
                       </td>
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
                           {isEdited && (
-                            <button onClick={() => saveFacCli(f)} disabled={pennylaneBusy === f.id}
-                              style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>✓</button>
+                            <button onClick={() => saveFacCli(f)} disabled={pennylaneBusy === f.id} style={quietLink}>Enregistrer</button>
                           )}
                           <button onClick={() => generateFactureCliPDF(f, 'fr').save((f.numero || 'facture') + '.pdf')}
-                            title="PDF en français" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #E5E7EB', background: '#fff', color: '#059669', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>FR</button>
+                            title="PDF en français" style={quietLink}>FR</button>
                           <button onClick={() => generateFactureCliPDF(f, 'en').save((f.numero || 'facture') + '_EN.pdf')}
-                            title="PDF in English" style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #E5E7EB', background: '#fff', color: '#2563EB', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}>EN</button>
-                          <button onClick={() => ouvrirEnvoiFactureCli(f)} title="Envoyer la facture par email (PDF joint)"
-                            style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#2563EB', cursor: 'pointer', fontSize: 11 }}>✉️ Envoyer</button>
-                          <button onClick={() => supprimer('factures_cli', f.id)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}>✕</button>
+                            title="PDF in English" style={quietLink}>EN</button>
+                          <button onClick={() => ouvrirEnvoiFactureCli(f)} title="Envoyer la facture par email (PDF joint)" style={quietLink}>Envoyer</button>
+                          <button onClick={() => supprimer('factures_cli', f.id)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
                         </div>
                       </td>
                     </tr>
@@ -3613,6 +3577,7 @@ export default function ProjetDetail() {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}
@@ -3677,24 +3642,24 @@ export default function ProjetDetail() {
           const ecartMarge = margeReelle !== null ? margeReelle - margePrevu : null
 
           const col = (val, positifBon = true) => {
-            if (val === 0) return '#6B7280'
-            if (positifBon) return val > 0 ? '#059669' : '#DC2626'
-            return val > 0 ? '#DC2626' : '#059669'
+            if (val === 0) return colors.inkFaint
+            if (positifBon) return val > 0 ? colors.success : colors.danger
+            return val > 0 ? colors.danger : colors.success
           }
 
           return (
             <div style={{ maxWidth: 720 }}>
-              <h3 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 600 }}>Rentabilité</h3>
+              <div style={sectionTitle}>Rentabilité</div>
 
               {/* Tableau comparatif */}
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: isMobile ? 'auto' : 'hidden', marginBottom: 20 }}>
+              <div style={{ overflow: isMobile ? 'auto' : 'hidden', marginBottom: 20 }}>
                 <div style={{ minWidth: isMobile ? 620 : 'auto' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr', background: '#1E293B', color: '#fff' }}>
-                  <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}></div>
-                  <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textAlign: 'right', color: '#93C5FD' }}>📐 Prévisionnel</div>
-                  <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textAlign: 'right', color: '#FDBA74' }}>🔄 En cours</div>
-                  <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textAlign: 'right', color: '#86EFAC' }}>📊 Réel</div>
-                  <div style={{ padding: '12px 16px', fontSize: 12, fontWeight: 600, textAlign: 'right', color: '#FDE68A' }}>Écart</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr', borderBottom: '1px solid ' + colors.line, borderTop: '1px solid ' + colors.line }}>
+                  <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: colors.inkFaint }}></div>
+                  <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textAlign: 'right', color: colors.focus, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Prévisionnel</div>
+                  <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textAlign: 'right', color: colors.warning, textTransform: 'uppercase', letterSpacing: '0.05em' }}>En cours</div>
+                  <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textAlign: 'right', color: colors.success, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Réel</div>
+                  <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textAlign: 'right', color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Écart</div>
                 </div>
 
                 {[
@@ -3705,18 +3670,18 @@ export default function ProjetDetail() {
                 ].map(({ label, prev, enCours, reel, showEcart, ecartPositifMauvais, bold, isTaux }, i) => {
                   const ecart = isTaux ? null : (typeof reel === 'number' && typeof prev === 'number' ? reel - prev : null)
                   return (
-                    <div key={label} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr', borderBottom: i < 3 ? '1px solid #F3F4F6' : 'none', background: bold ? '#F0FDF4' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                      <div style={{ padding: '14px 16px', fontSize: 13, fontWeight: bold ? 700 : 500, color: '#374151' }}>{label}</div>
-                      <div style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: '#2563EB' }}>
+                    <div key={label} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr', borderBottom: i < 3 ? '1px solid ' + colors.line : 'none' }}>
+                      <div style={{ padding: '12px', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.ink }}>{label}</div>
+                      <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                         {isTaux ? prev : fmt(prev)}
                       </div>
-                      <div style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: '#EA580C' }}>
+                      <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.warning, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                         {isTaux ? enCours : fmt(enCours)}
                       </div>
-                      <div style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: '#059669' }}>
+                      <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                         {isTaux ? reel : fmt(reel)}
                       </div>
-                      <div style={{ padding: '14px 16px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 400 }}>
+                      <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 400, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                         {showEcart && ecart !== null ? (
                           <span style={{ color: col(ecart, !ecartPositifMauvais), fontWeight: 600 }}>
                             {ecart > 0 ? '+' : ''}{fmt(ecart)}
@@ -3728,8 +3693,8 @@ export default function ProjetDetail() {
                 })}
                 </div>
               </div>
-              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: -14, marginBottom: 20 }}>
-                🔄 En cours = commandé aux fournisseurs (achat) — la vente reprend le prévisionnel tant qu'elle n'est pas facturée. 📊 Réel = effectivement facturé (factures fournisseurs et clients).
+              <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: -14, marginBottom: 20 }}>
+                En cours = commandé aux fournisseurs (achat) — la vente reprend le prévisionnel tant qu'elle n'est pas facturée. Réel = effectivement facturé (factures fournisseurs et clients).
               </div>
 
               {/* Avancement achat (commandé) et vente (facturé) — complètent
@@ -3737,33 +3702,33 @@ export default function ProjetDetail() {
                   (un chantier en cours n'est normalement ni commandé ni
                   facturé à 100%, ce n'est pas un écart au sens "dérapage"). */}
               {ca > 0 && (
-                <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 6 }}>
-                  💶 Facturé aux clients à ce jour : <strong style={{ color: '#1E293B' }}>{fmt(caReel)}</strong> ({(caReel / ca * 100).toFixed(1)}% du CA prévu) · Reste à facturer : <strong style={{ color: '#1E293B' }}>{fmt(Math.max(0, ca - caReel))}</strong>
+                <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 6 }}>
+                  Facturé aux clients à ce jour : <strong style={{ color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt(caReel)}</strong> ({(caReel / ca * 100).toFixed(1)}% du CA prévu) · Reste à facturer : <strong style={{ color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt(Math.max(0, ca - caReel))}</strong>
                 </div>
               )}
               {achatPrevu > 0 && (
-                <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
-                  🛒 Commandé aux fournisseurs à ce jour : <strong style={{ color: '#1E293B' }}>{fmt(achatEnCours)}</strong> ({(achatEnCours / achatPrevu * 100).toFixed(1)}% du budget achat
-                  {ecartAchatEnCours > 0 && <span style={{ color: '#DC2626' }}> · +{fmt(ecartAchatEnCours)} vs devis</span>}) · Facturé par les fournisseurs : <strong style={{ color: '#1E293B' }}>{fmt(achatReel)}</strong>
+                <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 16 }}>
+                  Commandé aux fournisseurs à ce jour : <strong style={{ color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt(achatEnCours)}</strong> ({(achatEnCours / achatPrevu * 100).toFixed(1)}% du budget achat
+                  {ecartAchatEnCours > 0 && <span style={{ color: colors.danger }}> · +{fmt(ecartAchatEnCours)} vs devis</span>}) · Facturé par les fournisseurs : <strong style={{ color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt(achatReel)}</strong>
                 </div>
               )}
 
               {/* Cartes résumé */}
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-                <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 12, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 11, color: '#2563EB', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📐 Marge prévisionnelle</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: margePrevu >= 0 ? '#1E40AF' : '#DC2626', marginBottom: 4 }}>{fmt(margePrevu)}</div>
-                  <div style={{ fontSize: 12, color: '#3B82F6' }}>Taux : {tauxMargePrevu}%</div>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 20, marginBottom: 20, paddingTop: 16, borderTop: '1px solid ' + colors.line }}>
+                <div>
+                  <div style={eyebrow}>Marge prévisionnelle</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: margePrevu >= 0 ? colors.ink : colors.danger, marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(margePrevu)}</div>
+                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {tauxMargePrevu}%</div>
                 </div>
-                <div style={{ background: margeEnCours === null ? '#F9FAFB' : '#FFF7ED', border: '1px solid ' + (margeEnCours === null ? '#E5E7EB' : '#FED7AA'), borderRadius: 12, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 11, color: margeEnCours === null ? '#9CA3AF' : '#EA580C', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>🔄 Marge en cours (commandes)</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: margeEnCours === null ? '#9CA3AF' : (margeEnCours >= 0 ? '#9A3412' : '#DC2626'), marginBottom: 4 }}>{margeEnCours === null ? 'Aucune commande' : fmt(margeEnCours)}</div>
-                  <div style={{ fontSize: 12, color: margeEnCours === null ? '#9CA3AF' : '#EA580C' }}>Taux : {tauxMargeEnCours !== null ? tauxMargeEnCours + '%' : '—'}</div>
+                <div>
+                  <div style={eyebrow}>Marge en cours (commandes)</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: margeEnCours === null ? colors.inkFaint : (margeEnCours >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeEnCours === null ? 'Aucune commande' : fmt(margeEnCours)}</div>
+                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {tauxMargeEnCours !== null ? tauxMargeEnCours + '%' : '—'}</div>
                 </div>
-                <div style={{ background: margeReelle === null ? '#F9FAFB' : (margeReelle >= 0 ? '#F0FDF4' : '#FEF2F2'), border: '1px solid ' + (margeReelle === null ? '#E5E7EB' : (margeReelle >= 0 ? '#BBF7D0' : '#FCA5A5')), borderRadius: 12, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 11, color: margeReelle === null ? '#9CA3AF' : (margeReelle >= 0 ? '#059669' : '#DC2626'), fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>📊 Marge réelle (factures)</div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: margeReelle === null ? '#9CA3AF' : (margeReelle >= 0 ? '#065F46' : '#991B1B'), marginBottom: 4 }}>{margeReelle === null ? 'Aucune facture' : fmt(margeReelle)}</div>
-                  <div style={{ fontSize: 12, color: margeReelle === null ? '#9CA3AF' : (margeReelle >= 0 ? '#059669' : '#DC2626') }}>Taux : {tauxMargeReelle !== null ? tauxMargeReelle + '%' : '—'}</div>
+                <div>
+                  <div style={eyebrow}>Marge réelle (factures)</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: margeReelle === null ? colors.inkFaint : (margeReelle >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeReelle === null ? 'Aucune facture' : fmt(margeReelle)}</div>
+                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {tauxMargeReelle !== null ? tauxMargeReelle + '%' : '—'}</div>
                 </div>
               </div>
 
@@ -3772,31 +3737,31 @@ export default function ProjetDetail() {
                   compare le devis à du vide et affiche à tort "meilleure
                   marge que prévu". */}
               {ca > 0 && ecartMarge !== null && (
-                <div style={{ background: ecartMarge >= 0 ? '#F0FDF4' : '#FEF2F2', border: '2px solid ' + (ecartMarge >= 0 ? '#059669' : '#DC2626'), borderRadius: 12, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ borderLeft: '2px solid ' + (ecartMarge >= 0 ? colors.success : colors.danger), padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: ecartMarge >= 0 ? '#065F46' : '#991B1B' }}>
-                      {ecartMarge >= 0 ? '✅ Meilleure marge que prévu' : '⚠️ Marge inférieure au prévisionnel'}
+                    <div style={{ fontSize: 13, fontWeight: 600, color: ecartMarge >= 0 ? colors.success : colors.danger }}>
+                      {ecartMarge >= 0 ? 'Meilleure marge que prévu' : 'Marge inférieure au prévisionnel'}
                     </div>
-                    <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>
-                      Écart achat : <strong style={{ color: col(ecartAchat, false) }}>{ecartAchat > 0 ? '+' : ''}{fmt(ecartAchat)}</strong>
+                    <div style={{ fontSize: 12, color: colors.inkMuted, marginTop: 4 }}>
+                      Écart achat : <strong style={{ color: col(ecartAchat, false), fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{ecartAchat > 0 ? '+' : ''}{fmt(ecartAchat)}</strong>
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: ecartMarge >= 0 ? '#065F46' : '#991B1B' }}>{ecartMarge > 0 ? '+' : ''}{fmt(ecartMarge)}</div>
-                    <div style={{ fontSize: 11, color: '#6B7280' }}>sur la marge</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: ecartMarge >= 0 ? colors.success : colors.danger, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{ecartMarge > 0 ? '+' : ''}{fmt(ecartMarge)}</div>
+                    <div style={{ fontSize: 11, color: colors.inkFaint }}>sur la marge</div>
                   </div>
                 </div>
               )}
               {ca > 0 && ecartMarge === null && (
-                <div style={{ padding: '10px 16px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 12, color: '#6B7280' }}>
-                  💡 Pas encore de facture client ou fournisseur sur ce projet — la marge réelle s'affichera dès la première facture.
+                <div style={{ padding: '10px 0', borderTop: '1px solid ' + colors.line, fontSize: 12, color: colors.inkMuted }}>
+                  Pas encore de facture client ou fournisseur sur ce projet — la marge réelle s'affichera dès la première facture.
                 </div>
               )}
 
               {/* Info si pas de lignes du tout */}
               {lots.length === 0 && lignesSansLot.length === 0 && (
-                <div style={{ marginTop: 12, padding: '10px 16px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 12, color: '#92400E' }}>
-                  💡 Importez les lignes du projet (onglet Lignes) pour voir le prévisionnel avec coefficients
+                <div style={{ marginTop: 12, borderLeft: '2px solid ' + colors.warning, padding: '10px 16px', fontSize: 12, color: colors.inkMuted }}>
+                  Importez les lignes du projet (onglet Lignes) pour voir le prévisionnel avec coefficients
                 </div>
               )}
             </div>
@@ -3805,14 +3770,14 @@ export default function ProjetDetail() {
 
         {/* ── DOCUMENTS ── */}
         {tab === 'documents' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 32, maxWidth: 720 }}>
 
             {/* Dossier Documents officiels */}
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-              <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>🔏 Documents officiels</div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 14px', borderRadius: 8, background: '#7C3AED', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
-                  {uploadingDoc === 'officiels' ? '⏳...' : '+ Ajouter'}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid ' + colors.line, paddingBottom: 10, marginBottom: 12 }}>
+                <div style={sectionTitle}>Documents officiels</div>
+                <label style={{ ...quietLink, cursor: 'pointer' }}>
+                  {uploadingDoc === 'officiels' ? '...' : '+ Ajouter'}
                   <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style={{ display: 'none' }}
                     onChange={async (e) => {
                       const file = e.target.files[0]; if (!file) return
@@ -3826,41 +3791,38 @@ export default function ProjetDetail() {
                     }} />
                 </label>
               </div>
-              <div style={{ padding: 16 }}>
-                {(!documents.officiels || documents.officiels.length === 0) ? (
-                  <div style={{ textAlign: 'center', padding: '24px', color: '#9CA3AF', fontSize: 13 }}>
-                    Devis signé, ordre de service, PV de réception...
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {documents.officiels.map(doc => (
-                      <div key={doc.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
-                        <span style={{ fontSize: 20 }}>{doc.name.includes('.pdf') ? '📄' : '📎'}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <a href={getDocUrl('projets/' + id + '/officiels/' + doc.name)} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 13, fontWeight: 500, color: '#7C3AED', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                            {doc.name.replace(/^officiel_\d+_/, '')}
-                          </a>
-                        </div>
-                        <button onClick={async () => {
-                          if (!confirm('Supprimer ?')) return
-                          await supabase.storage.from('documents').remove(['projets/' + id + '/officiels/' + doc.name])
-                          const { data } = await supabase.storage.from('documents').list('projets/' + id + '/officiels')
-                          setDocuments(prev => ({ ...prev, officiels: data || [] }))
-                        }} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 13 }}>✕</button>
+              {(!documents.officiels || documents.officiels.length === 0) ? (
+                <div style={{ padding: '16px 0', color: colors.inkFaint, fontSize: 13 }}>
+                  Devis signé, ordre de service, PV de réception...
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {documents.officiels.map(doc => (
+                    <div key={doc.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid ' + colors.line }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <a href={getDocUrl('projets/' + id + '/officiels/' + doc.name)} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 13, color: colors.ink, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', borderBottom: '1px solid ' + colors.line }}>
+                          {doc.name.replace(/^officiel_\d+_/, '')}
+                        </a>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      <button onClick={async () => {
+                        if (!confirm('Supprimer ?')) return
+                        await supabase.storage.from('documents').remove(['projets/' + id + '/officiels/' + doc.name])
+                        const { data } = await supabase.storage.from('documents').list('projets/' + id + '/officiels')
+                        setDocuments(prev => ({ ...prev, officiels: data || [] }))
+                      }} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Dossier Documents du projet */}
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-              <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>📁 Documents du projet</div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 14px', borderRadius: 8, background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
-                  {uploadingDoc === 'projet' ? '⏳...' : '+ Ajouter'}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid ' + colors.line, paddingBottom: 10, marginBottom: 12 }}>
+                <div style={sectionTitle}>Documents du projet</div>
+                <label style={{ ...quietLink, cursor: 'pointer' }}>
+                  {uploadingDoc === 'projet' ? '...' : '+ Ajouter'}
                   <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style={{ display: 'none' }}
                     onChange={async (e) => {
                       const file = e.target.files[0]; if (!file) return
@@ -3874,29 +3836,26 @@ export default function ProjetDetail() {
                     }} />
                 </label>
               </div>
-              <div style={{ padding: 16 }}>
-                {(!documents.projet || documents.projet.filter(estUnDocumentReel).length === 0) ? (
-                  <div style={{ textAlign: 'center', padding: '24px', color: '#9CA3AF', fontSize: 13 }}>
-                    Plans, photos chantier, rapports...
-                  </div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-                    {(documents.projet || []).filter(estUnDocumentReel).map(doc => (
-                      <div key={doc.name} style={{ background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 20 }}>{doc.name.includes('.pdf') ? '📄' : doc.name.match(/jpg|jpeg|png/i) ? '🖼' : doc.name.match(/xls/i) ? '📊' : '📎'}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <a href={getDocUrl('projets/' + id + '/' + doc.name)} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 12, fontWeight: 500, color: '#2563EB', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {doc.name.replace(/^\d+_/, '')}
-                          </a>
-                        </div>
-                        <button onClick={() => deleteDoc('projets/' + id + '/' + doc.name)}
-                          style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 13 }}>✕</button>
+              {(!documents.projet || documents.projet.filter(estUnDocumentReel).length === 0) ? (
+                <div style={{ padding: '16px 0', color: colors.inkFaint, fontSize: 13 }}>
+                  Plans, photos chantier, rapports...
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {(documents.projet || []).filter(estUnDocumentReel).map(doc => (
+                    <div key={doc.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid ' + colors.line }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <a href={getDocUrl('projets/' + id + '/' + doc.name)} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 13, color: colors.ink, textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderBottom: '1px solid ' + colors.line }}>
+                          {doc.name.replace(/^\d+_/, '')}
+                        </a>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      <button onClick={() => deleteDoc('projets/' + id + '/' + doc.name)}
+                        style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
