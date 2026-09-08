@@ -4,7 +4,7 @@ import PdfPreviewModal from '../components/PdfPreviewModal'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane } from '../lib/usePennylane'
+import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
 import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, enTeteContinuation, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
@@ -1529,6 +1529,16 @@ export default function ProjetDetail() {
           await supabase.from('factures_cli').update({ statut: 'Envoyée' }).eq('id', envoiEmailModal.id)
           const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
           setFacturesCli(data || [])
+          // Envoi automatique à Pennylane dès que la facture passe
+          // "Envoyée" — en tâche de fond, non bloquant : un échec ici
+          // n'annule pas l'email déjà parti chez le client (voir
+          // envoyerFactureCliAutoPennylane, idempotent sur pennylane_synced_at).
+          const factureEnvoyee = (data || []).find(f => f.id === envoiEmailModal.id)
+          if (factureEnvoyee) {
+            envoyerFactureCliAutoPennylane(factureEnvoyee, projet).catch(err => {
+              setPennylaneError('Email envoyé, mais échec de l\'envoi automatique à Pennylane : ' + err.message)
+            })
+          }
         }
       }
       setEnvoiEmailModal(null)
@@ -1815,6 +1825,19 @@ export default function ProjetDetail() {
     setEcheanceCliDeverrouillees(prev => { const n = new Set(prev); n.delete(facture.id); return n })
     const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
+
+    // Passage manuel du statut à "Envoyée" (édition inline + Enregistrer) :
+    // même déclenchement automatique vers Pennylane que l'envoi d'email
+    // (voir envoyerEmailDepuisModal) — non bloquant, l'enregistrement local
+    // a déjà réussi à ce stade.
+    if (changes.statut === 'Envoyée' && facture.statut !== 'Envoyée') {
+      const factureEnvoyee = (data || []).find(f => f.id === facture.id)
+      if (factureEnvoyee) {
+        envoyerFactureCliAutoPennylane(factureEnvoyee, projet).catch(err => {
+          setPennylaneError('Enregistré, mais échec de l\'envoi automatique à Pennylane : ' + err.message)
+        })
+      }
+    }
 
     if (facture.pennylane_invoice_id) {
       setPennylaneError(''); setPennylaneBusy(facture.id)

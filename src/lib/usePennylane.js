@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { envoyerEmailOutlook } from './useOutlook'
+import { genererFactureCliPDF } from './pdfFacture'
 
 // Le proxy /api/pennylane renvoie toujours { error: <message générique>,
 // details: <réponse brute de Pennylane> } en cas d'échec. Le message utile
@@ -353,4 +354,25 @@ export async function envoyerFacturesPennylane(type, pieces) {
     })
   }
   return { factures: pieces.length, emails: lots.length }
+}
+
+// ── Envoi automatique unitaire, déclenché par un changement de statut ──
+// Utilisé par ProjetDetail.jsx dès qu'une facture client passe à
+// "Envoyée" (envoi de l'email au client, ou simple changement manuel du
+// statut) : régénère son PDF et l'envoie immédiatement à Pennylane, sans
+// attendre un passage par l'envoi groupé de la page Exports. Idempotent —
+// ne fait rien si la facture a déjà été envoyée (pennylane_synced_at déjà
+// renseigné), pour ne jamais créer de doublon côté Pennylane si le statut
+// est modifié plusieurs fois ou si les deux déclencheurs se chevauchent.
+// L'envoi groupé de Exports.jsx reste disponible en secours (factures plus
+// anciennes, échec de cet envoi automatique, etc.) — il ignore lui aussi
+// les factures déjà marquées envoyées, sauf case "Inclure..." cochée.
+export async function envoyerFactureCliAutoPennylane(facture, projet) {
+  if (facture.pennylane_synced_at) return null
+  const doc = genererFactureCliPDF(facture, projet, 'fr')
+  await envoyerFacturesPennylane('ventes', [{ name: (facture.numero || facture.id) + '.pdf', blob: doc.output('blob') }])
+  await supabase.from('factures_cli').update({
+    pennylane_statut: 'Envoyée par email',
+    pennylane_synced_at: new Date().toISOString(),
+  }).eq('id', facture.id)
 }
