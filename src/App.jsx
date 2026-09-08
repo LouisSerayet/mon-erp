@@ -26,6 +26,7 @@ const Rapprochement = lazy(() => import('./pages/Rapprochement'))
 const Corbeille = lazy(() => import('./pages/Corbeille'))
 const Historique = lazy(() => import('./pages/Historique'))
 const Exports = lazy(() => import('./pages/Exports'))
+const BoiteReceptionFactures = lazy(() => import('./pages/BoiteReceptionFactures'))
 
 function ChargementPage() {
   return (
@@ -66,6 +67,7 @@ function Gate() {
             <Route path="factures-clients" element={<FacturesClients />} />
             <Route path="factures-fournisseurs" element={<FacturesFournisseurs />} />
             <Route path="commandes-fournisseurs" element={<CommandesFournisseurs />} />
+            <Route path="boite-reception-factures" element={<BoiteReceptionFactures />} />
             <Route path="recherche" element={<Recherche />} />
             <Route path="depenses" element={<Depenses />} />
             <Route path="resultat" element={<Resultat />} />

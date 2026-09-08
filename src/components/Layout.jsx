@@ -20,6 +20,7 @@ const nav = [
   { to: '/factures-clients', label: 'Factures clients', icon: '💶' },
   { to: '/factures-fournisseurs', label: 'Factures fournisseurs', icon: '📄' },
   { to: '/commandes-fournisseurs', label: 'Commandes fournisseurs', icon: '🛒' },
+  { to: '/boite-reception-factures', label: 'Boîte de réception', icon: '📥' },
   { section: 'Support' },
   { to: '/corbeille', label: 'Corbeille', icon: '🗑' },
   { to: '/recherche', label: 'Recherche avancée', icon: '🔎' },
