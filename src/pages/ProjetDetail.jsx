@@ -1439,7 +1439,11 @@ export default function ProjetDetail() {
     setPdfPreview({ tipo: 'devis', titre: 'Devis — ' + (projet?.nom || ''), filenameBase: projet.nom.replace(/[^a-z0-9]/gi, '_'), lang })
   }
   function ouvrirApercuCommande(cmd, lang = 'fr') {
-    setPdfPreview({ tipo: 'commande', titre: 'Commande ' + (cmd.numero || ''), filenameBase: cmd.numero || 'commande', payload: cmd, lang,
+    // Nom du fournisseur en tête du nom de fichier téléchargé : plus facile
+    // à repérer dans un dossier Téléchargements que plusieurs "PP-XXX-003.pdf"
+    // qui se ressemblent tous au premier coup d'œil.
+    const fournisseurSlug = cmd.fournisseurs?.nom ? cmd.fournisseurs.nom.replace(/[^a-z0-9]/gi, '_') + '_' : ''
+    setPdfPreview({ tipo: 'commande', titre: 'Commande ' + (cmd.numero || ''), filenameBase: fournisseurSlug + (cmd.numero || 'commande'), payload: cmd, lang,
       onEnvoyer: () => { setPdfPreview(null); ouvrirEnvoiCommande(cmd) } })
   }
   function ouvrirApercuFactureCli(f, lang = 'fr') {
