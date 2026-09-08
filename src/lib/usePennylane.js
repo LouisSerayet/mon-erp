@@ -376,3 +376,19 @@ export async function envoyerFactureCliAutoPennylane(facture, projet) {
     pennylane_synced_at: new Date().toISOString(),
   }).eq('id', facture.id)
 }
+
+// Équivalent côté factures fournisseurs : pas de statut "Envoyée" pour
+// elles (juste "À payer"/"Payée"), donc le déclencheur choisi est la
+// création — le PDF est désormais obligatoire à ce moment-là (voir
+// ajouterFactureFrs), donc le document est déjà complet et disponible.
+// `file` est le PDF tout juste sélectionné/uploadé, pas besoin de le
+// retélécharger depuis le storage. Idempotent, même garde-fou que
+// envoyerFactureCliAutoPennylane.
+export async function envoyerFactureFrsAutoPennylane(facture, file) {
+  if (facture.pennylane_synced_at) return null
+  await envoyerFacturesPennylane('achats', [{ name: (facture.numero || facture.id) + '.pdf', blob: file }])
+  await supabase.from('factures_frs').update({
+    pennylane_statut: 'Envoyée par email',
+    pennylane_synced_at: new Date().toISOString(),
+  }).eq('id', facture.id)
+}

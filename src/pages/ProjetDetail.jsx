@@ -4,7 +4,7 @@ import PdfPreviewModal from '../components/PdfPreviewModal'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane } from '../lib/usePennylane'
+import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane, envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
 import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, enTeteContinuation, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
@@ -1591,6 +1591,12 @@ export default function ProjetDetail() {
       const { error: uploadErr } = await supabase.storage.from('documents').upload(path, fileFfrs)
       if (!uploadErr) {
         await supabase.from('factures_frs').update({ fichier_path: path }).eq('id', inserted.id)
+        // Envoi automatique à Pennylane dès la création — en tâche de
+        // fond, non bloquant : un échec ici n'annule pas l'enregistrement
+        // de la facture, qui a déjà réussi (voir envoyerFactureFrsAutoPennylane).
+        envoyerFactureFrsAutoPennylane({ ...inserted, fichier_path: path }, fileFfrs).catch(err => {
+          setPennylaneError('Facture enregistrée, mais échec de l\'envoi automatique à Pennylane : ' + err.message)
+        })
       }
     }
 
