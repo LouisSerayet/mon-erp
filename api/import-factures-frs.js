@@ -1,5 +1,13 @@
 import { requireAuth, authedClient } from './_auth.js'
-import { PDFParse } from 'pdf-parse'
+import { extractText, getDocumentProxy } from 'unpdf'
+// unpdf plutôt que pdf-parse (v2) : ce dernier embarque pdfjs-dist en mode
+// "legacy" qui tente de charger @napi-rs/canvas (module natif) au chargement
+// même, pour des polyfills DOMMatrix/ImageData/Path2D dont on n'a pas besoin
+// pour de la simple extraction de texte — absent sur Vercel, ça fait planter
+// toute la fonction serverless avant même d'envoyer une réponse ("Erreur
+// inconnue" côté client, cf. logs Vercel : "ReferenceError: DOMMatrix is not
+// defined"). unpdf est conçu pour tourner dans des environnements serverless
+// sans dépendance native.
 
 // Boîte de réception des factures fournisseurs par email — voir
 // sql/factures_frs_a_traiter_migration.sql pour le contexte général.
@@ -150,8 +158,8 @@ export default async function handler(req, res) {
 
         let texte = ''
         try {
-          const parser = new PDFParse({ data: buffer })
-          const resultat = await parser.getText()
+          const pdfProxy = await getDocumentProxy(new Uint8Array(buffer))
+          const resultat = await extractText(pdfProxy, { mergePages: true })
           texte = resultat?.text || ''
         } catch (errPdf) {
           console.error('import-factures-frs: extraction PDF échouée pour', msg.id, errPdf.message)
