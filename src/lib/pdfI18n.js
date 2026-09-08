@@ -63,6 +63,11 @@ export const L = {
     // Particuliers déclare et paie la TVA lui-même. À faire valider par un
     // expert-comptable si le libellé exact doit évoluer.
     mentionAutoliquidation: 'Autoliquidation — TVA due par le preneur (article 283 du Code général des impôts).',
+    // Adresse dédiée à laquelle les fournisseurs doivent envoyer leur
+    // facture — alimente directement la boîte de réception automatique de
+    // l'ERP (voir api/import-factures-frs.js), qui reconnaît la commande
+    // grâce au numéro rappelé plus haut sur ce document.
+    mentionEnvoiFacture: 'Merci d\'adresser la facture correspondant à cette commande, en rappelant sa référence ci-dessus, à : factures@partenaires-particuliers.com',
     statutLabel: 'Statut : ',
     adresseChantier: 'Adresse chantier : ',
     debutTravaux: 'Début des travaux : ',
@@ -156,6 +161,7 @@ export const L = {
     totalOptions: 'TOTAL OPTIONS',
     objetCommande: 'Purchase order details',
     mentionAutoliquidation: 'Reverse charge — VAT due by the customer (Article 283 of the French General Tax Code).',
+    mentionEnvoiFacture: 'Please send the invoice for this order, quoting its reference above, to: factures@partenaires-particuliers.com',
     statutLabel: 'Status: ',
     adresseChantier: 'Site address: ',
     debutTravaux: 'Start of works: ',

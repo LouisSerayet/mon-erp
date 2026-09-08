@@ -1404,6 +1404,17 @@ export default function ProjetDetail() {
       y += 4.5 * mentionLines.length + 2
     }
 
+    // Rappel de l'adresse d'envoi des factures — alimente directement la
+    // boîte de réception automatique de l'ERP (voir
+    // api/import-factures-frs.js), qui reconnaît la commande grâce au
+    // numéro déjà rappelé en haut de ce document. En gras (pas en italique
+    // comme les mentions légales ci-dessus) pour bien ressortir : c'est une
+    // consigne à suivre, pas juste une mention informative.
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK)
+    const mentionFactureLines = doc.splitTextToSize(t.mentionEnvoiFacture, 182)
+    doc.text(mentionFactureLines, 14, y)
+    y += 4.5 * mentionFactureLines.length + 4
+
     doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED)
     doc.text(t.statutLabel + (cmd.statut || ''), 14, y)
 
