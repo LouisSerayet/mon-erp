@@ -64,14 +64,14 @@ export default function Fournisseurs() {
   const [editingId, setEditingId] = useState(null) // id du fournisseur en cours de modification, null = création
   const [fournisseurOuvert, setFournisseurOuvert] = useState(null)
   const [commandes, setCommandes] = useState([])
-  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false })
+  const [form, setForm] = useState({ nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false, autoliquidation: false })
   const [error, setError] = useState('')
   const [savingFournisseur, setSavingFournisseur] = useState(false) // garde-fou anti double-clic
   // true = le champ Métier est en saisie libre (nouveau métier hors liste),
   // false = choix dans la liste déroulante existante.
   const [metierLibre, setMetierLibre] = useState(false)
 
-  const FORM_VIDE = { nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false }
+  const FORM_VIDE = { nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false, autoliquidation: false }
 
   useEffect(() => { fetchFournisseurs() }, [])
 
@@ -115,7 +115,7 @@ export default function Fournisseurs() {
   }
 
   function ouvrirEdition(f) {
-    setForm({ nom: f.nom || '', contact: f.contact || '', email: f.email || '', telephone: f.telephone || '', metier: f.metier || '', rue: f.rue || '', code_postal: f.code_postal || '', ville: f.ville || '', pays: f.pays || 'FR', delai_paiement_jours: f.delai_paiement_jours ?? 30, delai_paiement_fin_mois: f.delai_paiement_fin_mois ?? false })
+    setForm({ nom: f.nom || '', contact: f.contact || '', email: f.email || '', telephone: f.telephone || '', metier: f.metier || '', rue: f.rue || '', code_postal: f.code_postal || '', ville: f.ville || '', pays: f.pays || 'FR', delai_paiement_jours: f.delai_paiement_jours ?? 30, delai_paiement_fin_mois: f.delai_paiement_fin_mois ?? false, autoliquidation: f.autoliquidation ?? false })
     setEditingId(f.id)
     setError('')
     // Si son métier actuel n'est pas dans la liste connue, on ouvre directement en saisie libre.
@@ -165,6 +165,16 @@ export default function Fournisseurs() {
         ))}
         <ConditionsPaiement jours={form.delai_paiement_jours} finMois={form.delai_paiement_fin_mois}
           onChange={(j, f) => setForm(p => ({ ...p, delai_paiement_jours: j, delai_paiement_fin_mois: f }))} />
+        <div style={{ marginBottom: 20 }}>
+          <label style={fieldLabel}>TVA sur les commandes</label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: colors.inkMuted, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!form.autoliquidation} onChange={e => setForm(p => ({ ...p, autoliquidation: e.target.checked }))} />
+            Autoliquidation par défaut (sous-traitance BTP, article 283 du CGI)
+          </label>
+          <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>
+            Pré-sélectionne automatiquement ce régime de TVA à chaque nouvelle commande pour ce fournisseur.
+          </div>
+        </div>
         <label style={fieldLabel}>Métier</label>
         {metierLibre ? (
           <div style={{ display: 'flex', gap: 12, marginBottom: 22, alignItems: 'flex-end' }}>
@@ -233,6 +243,13 @@ export default function Fournisseurs() {
                 <span style={{ fontSize: 12, color: colors.inkMuted, minWidth: 100 }}>Conditions</span>
                 <span style={{ fontSize: 13, color: colors.ink, fontWeight: 500 }}>
                   {(fournisseurOuvert.delai_paiement_jours ?? 30) === 0 ? 'Comptant' : (fournisseurOuvert.delai_paiement_jours ?? 30) + ' jours' + (fournisseurOuvert.delai_paiement_fin_mois ? ' fin de mois' : '')}
+                </span>
+              </div>
+              <div style={{ borderBottom: '1px solid ' + colors.line, padding: '10px 0', display: 'flex', gap: 16, alignItems: 'baseline' }}>
+                <span style={{ fontSize: 12, color: colors.inkMuted, minWidth: 100 }}>TVA</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: colors.ink, fontWeight: 500 }}>
+                  <span style={marker(fournisseurOuvert.autoliquidation ? colors.warning : colors.inkFaint)} />
+                  {fournisseurOuvert.autoliquidation ? 'Autoliquidation par défaut' : 'Normale par défaut'}
                 </span>
               </div>
             </div>

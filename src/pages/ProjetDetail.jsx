@@ -1009,7 +1009,7 @@ export default function ProjetDetail() {
     setLoading(true)
     const [{ data: p }, { data: f }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }] = await Promise.all([
       supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois)').eq('id', id).single(),
-      supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id, delai_paiement_jours, delai_paiement_fin_mois').is('deleted_at', null).order('nom'),
+      supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id, delai_paiement_jours, delai_paiement_fin_mois, autoliquidation').is('deleted_at', null).order('nom'),
       supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
@@ -2931,6 +2931,22 @@ export default function ProjetDetail() {
               </button>
             </div>
 
+            {/* Petit récap achat : budget devis vs déjà commandé vs reste —
+                toujours visible (pas seulement à la création d'une commande,
+                voir le même calcul détaillé plus bas dans le formulaire). */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid ' + colors.line }}>
+              {[
+                ['Prévisionnel achat (devis)', totalAchatGlobal, colors.inkMuted],
+                ['Déjà commandé', totalCommandesActives, colors.focus],
+                ['Reste à commander', resteAchatDisponible, resteAchatDisponible >= 0 ? colors.success : colors.danger],
+              ].map(([label, val, color]) => (
+                <div key={label}>
+                  <div style={{ fontSize: 10, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{fmt(val)}</div>
+                </div>
+              ))}
+            </div>
+
             {showForm && (
               <div style={{ background: colors.surface, padding: 20, border: '1px solid ' + colors.line, marginBottom: 16 }}>
                 <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle commande</h4>
@@ -2963,7 +2979,14 @@ export default function ProjetDetail() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                   <div>
                     <label style={fieldLabel}>Fournisseur</label>
-                    <select value={formCmd.fournisseur_id} onChange={e => setFormCmd(p => ({ ...p, fournisseur_id: e.target.value }))}
+                    <select value={formCmd.fournisseur_id} onChange={e => {
+                        const fournisseur_id = e.target.value
+                        // Pré-sélectionne le régime de TVA de la commande d'après le
+                        // réglage "Autoliquidation par défaut" du fournisseur choisi
+                        // (voir Fournisseurs.jsx) — reste modifiable juste en dessous.
+                        const f = fournisseurs.find(fr => fr.id === fournisseur_id)
+                        setFormCmd(p => ({ ...p, fournisseur_id, regime_tva: f?.autoliquidation ? 'autoliquidation' : 'normale' }))
+                      }}
                       style={{ ...inputUnderline, cursor: 'pointer' }}>
                       <option value=''>— Aucun —</option>
                       {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
@@ -3076,7 +3099,14 @@ export default function ProjetDetail() {
                               style={{ ...inStyle, width: 120, color: colors.inkMuted }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
-                            <select value={getCmdVal(c, 'fournisseur_id') || ''} onChange={e => editCmd(c.id, 'fournisseur_id', e.target.value)}
+                            <select value={getCmdVal(c, 'fournisseur_id') || ''} onChange={e => {
+                                const fournisseur_id = e.target.value
+                                editCmd(c.id, 'fournisseur_id', fournisseur_id)
+                                // Même pré-sélection automatique du régime de TVA qu'à la
+                                // création — voir formCmd.fournisseur_id ci-dessus.
+                                const f = fournisseurs.find(fr => fr.id === fournisseur_id)
+                                editCmd(c.id, 'regime_tva', f?.autoliquidation ? 'autoliquidation' : 'normale')
+                              }}
                               style={{ ...inStyle, width: 160, cursor: 'pointer' }}>
                               <option value=''>— Aucun —</option>
                               {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
