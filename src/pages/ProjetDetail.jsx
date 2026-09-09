@@ -15,6 +15,7 @@ import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQon
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
+import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer } from '../components/Icons'
 
 const TABS = [
   { id: 'infos', label: 'Infos' },
@@ -66,6 +67,17 @@ const fieldLabel = { display: 'block', fontSize: 11, color: colors.inkFaint, tex
 const btnPrimary = { background: colors.ink, color: colors.surface, border: 'none', padding: '9px 18px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
 const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px solid ' + colors.line, padding: '9px 16px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
 const btnPrimarySmall = { ...btnPrimary, padding: '6px 14px', fontSize: 12 }
+// Bouton icône seule (Aperçu/Envoyer/Pièces/Supprimer dans les tableaux
+// commandes/factures) — remplace les libellés texte de quietLink pour
+// alléger visuellement une ligne qui a déjà beaucoup de colonnes ; le
+// libellé reste accessible via `title` (infobulle) plutôt que disparaître.
+// `color` par défaut hérite de inkMuted comme quietLink, sauf override
+// (ex. colors.danger pour Supprimer, ACCENT_MARGE pour Pièces).
+const iconBtn = (color) => ({
+  background: 'none', border: 'none', padding: 5, margin: 0, cursor: 'pointer',
+  color: color || colors.inkMuted, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  borderRadius: 3, lineHeight: 0,
+})
 // Style des champs d'édition inline dans les tableaux — souligné, teinte
 // warning tant que la ligne a des changements non enregistrés (voir
 // cellInput dans Depenses.jsx pour le même principe).
@@ -3282,14 +3294,20 @@ export default function ProjetDetail() {
                                 <button onClick={() => saveCmd(c.id)} style={quietLink}>Enregistrer</button>
                               )}
                               <button onClick={() => ouvrirApercuCommande({ ...c, ...cmdEditees[c.id], fournisseurs: fournisseurs.find(f => f.id === (cmdEditees[c.id]?.fournisseur_id || c.fournisseur_id)) })}
-                                title="Aperçu du PDF" style={quietLink}>Aperçu</button>
+                                title="Aperçu du PDF" style={iconBtn()}><IconApercu /></button>
                               {c.statut === 'Validée' && (
-                                <button onClick={() => ouvrirEnvoiCommande(c)} title="Envoyer la commande par email (PDF joint)" style={quietLink}>Envoyer</button>
+                                <button onClick={() => ouvrirEnvoiCommande(c)} title="Envoyer la commande par email (PDF joint)" style={iconBtn()}><IconEnvoyer /></button>
                               )}
-                              <button onClick={() => { if (expandedCmd === c.id) { setExpandedCmd(null) } else { setExpandedCmd(c.id); fetchCmdDocs(c.id) } }} style={{ ...quietLink, color: ACCENT_MARGE, borderBottomColor: ACCENT_MARGE }}>
-                                Pièces{cmdDocs[c.id]?.length > 0 ? ' (' + cmdDocs[c.id].length + ')' : ''}
+                              <button onClick={() => { if (expandedCmd === c.id) { setExpandedCmd(null) } else { setExpandedCmd(c.id); fetchCmdDocs(c.id) } }}
+                                title={'Pièces jointes' + (cmdDocs[c.id]?.length > 0 ? ' (' + cmdDocs[c.id].length + ')' : '')} style={{ ...iconBtn(ACCENT_MARGE), position: 'relative' }}>
+                                <IconPieces />
+                                {cmdDocs[c.id]?.length > 0 && (
+                                  <span style={{ position: 'absolute', top: -3, right: -3, fontSize: 9, fontWeight: 700, background: ACCENT_MARGE, color: colors.surface, borderRadius: 8, minWidth: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>
+                                    {cmdDocs[c.id].length}
+                                  </span>
+                                )}
                               </button>
-                              <button onClick={() => supprimer('commandes', c.id)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
+                              <button onClick={() => supprimer('commandes', c.id)} title="Supprimer" style={iconBtn(colors.danger)}><IconSupprimer /></button>
                             </div>
                           </td>
                         </tr>
@@ -3505,9 +3523,9 @@ export default function ProjetDetail() {
                           )}
                           {f.fichier_path && (
                             <button onClick={() => ouvrirApercuFichier('Facture ' + (f.numero || f.fournisseurs?.nom || ''), f.fichier_path)}
-                              title="Revoir le PDF de la facture" style={{ ...quietLink, color: ACCENT_MARGE, borderBottomColor: ACCENT_MARGE }}>Voir le PDF</button>
+                              title="Revoir le PDF de la facture" style={iconBtn(ACCENT_MARGE)}><IconApercu /></button>
                           )}
-                          <button onClick={() => supprimer('factures_frs', f.id)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
+                          <button onClick={() => supprimer('factures_frs', f.id)} title="Supprimer" style={iconBtn(colors.danger)}><IconSupprimer /></button>
                         </div>
                       </td>
                     </tr>
@@ -3741,9 +3759,9 @@ export default function ProjetDetail() {
                             <button onClick={() => saveFacCli(f)} disabled={pennylaneBusy === f.id} style={quietLink}>Enregistrer</button>
                           )}
                           <button onClick={() => ouvrirApercuFactureCli(f, 'fr')}
-                            title="Aperçu du PDF (français)" style={quietLink}>Aperçu</button>
-                          <button onClick={() => ouvrirEnvoiFactureCli(f)} title="Envoyer la facture par email (PDF joint)" style={quietLink}>Envoyer</button>
-                          <button onClick={() => supprimer('factures_cli', f.id)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
+                            title="Aperçu du PDF (français)" style={iconBtn()}><IconApercu /></button>
+                          <button onClick={() => ouvrirEnvoiFactureCli(f)} title="Envoyer la facture par email (PDF joint)" style={iconBtn()}><IconEnvoyer /></button>
+                          <button onClick={() => supprimer('factures_cli', f.id)} title="Supprimer" style={iconBtn(colors.danger)}><IconSupprimer /></button>
                         </div>
                       </td>
                     </tr>
