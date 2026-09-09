@@ -597,6 +597,15 @@ export default function ProjetDetail() {
   // temps de la session) — une commande Validée est normalement figée, la
   // reprendre doit être une action volontaire et confirmée. Voir editCmd().
   const [cmdDeverrouillees, setCmdDeverrouillees] = useState(new Set())
+  // Même principe pour les factures clients (verrouillées dès qu'elles ne
+  // sont plus "À envoyer") et fournisseurs (verrouillées dès leur création,
+  // pas d'état brouillon côté achat) — voir editFacCli/editFacFrs et
+  // tracerDeverrouillage. Les trois Set ci-dessus ne vivent que le temps de
+  // la session (redemandé à la prochaine modification, même après un
+  // enregistrement — voir saveCmd/saveFacCli/saveFacFrs) ; le motif saisi,
+  // lui, est toujours écrit en base pour garder une trace dans l'Historique.
+  const [facCliDeverrouillees, setFacCliDeverrouillees] = useState(new Set())
+  const [facFrsDeverrouillees, setFacFrsDeverrouillees] = useState(new Set())
   // Aperçu visuel PDF (devis, commande, facture client) avant téléchargement
   // ou envoi — voir PdfPreviewModal + ouvrirApercuDevis/Commande/FactureCli
   // et previewDoc (calculé plus bas). { tipo, titre, filenameBase, lang,
@@ -1341,17 +1350,31 @@ export default function ProjetDetail() {
     return cmd[champ] ?? ''
   }
 
+  // Écrit le motif de déverrouillage en base — sert uniquement de trace
+  // (apparaît dans l'Historique via audit_trg, déjà en place sur ces trois
+  // tables) : le verrouillage lui-même reste géré côté app par les Set
+  // cmdDeverrouillees/facCliDeverrouillees/facFrsDeverrouillees, jamais par
+  // ces colonnes. Volontairement non bloquant (fire-and-forget) — rater la
+  // trace ne doit pas empêcher la modification que l'utilisateur vient de
+  // confirmer explicitement.
+  async function tracerDeverrouillage(table, docId, motif) {
+    const { error } = await supabase.from(table).update({ deverrouille_motif: motif, deverrouille_le: new Date().toISOString() }).eq('id', docId)
+    if (error) console.error('Déverrouillage non tracé (' + table + ')', error.message)
+  }
+
   function editCmd(cmdId, champ, valeur) {
     // Une commande Validée est censée être figée — avant d'accepter la
     // toute première modification de cette commande dans cette session, on
-    // demande confirmation. Une fois confirmée, les modifications suivantes
+    // demande un motif obligatoire (conservé dans l'Historique, voir
+    // tracerDeverrouillage). Une fois confirmée, les modifications suivantes
     // (ex. plusieurs frappes dans un champ texte) passent sans re-demander,
     // jusqu'à l'enregistrement (voir saveCmd) qui reverrouille.
     const cmd = commandes.find(c => c.id === cmdId)
     if (cmd && cmd.statut === 'Validée' && !cmdDeverrouillees.has(cmdId)) {
-      const ok = confirm('Cette commande est validée. Voulez-vous vraiment la modifier ?')
-      if (!ok) return
+      const motif = window.prompt('Cette commande est validée — elle est normalement figée. Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)')
+      if (!motif || !motif.trim()) return
       setCmdDeverrouillees(prev => new Set(prev).add(cmdId))
+      tracerDeverrouillage('commandes', cmdId, motif.trim())
     }
     setCmdEditees(prev => ({ ...prev, [cmdId]: { ...(prev[cmdId] || {}), [champ]: valeur } }))
   }
@@ -1826,6 +1849,17 @@ export default function ProjetDetail() {
     return f[champ] ?? ''
   }
   function editFacCli(fId, champ, valeur, facture) {
+    // Une facture client qui n'est plus "À envoyer" est censée être figée
+    // (déjà envoyée au client, potentiellement déjà à Pennylane) — même
+    // principe que editCmd/cmdDeverrouillees : motif obligatoire à la
+    // première modification de la session, tracé dans l'Historique.
+    const f = facturesCli.find(x => x.id === fId)
+    if (f && f.statut !== 'À envoyer' && !facCliDeverrouillees.has(fId)) {
+      const motif = window.prompt('Cette facture est ' + f.statut.toLowerCase() + ' — elle est normalement figée. Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)')
+      if (!motif || !motif.trim()) return
+      setFacCliDeverrouillees(prev => new Set(prev).add(fId))
+      tracerDeverrouillage('factures_cli', fId, motif.trim())
+    }
     setFacCliEditees(prev => {
       const courant = { ...(prev[fId] || {}), [champ]: valeur }
       // Modifier la date de facture recalcule l'échéance dans la foulée,
@@ -1864,6 +1898,8 @@ export default function ProjetDetail() {
     // Reverrouille l'échéance : une prochaine modification (même dans la
     // même session) redemandera confirmation, comme pour cmdDeverrouillees.
     setEcheanceCliDeverrouillees(prev => { const n = new Set(prev); n.delete(facture.id); return n })
+    // Reverrouille le document entier, même logique.
+    setFacCliDeverrouillees(prev => { const n = new Set(prev); n.delete(facture.id); return n })
     const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
 
@@ -1898,6 +1934,17 @@ export default function ProjetDetail() {
     return f[champ] ?? ''
   }
   function editFacFrs(fId, champ, valeur) {
+    // Une facture fournisseur est verrouillée dès sa création (pas d'état
+    // brouillon côté achat — c'est déjà un document reçu du fournisseur,
+    // justificatif comptable) — même principe que editCmd/cmdDeverrouillees :
+    // motif obligatoire à la première modification de la session, tracé
+    // dans l'Historique.
+    if (!facFrsDeverrouillees.has(fId)) {
+      const motif = window.prompt('Cette facture fournisseur est verrouillée (justificatif comptable). Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)')
+      if (!motif || !motif.trim()) return
+      setFacFrsDeverrouillees(prev => new Set(prev).add(fId))
+      tracerDeverrouillage('factures_frs', fId, motif.trim())
+    }
     setFacFrsEditees(prev => {
       const courant = { ...(prev[fId] || {}), [champ]: valeur }
       if (champ === 'date_facture' && !echeanceFrsDeverrouillees.has(fId)) {
@@ -1929,6 +1976,8 @@ export default function ProjetDetail() {
     // Reverrouille l'échéance : une prochaine modification (même dans la
     // même session) redemandera confirmation, comme pour cmdDeverrouillees.
     setEcheanceFrsDeverrouillees(prev => { const n = new Set(prev); n.delete(facture.id); return n })
+    // Reverrouille le document entier, même logique.
+    setFacFrsDeverrouillees(prev => { const n = new Set(prev); n.delete(facture.id); return n })
     const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesFrs(data || [])
 
@@ -3154,8 +3203,13 @@ export default function ProjetDetail() {
                         <>
                         <tr key={c.id} id={'row-' + c.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: c.id === focusId ? '2px solid ' + colors.focus : 'none' }}>
                           <td style={{ padding: '8px 14px', fontWeight: 600, color: colors.ink, fontSize: 12, whiteSpace: 'nowrap' }}>
-                            <input value={getCmdVal(c, 'numero')} onChange={e => editCmd(c.id, 'numero', e.target.value)}
-                              style={{ ...inStyle, width: 140, fontWeight: 600, color: colors.ink }} />
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              {c.statut === 'Validée' && !cmdDeverrouillees.has(c.id) && (
+                                <span title="Commande validée — figée, modification tracée si besoin" style={{ fontSize: 11 }}>🔒</span>
+                              )}
+                              <input value={getCmdVal(c, 'numero')} onChange={e => editCmd(c.id, 'numero', e.target.value)}
+                                style={{ ...inStyle, width: 140, fontWeight: 600, color: colors.ink }} />
+                            </span>
                           </td>
                           <td style={{ padding: '8px 14px' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
@@ -3385,7 +3439,12 @@ export default function ProjetDetail() {
                     return (
                     <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: f.id === focusId ? '2px solid ' + colors.focus : enRetard ? '2px solid ' + colors.danger : 'none' }}>
                       <td style={{ padding: '8px 14px', fontWeight: 500 }}>
-                        <input value={getFacFrsVal(f, 'numero')} onChange={e => editFacFrs(f.id, 'numero', e.target.value)} style={{ ...inStyle, width: 110, fontWeight: 600 }} />
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {!facFrsDeverrouillees.has(f.id) && (
+                            <span title="Facture fournisseur — figée dès la création, modification tracée si besoin" style={{ fontSize: 11 }}>🔒</span>
+                          )}
+                          <input value={getFacFrsVal(f, 'numero')} onChange={e => editFacFrs(f.id, 'numero', e.target.value)} style={{ ...inStyle, width: 110, fontWeight: 600 }} />
+                        </span>
                       </td>
                       <td style={{ padding: '10px 14px' }}>{f.fournisseurs?.nom || '—'}</td>
                       <td style={{ padding: '10px 14px', color: colors.inkFaint, fontSize: 12 }}>{f.commandes?.numero || '—'}</td>
@@ -3617,6 +3676,9 @@ export default function ProjetDetail() {
                     <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: f.id === focusId ? '2px solid ' + colors.focus : enRetard ? '2px solid ' + colors.danger : 'none' }}>
                       <td style={{ padding: '8px 14px', fontWeight: 600, color: colors.ink }} title="Numéro non modifiable (obligation légale de numérotation séquentielle)">
                         {f.numero}
+                        {f.statut !== 'À envoyer' && !facCliDeverrouillees.has(f.id) && (
+                          <span title="Facture envoyée — figée, modification tracée si besoin" style={{ fontSize: 11, marginLeft: 6 }}>🔒</span>
+                        )}
                         {f.type_facture === 'acompte' && (
                           <div style={{ marginTop: 3, fontSize: 10, fontWeight: 500, color: ACCENT_MARGE }}>
                             Acompte{f.paiement_comptant ? ' · comptant' : ''}
