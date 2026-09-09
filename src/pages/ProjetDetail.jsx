@@ -3129,8 +3129,8 @@ export default function ProjetDetail() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
-                      {['Code CF', 'Statut', 'Date', 'Fournisseur', 'Description', 'Achat HT', 'TVA', 'Actions'].map(h => (
-                        <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Achat HT' ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                      {['Code CF', 'Statut', 'Date', 'Fournisseur', 'Description', 'Achat HT', 'Facturé', 'TVA', 'Actions'].map(h => (
+                        <th key={h} style={{ padding: '10px 14px', textAlign: (h === 'Achat HT' || h === 'Facturé') ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -3181,6 +3181,26 @@ export default function ProjetDetail() {
                             <input type="number" min="0" value={getCmdVal(c, 'montant_ht')} onChange={e => editCmd(c.id, 'montant_ht', e.target.value)}
                               style={{ ...inStyle, width: 100, textAlign: 'right', fontWeight: 600, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
                           </td>
+                          <td style={{ padding: '8px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            {(() => {
+                              // Rappel visuel de la part déjà facturée sur cette commande,
+                              // pour éviter d'avoir à ouvrir chaque commande une à une
+                              // (voir onglet Factures frs pour le détail des lignes).
+                              const montantCmd = parseFloat(getCmdVal(c, 'montant_ht')) || 0
+                              const montantFacture = facturesFrs.filter(f => f.commande_id === c.id).reduce((s, f) => s + (f.montant_ht || 0), 0)
+                              if (montantCmd <= 0 && montantFacture <= 0) return <span style={{ fontSize: 11, color: colors.inkFaint }}>—</span>
+                              const pct = montantCmd > 0 ? Math.round((montantFacture / montantCmd) * 100) : 100
+                              const teinte = pct <= 0 ? colors.inkFaint : pct > 100 ? colors.danger : pct >= 100 ? colors.success : colors.warning
+                              return (
+                                <span title={fmt(montantFacture) + ' facturé sur ' + fmt(montantCmd)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, justifyContent: 'flex-end' }}>
+                                  <span style={{ width: 38, height: 4, borderRadius: 2, background: colors.line, overflow: 'hidden', flexShrink: 0 }}>
+                                    <span style={{ display: 'block', height: '100%', width: Math.min(Math.max(pct, 0), 100) + '%', background: teinte }} />
+                                  </span>
+                                  <span style={{ fontSize: 11.5, fontWeight: 600, color: teinte, fontVariantNumeric: 'tabular-nums', minWidth: 30 }}>{pct}%</span>
+                                </span>
+                              )
+                            })()}
+                          </td>
                           <td style={{ padding: '8px 14px' }}>
                             <select value={getCmdVal(c, 'regime_tva') || 'normale'} onChange={e => editCmd(c.id, 'regime_tva', e.target.value)}
                               title="Autoliquidation : le fournisseur facture hors taxe, vous déclarez la TVA vous-même (sous-traitance BTP, article 283 du CGI)."
@@ -3210,7 +3230,7 @@ export default function ProjetDetail() {
                         {/* Zone documents commande */}
                         {expandedCmd === c.id && (
                           <tr key={c.id + '_docs'} style={{ background: colors.bg }}>
-                            <td colSpan={8} style={{ padding: '12px 20px' }}>
+                            <td colSpan={9} style={{ padding: '12px 20px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10 }}>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: ACCENT_MARGE }}>Pièces jointes — {c.numero}</span>
                                 <label style={{ ...quietLink, cursor: 'pointer' }}>
