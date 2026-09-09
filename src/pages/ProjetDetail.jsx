@@ -3793,6 +3793,19 @@ export default function ProjetDetail() {
                 En cours = commandé aux fournisseurs (achat) — la vente reprend le prévisionnel tant qu'elle n'est pas facturée. Réel = effectivement facturé (factures fournisseurs et clients).
               </div>
 
+              {/* Piège classique de cette colonne "Réel" : le CA facturé peut
+                  être total (une seule facture client pour tout le marché)
+                  alors que le coût, lui, ne reflète que les factures
+                  fournisseurs déjà reçues — pas les commandes en attente de
+                  facturation. La marge/le taux "Réel" affichés ci-dessus
+                  paraissent alors flatteurs sans l'être vraiment tant que ces
+                  factures fournisseurs manquantes n'arrivent pas. */}
+              {achatEnCours !== null && achatReel !== null && (achatEnCours - achatReel) > 0.01 && (
+                <div style={{ borderLeft: '2px solid ' + colors.warning, color: colors.warning, padding: '8px 12px', marginTop: -8, marginBottom: 20, fontSize: 12 }}>
+                  {fmt(achatEnCours - achatReel)} déjà commandés aux fournisseurs mais pas encore facturés par eux — la marge et le taux "Réel" ci-dessus ne tiennent pas encore compte de cette dépense, ils surestiment donc la rentabilité tant que ces factures ne sont pas arrivées.
+                </div>
+              )}
+
               {/* Avancement achat (commandé) et vente (facturé) — complètent
                   le tableau ci-dessus sans porter de jugement bon/mauvais
                   (un chantier en cours n'est normalement ni commandé ni
