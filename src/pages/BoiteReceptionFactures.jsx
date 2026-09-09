@@ -41,7 +41,6 @@ export default function BoiteReceptionFactures() {
   const [error, setError] = useState('')
   const [forms, setForms] = useState({}) // { [itemId]: { fournisseur_id, commande_id, projet_id, numero, montant_ht, statut, date_facture, date_echeance } }
   const [busyId, setBusyId] = useState(null)
-  const [pdfOuvert, setPdfOuvert] = useState(null) // id de l'item dont le PDF est déplié
   const [texteOuvert, setTexteOuvert] = useState(null)
 
   async function charger() {
@@ -67,8 +66,14 @@ export default function BoiteReceptionFactures() {
           fournisseur_id: item.fournisseur_id || '',
           commande_id: item.commande_id || '',
           projet_id: item.projet_id || '',
-          numero: '',
-          montant_ht: '',
+          // Pré-remplis à partir de ce que l'extraction du PDF a repéré
+          // (voir extraireNumeroFacture/extraireMontantHT côté
+          // api/import-factures-frs.js) — moins fiable que le
+          // rapprochement fournisseur/commande/projet vu que le format
+          // d'une facture varie d'un fournisseur à l'autre, donc à
+          // vérifier avant de valider. Reste vide si rien n'a été trouvé.
+          numero: item.numero_facture_detecte || '',
+          montant_ht: item.montant_ht_detecte != null ? String(item.montant_ht_detecte) : '',
           statut: 'À payer',
           date_facture: '',
           date_echeance: '',
@@ -206,16 +211,11 @@ export default function BoiteReceptionFactures() {
                     {item.expediteur || '—'}{item.recu_le ? ' · reçu le ' + fmtDate(item.recu_le) : ''}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 14 }}>
-                  <button onClick={() => setPdfOuvert(pdfOuvert === item.id ? null : item.id)} style={{ ...quietLink, fontSize: 12 }}>
-                    {pdfOuvert === item.id ? 'Masquer le PDF' : 'Voir le PDF'}
+                {item.texte_extrait && (
+                  <button onClick={() => setTexteOuvert(texteOuvert === item.id ? null : item.id)} style={{ ...quietLink, fontSize: 12, color: colors.inkFaint, borderBottomColor: colors.inkFaint }}>
+                    {texteOuvert === item.id ? 'Masquer le texte extrait' : 'Texte extrait'}
                   </button>
-                  {item.texte_extrait && (
-                    <button onClick={() => setTexteOuvert(texteOuvert === item.id ? null : item.id)} style={{ ...quietLink, fontSize: 12, color: colors.inkFaint, borderBottomColor: colors.inkFaint }}>
-                      {texteOuvert === item.id ? 'Masquer le texte' : 'Texte extrait'}
-                    </button>
-                  )}
-                </div>
+                )}
               </div>
 
               {item.alerte && (
@@ -223,73 +223,83 @@ export default function BoiteReceptionFactures() {
                   {item.alerte}
                 </div>
               )}
-
-              {pdfOuvert === item.id && item.fichier_path && (
-                <iframe src={getDocUrl(item.fichier_path)} title="Facture" style={{ width: '100%', height: 500, border: '1px solid ' + colors.line, marginBottom: 16 }} />
-              )}
               {texteOuvert === item.id && (
                 <pre style={{ whiteSpace: 'pre-wrap', fontSize: 11.5, color: colors.inkMuted, background: colors.bg, padding: 12, marginBottom: 16, maxHeight: 220, overflow: 'auto', fontFamily: fonts.mono }}>{item.texte_extrait}</pre>
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 16, marginBottom: 14 }}>
-                <div>
-                  <label style={fieldLabel}>Fournisseur *</label>
-                  <select value={f.fournisseur_id || ''} onChange={e => editForm(item.id, 'fournisseur_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
-                    <option value=''>—</option>
-                    {fournisseurs.map(fr => <option key={fr.id} value={fr.id}>{fr.nom}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={fieldLabel}>Commande</label>
-                  <select value={f.commande_id || ''} onChange={e => editForm(item.id, 'commande_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
-                    <option value=''>— Aucune —</option>
-                    {commandesDuFournisseur(f.fournisseur_id).map(c => <option key={c.id} value={c.id}>{c.numero || c.description}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={fieldLabel}>Projet *</label>
-                  <select value={f.projet_id || ''} onChange={e => editForm(item.id, 'projet_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
-                    <option value=''>—</option>
-                    {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={fieldLabel}>N° facture *</label>
-                  <input value={f.numero || ''} onChange={e => editForm(item.id, 'numero', e.target.value)} style={inputUnderline} />
-                </div>
-                <div>
-                  <label style={fieldLabel}>Montant HT</label>
-                  <input type="number" step="0.01" value={f.montant_ht || ''} onChange={e => editForm(item.id, 'montant_ht', e.target.value)} style={inputUnderline} />
-                </div>
-                <div>
-                  <label style={fieldLabel}>Date facture</label>
-                  <input type="date" value={f.date_facture || ''} onChange={e => editForm(item.id, 'date_facture', e.target.value)} style={inputUnderline} />
-                </div>
-                <div>
-                  <label style={fieldLabel}>Échéance</label>
-                  <input type="date" value={f.date_echeance || ''} onChange={e => editForm(item.id, 'date_echeance', e.target.value)} style={inputUnderline} />
-                </div>
-                <div>
-                  <label style={fieldLabel}>Statut</label>
-                  <select value={f.statut || 'À payer'} onChange={e => editForm(item.id, 'statut', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
-                    <option value='À payer'>À payer</option>
-                    <option value='Payée'>Payée</option>
-                  </select>
-                </div>
-              </div>
+              {/* PDF épinglé sur la droite (desktop) pendant la saisie —
+                  plus pratique qu'un panneau à déplier pour vérifier un
+                  champ à la volée. Repasse au-dessus du formulaire sur
+                  mobile faute de place pour deux colonnes. */}
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, alignItems: 'flex-start' }}>
+                <div style={{ flex: '1 1 420px', minWidth: 0 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(2, 1fr)', gap: 16, marginBottom: 14 }}>
+                    <div>
+                      <label style={fieldLabel}>Fournisseur *</label>
+                      <select value={f.fournisseur_id || ''} onChange={e => editForm(item.id, 'fournisseur_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                        <option value=''>—</option>
+                        {fournisseurs.map(fr => <option key={fr.id} value={fr.id}>{fr.nom}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>Commande</label>
+                      <select value={f.commande_id || ''} onChange={e => editForm(item.id, 'commande_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                        <option value=''>— Aucune —</option>
+                        {commandesDuFournisseur(f.fournisseur_id).map(c => <option key={c.id} value={c.id}>{c.numero || c.description}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>Projet *</label>
+                      <select value={f.projet_id || ''} onChange={e => editForm(item.id, 'projet_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                        <option value=''>—</option>
+                        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>N° facture *</label>
+                      <input value={f.numero || ''} onChange={e => editForm(item.id, 'numero', e.target.value)} style={inputUnderline} />
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>Montant HT</label>
+                      <input type="number" step="0.01" value={f.montant_ht || ''} onChange={e => editForm(item.id, 'montant_ht', e.target.value)} style={inputUnderline} />
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>Date facture</label>
+                      <input type="date" value={f.date_facture || ''} onChange={e => editForm(item.id, 'date_facture', e.target.value)} style={inputUnderline} />
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>Échéance</label>
+                      <input type="date" value={f.date_echeance || ''} onChange={e => editForm(item.id, 'date_echeance', e.target.value)} style={inputUnderline} />
+                    </div>
+                    <div>
+                      <label style={fieldLabel}>Statut</label>
+                      <select value={f.statut || 'À payer'} onChange={e => editForm(item.id, 'statut', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                        <option value='À payer'>À payer</option>
+                        <option value='Payée'>Payée</option>
+                      </select>
+                    </div>
+                  </div>
 
-              <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-                <button onClick={() => valider(item)} disabled={busyId === item.id} style={{ ...quietLink, fontSize: 13 }}>
-                  {busyId === item.id ? 'Enregistrement...' : 'Valider → créer la facture fournisseur'}
-                </button>
-                {f.projet_id && (
-                  <button onClick={() => navigate('/projets/' + f.projet_id)} style={{ ...quietLink, fontSize: 12, color: colors.inkFaint, borderBottomColor: colors.inkFaint }}>
-                    Voir le projet
-                  </button>
+                  <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+                    <button onClick={() => valider(item)} disabled={busyId === item.id} style={{ ...quietLink, fontSize: 13 }}>
+                      {busyId === item.id ? 'Enregistrement...' : 'Valider → créer la facture fournisseur'}
+                    </button>
+                    {f.projet_id && (
+                      <button onClick={() => navigate('/projets/' + f.projet_id)} style={{ ...quietLink, fontSize: 12, color: colors.inkFaint, borderBottomColor: colors.inkFaint }}>
+                        Voir le projet
+                      </button>
+                    )}
+                    <button onClick={() => rejeter(item)} disabled={busyId === item.id} style={{ ...quietLink, fontSize: 12, color: colors.danger, borderBottomColor: colors.danger }}>
+                      Rejeter
+                    </button>
+                  </div>
+                </div>
+
+                {item.fichier_path && (
+                  <div style={{ flex: '1 1 360px', minWidth: 280, position: isMobile ? 'static' : 'sticky', top: 16 }}>
+                    <iframe src={getDocUrl(item.fichier_path)} title="Facture" style={{ width: '100%', height: isMobile ? 420 : 560, border: '1px solid ' + colors.line }} />
+                  </div>
                 )}
-                <button onClick={() => rejeter(item)} disabled={busyId === item.id} style={{ ...quietLink, fontSize: 12, color: colors.danger, borderBottomColor: colors.danger }}>
-                  Rejeter
-                </button>
               </div>
             </div>
           )

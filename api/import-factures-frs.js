@@ -45,6 +45,39 @@ const LOT_MAX = 8
 // du nom du projet nettoyé (lettres/chiffres) puis "-NNN".
 const REGEX_NUMERO_COMMANDE = /\bPP-[A-Z0-9]{2,20}-\d{3}\b/i
 
+// Numéro de facture et montant HT : contrairement au numéro de commande
+// (format imposé par Louis, donc fiable), ces deux valeurs n'ont aucun
+// format garanti — chaque fournisseur présente sa facture à sa façon. On
+// tente quand même une extraction best-effort, mais le résultat n'est
+// qu'une SUGGESTION pré-remplie côté BoiteReceptionFactures.jsx : Louis
+// la revoit et la corrige à la validation, elle n'est jamais utilisée
+// telle quelle. Motifs testés sur une facture réelle (AJS) : "FACTURE /
+// N° F20252026-0304" et "Total HT   5 275,00 €".
+const REGEX_NUMERO_FACTURE = [
+  /\bfacture\s*n[°ºo]\s*[:-]?\s*([A-Za-z0-9][A-Za-z0-9/.-]{2,29})/i,
+  /\bn[°ºo]\s*(?:de\s*)?facture\s*[:-]?\s*([A-Za-z0-9][A-Za-z0-9/.-]{2,29})/i,
+  /\binvoice\s*(?:number|no\.?|#)\s*[:-]?\s*([A-Za-z0-9][A-Za-z0-9/.-]{2,29})/i,
+]
+const REGEX_MONTANT_HT = /(?:total|montant|sous[-\s]?total)\s*h\.?\s*t\.?\s*[:-]?\s*(\d[\d\s.,]*\d)(?:\s*€)?/gi
+
+function extraireNumeroFacture(texte) {
+  for (const re of REGEX_NUMERO_FACTURE) {
+    const m = texte.match(re)
+    if (m?.[1]) return m[1].trim()
+  }
+  return null
+}
+
+function extraireMontantHT(texte) {
+  const matches = [...texte.matchAll(REGEX_MONTANT_HT)]
+  if (!matches.length) return null
+  // La dernière occurrence correspond en général au total général
+  // (après d'éventuels sous-totaux intermédiaires).
+  const brut = matches[matches.length - 1][1]
+  const nombre = parseFloat(brut.replace(/\s/g, '').replace(',', '.'))
+  return Number.isFinite(nombre) ? nombre : null
+}
+
 async function obtenirJetonGraph() {
   const tenantId = process.env.AZURE_TENANT_ID
   const clientId = process.env.AZURE_CLIENT_ID
@@ -167,6 +200,8 @@ export default async function handler(req, res) {
 
         const expediteurEmail = (msg.from?.emailAddress?.address || '').toLowerCase()
         const matchNumero = (texte.match(REGEX_NUMERO_COMMANDE) || (msg.subject || '').match(REGEX_NUMERO_COMMANDE) || [])[0]
+        const numeroFactureDetecte = texte ? extraireNumeroFacture(texte) : null
+        const montantHtDetecte = texte ? extraireMontantHT(texte) : null
         const commandeMatch = matchNumero
           ? (commandes || []).find(c => (c.numero || '').toLowerCase() === matchNumero.toLowerCase())
           : null
@@ -193,6 +228,8 @@ export default async function handler(req, res) {
           commande_id: commandeMatch?.id || null,
           projet_id: commandeMatch?.projet_id || null,
           numero_commande_detecte: matchNumero || null,
+          numero_facture_detecte: numeroFactureDetecte,
+          montant_ht_detecte: montantHtDetecte,
           fichier_path: cheminStorage,
           texte_extrait: texte ? texte.slice(0, 20000) : null, // borne large mais raisonnable, pas la peine de stocker un roman
           alerte,
