@@ -1459,18 +1459,29 @@ export default function ProjetDetail() {
     setPdfPreview({ tipo: 'facture_cli', titre: 'Facture ' + (f.numero || ''), filenameBase: f.numero || 'facture', payload: f, lang,
       onEnvoyer: () => { setPdfPreview(null); ouvrirEnvoiFactureCli(f) } })
   }
+  // Aperçu d'un PDF déjà existant dans le storage (rien à générer) — ex. la
+  // facture reçue d'un fournisseur (factures_frs.fichier_path). Même modale
+  // que les documents générés, avec l'URL du fichier au lieu d'un doc jsPDF
+  // (voir previewDoc/telechargerApercu ci-dessous et PdfPreviewModal.jsx).
+  function ouvrirApercuFichier(titre, cheminStorage) {
+    if (!cheminStorage) return
+    setPdfPreview({ tipo: 'fichier', titre, url: getDocUrl(cheminStorage) })
+  }
   // Régénère le doc jsPDF affiché à chaque changement de pdfPreview (type,
   // langue ou document ciblé) — la génération est rapide (quelques tableaux),
-  // pas besoin de la mémoriser plus finement.
+  // pas besoin de la mémoriser plus finement. Le tipo 'fichier' n'a rien à
+  // générer : son URL est déjà dans pdfPreview.url (voir ouvrirApercuFichier).
   const previewDoc = useMemo(() => {
-    if (!pdfPreview) return null
+    if (!pdfPreview || pdfPreview.tipo === 'fichier') return null
     if (pdfPreview.tipo === 'devis') return generateDevisPDF(pdfPreview.lang)
     if (pdfPreview.tipo === 'commande') return generateCmdPDF(pdfPreview.payload, pdfPreview.lang)
     return generateFactureCliPDF(pdfPreview.payload, pdfPreview.lang)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfPreview])
   function telechargerApercu() {
-    if (!previewDoc || !pdfPreview) return
+    if (!pdfPreview) return
+    if (pdfPreview.tipo === 'fichier') { window.open(pdfPreview.url, '_blank', 'noopener,noreferrer'); return }
+    if (!previewDoc) return
     const suffixe = pdfPreview.tipo === 'devis' ? L[pdfPreview.lang].devisSuffix : (pdfPreview.lang === 'en' ? '_EN.pdf' : '.pdf')
     previewDoc.save(pdfPreview.filenameBase + suffixe)
   }
@@ -2090,8 +2101,9 @@ export default function ProjetDetail() {
         <PdfPreviewModal
           titre={pdfPreview.titre}
           doc={previewDoc}
+          url={pdfPreview.tipo === 'fichier' ? pdfPreview.url : undefined}
           lang={pdfPreview.lang}
-          onLangChange={lang => setPdfPreview(p => ({ ...p, lang }))}
+          onLangChange={pdfPreview.tipo === 'fichier' ? undefined : lang => setPdfPreview(p => ({ ...p, lang }))}
           onTelecharger={telechargerApercu}
           onEnvoyer={pdfPreview.onEnvoyer}
           onClose={() => setPdfPreview(null)}
@@ -3431,6 +3443,10 @@ export default function ProjetDetail() {
                         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
                           {isEdited && (
                             <button onClick={() => saveFacFrs(f)} disabled={pennylaneBusy === f.id} style={quietLink}>Enregistrer</button>
+                          )}
+                          {f.fichier_path && (
+                            <button onClick={() => ouvrirApercuFichier('Facture ' + (f.numero || f.fournisseurs?.nom || ''), f.fichier_path)}
+                              title="Revoir le PDF de la facture" style={{ ...quietLink, color: ACCENT_MARGE, borderBottomColor: ACCENT_MARGE }}>Voir le PDF</button>
                           )}
                           <button onClick={() => supprimer('factures_frs', f.id)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>Supprimer</button>
                         </div>

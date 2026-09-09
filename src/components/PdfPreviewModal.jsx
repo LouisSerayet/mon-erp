@@ -1,24 +1,26 @@
 import { useEffect, useMemo } from 'react'
 import { colors, fonts } from '../lib/theme'
 
-// Aperçu visuel d'un PDF généré (devis, commande, facture client) avant de
-// le télécharger ou de l'envoyer — évite de devoir télécharger le fichier
-// juste pour vérifier son rendu. `doc` est un document jsPDF déjà généré
-// (voir ProjetDetail.jsx : previewDoc, calculé selon pdfPreview.tipo) ; ce
-// composant se contente de l'afficher dans un cadre et de proposer les
-// actions courantes. Le blob affiché est régénéré par le parent à chaque
-// changement de langue (voir onLangChange) — ce composant ne fait que
-// transformer le doc courant en URL affichable et la libérer proprement.
-export default function PdfPreviewModal({ titre, doc, lang, onLangChange, onTelecharger, onEnvoyer, onClose }) {
+// Aperçu visuel d'un PDF avant de le télécharger ou de l'envoyer — évite de
+// devoir télécharger le fichier juste pour vérifier son rendu. Deux modes :
+// `doc`, un document jsPDF déjà généré (devis, commande, facture client —
+// voir ProjetDetail.jsx : previewDoc, calculé selon pdfPreview.tipo), ou
+// `url`, l'URL directe d'un PDF déjà existant dans le storage (facture
+// fournisseur reçue par email, pièce jointe...) quand il n'y a rien à
+// générer, juste à afficher. Le blob dérivé de `doc` est régénéré par le
+// parent à chaque changement de langue (voir onLangChange) et libéré
+// proprement ; `url` est affichée telle quelle, rien à révoquer.
+export default function PdfPreviewModal({ titre, doc, url: urlFixe, lang, onLangChange, onTelecharger, onEnvoyer, onClose }) {
   // L'URL est dérivée du doc pendant le rendu (useMemo), pas depuis un
   // effet — seule sa libération (revokeObjectURL), un pur effet de bord
   // externe sans mise à jour d'état React, a besoin d'un useEffect.
-  const url = useMemo(() => (doc ? URL.createObjectURL(doc.output('blob')) : ''), [doc])
+  const urlBlob = useMemo(() => (doc ? URL.createObjectURL(doc.output('blob')) : ''), [doc])
   useEffect(() => {
-    return () => { if (url) URL.revokeObjectURL(url) }
-  }, [url])
+    return () => { if (urlBlob) URL.revokeObjectURL(urlBlob) }
+  }, [urlBlob])
+  const url = doc ? urlBlob : (urlFixe || '')
 
-  if (!doc) return null
+  if (!doc && !urlFixe) return null
 
   const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px solid ' + colors.line, padding: '9px 16px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
   const btnPrimary = { background: colors.ink, color: colors.surface, border: 'none', padding: '9px 18px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
