@@ -93,6 +93,7 @@ export default function ProjetDetail() {
   const [projet, setProjet] = useState(null)
   const [loading, setLoading] = useState(true)
   const [fournisseurs, setFournisseurs] = useState([])
+  const [clientsListe, setClientsListe] = useState([]) // pour le sélecteur "Client" du formulaire Infos — voir saveInfos
   const [commandes, setCommandes] = useState([])
   const [facturesFrs, setFacturesFrs] = useState([])
   const [facturesCli, setFacturesCli] = useState([])
@@ -1007,9 +1008,10 @@ export default function ProjetDetail() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: p }, { data: f }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }] = await Promise.all([
+    const [{ data: p }, { data: f }, { data: cl }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }] = await Promise.all([
       supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois)').eq('id', id).single(),
       supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id, delai_paiement_jours, delai_paiement_fin_mois, autoliquidation').is('deleted_at', null).order('nom'),
+      supabase.from('clients').select('id, nom').is('deleted_at', null).order('nom'),
       supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
@@ -1017,6 +1019,7 @@ export default function ProjetDetail() {
     ])
     setProjet(p)
     setFournisseurs(f || [])
+    setClientsListe(cl || [])
     setCommandes(cmd || [])
     setFacturesFrs(ffrs || [])
     setFacturesCli(fcli || [])
@@ -1179,9 +1182,15 @@ export default function ProjetDetail() {
     // sans rien enregistrer ni expliquer pourquoi : l'ancien nom (et les
     // autres champs) réapparaissait dès le prochain chargement de la page,
     // sans aucun indice sur la cause.
-    const { data, error } = await supabase.from('projets').update(formInfos).eq('id', id).select().single()
+    const { error } = await supabase.from('projets').update(formInfos).eq('id', id)
     if (error) { setInfosError(error.message); return }
-    setProjet(prev => ({ ...prev, ...data }))
+    // Rechargé avec la même jointure clients(...) que fetchAll() plutôt que
+    // de fusionner la ligne mise à jour telle quelle : un simple .update()
+    // ne renvoie que les colonnes de "projets" (client_id en brut, pas
+    // l'objet clients() joint) — sans ce rechargement, le nom du client
+    // affiché resterait celui d'avant après un changement de client_id.
+    const { data: refresh } = await supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois)').eq('id', id).single()
+    if (refresh) setProjet(refresh)
     setEditInfos(false)
   }
 
@@ -2117,7 +2126,7 @@ export default function ProjetDetail() {
               <div style={{ padding: '16px 20px', borderBottom: '1px solid ' + colors.line, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={sectionTitle}>Informations du projet</div>
                 {!editInfos && (
-                  <button onClick={() => { setEditInfos(true); setInfosError(''); setFormInfos({ nom: projet.nom, statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20, numero_bon_commande_client: projet.numero_bon_commande_client || '' }) }}
+                  <button onClick={() => { setEditInfos(true); setInfosError(''); setFormInfos({ nom: projet.nom, client_id: projet.client_id || '', statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20, numero_bon_commande_client: projet.numero_bon_commande_client || '' }) }}
                     style={quietLink}>Modifier</button>
                 )}
               </div>
@@ -2287,6 +2296,14 @@ export default function ProjetDetail() {
                       <label style={fieldLabel}>Nom du projet</label>
                       <input value={formInfos.nom || ''} onChange={e => setFormInfos(p => ({ ...p, nom: e.target.value }))}
                         style={inputUnderline} />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={fieldLabel}>Client</label>
+                      <select value={formInfos.client_id || ''} onChange={e => setFormInfos(p => ({ ...p, client_id: e.target.value }))}
+                        style={{ ...inputUnderline, cursor: 'pointer' }}>
+                        <option value=''>—</option>
+                        {clientsListe.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                      </select>
                     </div>
                     <div>
                       <label style={fieldLabel}>Statut</label>
