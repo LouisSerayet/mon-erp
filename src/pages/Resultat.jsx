@@ -24,7 +24,8 @@ import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/
 // la TVA due est aussi la TVA déduite, effet net nul, donc exclue plutôt
 // que fausser les deux totaux. Les dépenses générales n'ayant pas de
 // taux/exonération renseigné en base, elles sont comptées à 20 % par
-// défaut.
+// défaut, sauf quelques catégories notoirement hors TVA (assurance,
+// impôts, frais bancaires) — voir tauxTvaDepense ci-dessous.
 
 const MOIS_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
 const inputUnderline = {
@@ -34,6 +35,25 @@ const inputUnderline = {
 }
 
 function anneeCourante() { return new Date().getFullYear() }
+
+// Taux de TVA supposé pour une dépense générale, selon sa catégorie (voir
+// CATEGORIES dans lib/depenses.js). Par défaut 20 %, sauf pour les
+// catégories dont la TVA ne s'applique normalement pas du tout :
+//   - Assurance : opérations d'assurance exonérées de TVA (art. 261-C du
+//     CGI) — confirmé sur les attestations AXA de Partenaires Particuliers,
+//     qui portent explicitement cette mention. L'écart HT/TTC observé sur
+//     les cotisations est une taxe spécifique (TSCA), pas de la TVA
+//     déductible.
+//   - Impôts & taxes : par nature hors du champ de la TVA (CFE, IS...).
+//   - Banque & frais financiers : la plupart des prestations bancaires
+//     courantes sont exonérées de TVA (art. 261 C 1° du CGI).
+// Reste approximatif pour les autres catégories (ex. Loyer & charges, qui
+// peut être exonéré ou soumis selon que le bailleur a opté pour la TVA) —
+// à corriger au cas par cas si besoin.
+function tauxTvaDepense(categorie) {
+  if (categorie === 'Assurance' || categorie === 'Impôts & taxes' || categorie === 'Banque & frais financiers') return 0
+  return 20
+}
 
 export default function Resultat() {
   const isMobile = useIsMobile()
@@ -150,8 +170,9 @@ export default function Resultat() {
       }, 0)
       // TVA déductible sur dépenses générales : pas de taux/exonération
       // renseignés en base pour l'instant, donc taux standard 20 % par
-      // défaut sur tout (à affiner si besoin un jour).
-      const tvaDeductibleDepenses = depData.reduce((s, d) => s + (d.montant_ht || 0) * 0.20, 0)
+      // défaut — sauf catégories connues pour être hors TVA (voir
+      // tauxTvaDepense), à affiner encore si besoin un jour.
+      const tvaDeductibleDepenses = depData.reduce((s, d) => s + (d.montant_ht || 0) * (tauxTvaDepense(d.categorie) / 100), 0)
       const tvaDeductible = tvaDeductibleAchats + tvaDeductibleDepenses
       const tvaNette = tvaCollectee - tvaDeductible
 
@@ -180,7 +201,8 @@ export default function Resultat() {
         }),
         ...depData.map(d => ({
           id: 'dep-' + d.id, ref: d.libelle || 'Sans libellé', secondaire: (d.categorie || 'Autre') + (d.fournisseurs?.nom ? ' · ' + d.fournisseurs.nom : ''),
-          source: 'Dépense générale', date: d.date_facture, montantHt: d.montant_ht || 0, taux: 20, tva: (d.montant_ht || 0) * 0.20,
+          source: 'Dépense générale', date: d.date_facture, montantHt: d.montant_ht || 0,
+          taux: tauxTvaDepense(d.categorie), tva: (d.montant_ht || 0) * (tauxTvaDepense(d.categorie) / 100),
         })),
       ].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
 
