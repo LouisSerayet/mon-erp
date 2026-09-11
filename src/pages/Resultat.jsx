@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt, fmtDateFr } from '../lib/calculs'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
+import { calculerTva } from '../lib/tva'
 
 // Compte de résultat "en live" — vue d'ensemble de toute la société sur
 // une période donnée (par défaut l'année en cours), en comptabilité
@@ -20,12 +21,9 @@ import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/
 //
 // Section TVA (collectée / déductible / nette) : indicative, pas une
 // déclaration — même logique de période/données que le reste de la page.
-// Autoliquidation (sous-traitance BTP, article 283 du CGI) neutralisée :
-// la TVA due est aussi la TVA déduite, effet net nul, donc exclue plutôt
-// que fausser les deux totaux. Les dépenses générales n'ayant pas de
-// taux/exonération renseigné en base, elles sont comptées à 20 % par
-// défaut, sauf quelques catégories notoirement hors TVA (assurance,
-// impôts, frais bancaires) — voir tauxTvaDepense ci-dessous.
+// Règles de calcul (autoliquidation, catégories hors TVA...) partagées
+// avec le mémo TVA de l'onglet Trésorerie via lib/tva.js — voir ce
+// fichier pour le détail.
 
 const MOIS_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
 const inputUnderline = {
@@ -35,25 +33,6 @@ const inputUnderline = {
 }
 
 function anneeCourante() { return new Date().getFullYear() }
-
-// Taux de TVA supposé pour une dépense générale, selon sa catégorie (voir
-// CATEGORIES dans lib/depenses.js). Par défaut 20 %, sauf pour les
-// catégories dont la TVA ne s'applique normalement pas du tout :
-//   - Assurance : opérations d'assurance exonérées de TVA (art. 261-C du
-//     CGI) — confirmé sur les attestations AXA de Partenaires Particuliers,
-//     qui portent explicitement cette mention. L'écart HT/TTC observé sur
-//     les cotisations est une taxe spécifique (TSCA), pas de la TVA
-//     déductible.
-//   - Impôts & taxes : par nature hors du champ de la TVA (CFE, IS...).
-//   - Banque & frais financiers : la plupart des prestations bancaires
-//     courantes sont exonérées de TVA (art. 261 C 1° du CGI).
-// Reste approximatif pour les autres catégories (ex. Loyer & charges, qui
-// peut être exonéré ou soumis selon que le bailleur a opté pour la TVA) —
-// à corriger au cas par cas si besoin.
-function tauxTvaDepense(categorie) {
-  if (categorie === 'Assurance' || categorie === 'Impôts & taxes' || categorie === 'Banque & frais financiers') return 0
-  return 20
-}
 
 export default function Resultat() {
   const isMobile = useIsMobile()
@@ -136,75 +115,15 @@ export default function Resultat() {
       const margeBrute = totalCA - totalAchats
       const resultatNet = margeBrute - totalDepenses
 
-      // ── TVA (indicatif) ────────────────────────────────────────────
-      // But : donner un ordre de grandeur de ce qui resterait à reverser
-      // (ou à récupérer) au titre de la TVA sur la période, pas une
-      // déclaration exacte — la déclaration réelle se fait dans Pennylane.
-      // TVA collectée : une facture client compte pour montant_ht × le
-      // taux de TVA de SON projet (par défaut 20 %, voir taux_tva ci-dessus).
-      const tvaCollectee = (fcli || []).reduce((s, f) => {
-        const taux = Number(f.projets?.taux_tva ?? 20)
-        return s + (f.montant_ht || 0) * (taux / 100)
-      }, 0)
-      // TVA déductible sur achats projets : taux fixe de 20 % (les
-      // commandes fournisseurs ne sont pas concernées par taux_tva, voir
-      // sql/tva_taux_migration.sql), sauf régime autoliquidation — le
-      // fournisseur ne facture pas de TVA, Partenaires Particuliers
-      // l'autoliquide (la déclare ET la déduit en même temps) : effet net
-      // nul, donc on l'exclut plutôt que de fausser les deux totaux.
-      // Régime lu sur la commande liée quand il y en a une, sinon sur le
-      // réglage par défaut du fournisseur (voir
-      // sql/fournisseur_autoliquidation_migration.sql).
-      let nbAutoliquidation = 0
-      let montantAutoliquidation = 0
-      const tvaDeductibleAchats = (ffrs || []).reduce((s, f) => {
-        const autoliquidation = f.commandes?.regime_tva
-          ? f.commandes.regime_tva === 'autoliquidation'
-          : !!f.fournisseurs?.autoliquidation
-        if (autoliquidation) {
-          nbAutoliquidation += 1
-          montantAutoliquidation += (f.montant_ht || 0)
-          return s
-        }
-        return s + (f.montant_ht || 0) * 0.20
-      }, 0)
-      // TVA déductible sur dépenses générales : pas de taux/exonération
-      // renseignés en base pour l'instant, donc taux standard 20 % par
-      // défaut — sauf catégories connues pour être hors TVA (voir
-      // tauxTvaDepense), à affiner encore si besoin un jour.
-      const tvaDeductibleDepenses = depData.reduce((s, d) => s + (d.montant_ht || 0) * (tauxTvaDepense(d.categorie) / 100), 0)
-      const tvaDeductible = tvaDeductibleAchats + tvaDeductibleDepenses
-      const tvaNette = tvaCollectee - tvaDeductible
-
-      // Détail ligne par ligne, pour pouvoir retrouver d'où vient chaque
-      // somme ci-dessus plutôt que de devoir faire confiance à un total —
-      // mêmes lignes, mêmes calculs, juste non agrégés. Triés du plus
-      // récent au plus ancien, comme le reste de l'app.
-      const detailCollectee = (fcli || [])
-        .map(f => {
-          const taux = Number(f.projets?.taux_tva ?? 20)
-          return { id: f.id, ref: f.numero || 'Sans numéro', secondaire: f.projets?.nom || '—', date: f.date_facture, montantHt: f.montant_ht || 0, taux, tva: (f.montant_ht || 0) * (taux / 100) }
-        })
-        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-      const detailDeductible = [
-        ...(ffrs || []).map(f => {
-          const autoliquidation = f.commandes?.regime_tva
-            ? f.commandes.regime_tva === 'autoliquidation'
-            : !!f.fournisseurs?.autoliquidation
-          const taux = autoliquidation ? 0 : 20
-          return {
-            id: 'ffrs-' + f.id, ref: f.numero || 'Sans numéro',
-            secondaire: (f.fournisseurs?.nom || '—') + (f.commandes?.numero ? ' · cmd ' + f.commandes.numero : ''),
-            source: autoliquidation ? 'Autoliquidation (neutre)' : 'Achat projet',
-            date: f.date_facture, montantHt: f.montant_ht || 0, taux, tva: (f.montant_ht || 0) * (taux / 100),
-          }
-        }),
-        ...depData.map(d => ({
-          id: 'dep-' + d.id, ref: d.libelle || 'Sans libellé', secondaire: (d.categorie || 'Autre') + (d.fournisseurs?.nom ? ' · ' + d.fournisseurs.nom : ''),
-          source: 'Dépense générale', date: d.date_facture, montantHt: d.montant_ht || 0,
-          taux: tauxTvaDepense(d.categorie), tva: (d.montant_ht || 0) * (tauxTvaDepense(d.categorie) / 100),
-        })),
-      ].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      // TVA (indicatif) — but : donner un ordre de grandeur de ce qui
+      // resterait à reverser (ou à récupérer) au titre de la TVA sur la
+      // période, pas une déclaration exacte (la déclaration réelle se
+      // fait dans Pennylane). Règles de calcul dans lib/tva.js, partagées
+      // avec le mémo de l'onglet Trésorerie.
+      const {
+        tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette,
+        nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible,
+      } = calculerTva({ fcli, ffrs, depData })
 
       const parCategorieMap = {}
       for (const d of depData) {

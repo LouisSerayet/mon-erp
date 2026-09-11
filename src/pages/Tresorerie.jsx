@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { getBankAccounts, getTransactions } from '../lib/useQonto'
+import { supabase } from '../lib/supabase'
+import { fetchTva } from '../lib/tva'
 import { useIsMobile } from '../lib/useIsMobile'
-import { fmtDateFr as fmtDate } from '../lib/calculs'
+import { fmtDateFr as fmtDate, fmtEUR } from '../lib/calculs'
 import { colors, fonts, eyebrow, sectionTitle, quietLink } from '../lib/theme'
 
 export default function Tresorerie() {
@@ -16,8 +18,27 @@ export default function Tresorerie() {
   // jour au moment où une requête concurrente se résout) — permet à loadTx
   // de savoir si sa réponse est encore d'actualité avant de l'afficher.
   const selectedAccountRef = useRef(null)
+  // TVA du mois en cours (à ce jour) — mémo sous le solde total pour avoir
+  // un ordre de grandeur de ce qui n'est "pas vraiment disponible" dans le
+  // solde bancaire (à mettre de côté pour la déclaration de TVA). Même
+  // calcul que le bloc TVA du Compte de résultat (voir lib/tva.js), juste
+  // borné au mois en cours et sans sélecteur — chargement indépendant de
+  // Qonto, une erreur ici n'empêche pas le reste de la page de fonctionner.
+  const [tva, setTva] = useState(null)
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => { fetchData(); chargerTva() }, [])
+
+  async function chargerTva() {
+    try {
+      const auj = new Date()
+      const debut = auj.getFullYear() + '-' + String(auj.getMonth() + 1).padStart(2, '0') + '-01'
+      const fin = auj.toISOString().slice(0, 10)
+      setTva(await fetchTva(supabase, { debut, fin }))
+    } catch (err) {
+      console.error('TVA error:', err)
+      setTva(null)
+    }
+  }
 
   async function fetchData() {
     setLoading(true)
@@ -69,6 +90,11 @@ export default function Tresorerie() {
     ? (Number(n) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
     : '—'
 
+  function moisLabelCourant() {
+    const label = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+    return label.charAt(0).toUpperCase() + label.slice(1)
+  }
+
   const totalSolde = accounts.reduce((s, a) => s + (a.balance_cents || 0), 0)
 
   if (loading) return (
@@ -85,7 +111,7 @@ export default function Tresorerie() {
           <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Trésorerie</h1>
           <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Données en temps réel via Qonto</p>
         </div>
-        <button onClick={fetchData} style={quietLink}>Actualiser</button>
+        <button onClick={() => { fetchData(); chargerTva() }} style={quietLink}>Actualiser</button>
       </div>
 
       {error && (
@@ -99,6 +125,21 @@ export default function Tresorerie() {
         <div style={eyebrow}>Solde total</div>
         <div style={{ fontFamily: fonts.mono, fontSize: 40, fontWeight: 500, margin: '10px 0 4px', fontVariantNumeric: 'tabular-nums' }}>{fmt(totalSolde)}</div>
         <div style={{ fontSize: 12, color: colors.inkFaint }}>{accounts.length} compte(s) Qonto</div>
+        {tva && (
+          <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 10, maxWidth: 420 }}>
+            {tva.tvaNette > 0 ? (
+              <>
+                Dont ≈ <strong style={{ color: colors.warning, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(tva.tvaNette)}</strong> de TVA à mettre de côté ({moisLabelCourant()}) —
+                solde hors TVA : <strong style={{ color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmtEUR(totalSolde / 100 - tva.tvaNette)}</strong>
+              </>
+            ) : tva.tvaNette < 0 ? (
+              <>Aucune TVA à mettre de côté ce mois-ci — crédit de TVA estimé : {fmtEUR(-tva.tvaNette)}</>
+            ) : (
+              <>Aucune TVA à mettre de côté ce mois-ci.</>
+            )}
+            {' '}Estimation indicative — détail dans Compte de résultat.
+          </div>
+        )}
       </div>
 
       {/* Comptes */}
