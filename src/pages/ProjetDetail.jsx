@@ -383,7 +383,7 @@ export default function ProjetDetail() {
       const bodySynthese = lotsAvecDetail.map(lot => ([
         t.lot(lot.numero),
         lot.categorie || '',
-        lot.total_ht > 0 ? fmtMontant(lot.total_ht, lang) : '',
+        lot.total_ht !== 0 ? fmtMontant(lot.total_ht, lang) : '',
       ]))
       if (totalSansLotSynthese > 0) bodySynthese.push([t.horsLot, '', fmtMontant(totalSansLotSynthese, lang)])
 
@@ -391,7 +391,7 @@ export default function ProjetDetail() {
         startY: y,
         head: [[t.colNumero, t.colCategorie, t.colTotalHtEur]],
         body: bodySynthese,
-        foot: [['', t.totalHtFoot, totalHT > 0 ? fmtMontant(totalHT, lang) : '']],
+        foot: [['', t.totalHtFoot, totalHT !== 0 ? fmtMontant(totalHT, lang) : '']],
         styles: { ...TABLE_STYLE, fontSize: 9, cellPadding: 3 },
         headStyles: TABLE_HEAD_STYLE,
         footStyles: TABLE_FOOT_STYLE,
@@ -437,7 +437,7 @@ export default function ProjetDetail() {
           // On n'ajoute le titre/texte que s'il y a au moins une ligne avec montant après lui
           const hasLignesAvecMontant = lgLot.slice(li + 1).some(
             ll => ll.type !== 'titre' && ll.categorie_ligne !== 'texte' && ll.categorie_ligne !== 'option'
-              && !(ll.categorie_ligne === 'variante' && ll.variante_active === false) && (ll.total_ht > 0 || ll.prix_unit_ht > 0)
+              && !(ll.categorie_ligne === 'variante' && ll.variante_active === false) && (ll.total_ht !== 0 || ll.prix_unit_ht !== 0)
           )
           if (hasLignesAvecMontant || l.categorie_ligne === 'texte') {
             body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
@@ -450,9 +450,9 @@ export default function ProjetDetail() {
             l.numero || '',
             l.descriptif || '',
             l.unite || '',
-            l.qte > 0 ? String(l.qte) : '',
-            l.prix_unit_ht > 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
-            l.total_ht > 0 ? fmtMontant(l.total_ht, lang) : '',
+            l.qte !== 0 ? String(l.qte) : '',
+            l.prix_unit_ht !== 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
+            l.total_ht !== 0 ? fmtMontant(l.total_ht, lang) : '',
           ])
         }
       }
@@ -461,7 +461,7 @@ export default function ProjetDetail() {
         startY: 20,
         head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
         body,
-        foot: [['', '', '', '', t.totalLot(lot.numero), lot.total_ht > 0 ? fmtMontant(lot.total_ht, lang) : '']],
+        foot: [['', '', '', '', t.totalLot(lot.numero), lot.total_ht !== 0 ? fmtMontant(lot.total_ht, lang) : '']],
         styles: { ...TABLE_STYLE, fontSize: 7.5, cellPadding: 2 },
         headStyles: TABLE_HEAD_STYLE,
         footStyles: TABLE_FOOT_STYLE,
@@ -493,7 +493,7 @@ export default function ProjetDetail() {
         if (l.type === 'titre' || (l.type === 'ligne' && l.categorie_ligne === 'texte')) {
           const hasLignesAvecMontant = lignesSansLot.slice(li + 1).some(
             ll => ll.type !== 'titre' && ll.categorie_ligne !== 'texte' && ll.categorie_ligne !== 'option'
-              && !(ll.categorie_ligne === 'variante' && ll.variante_active === false) && (ll.total_ht > 0 || ll.prix_unit_ht > 0)
+              && !(ll.categorie_ligne === 'variante' && ll.variante_active === false) && (ll.total_ht !== 0 || ll.prix_unit_ht !== 0)
           )
           if (hasLignesAvecMontant || l.categorie_ligne === 'texte') {
             body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
@@ -505,9 +505,9 @@ export default function ProjetDetail() {
             l.numero || '',
             l.descriptif || '',
             l.unite || '',
-            l.qte > 0 ? String(l.qte) : '',
-            l.prix_unit_ht > 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
-            l.total_ht > 0 ? fmtMontant(l.total_ht, lang) : '',
+            l.qte !== 0 ? String(l.qte) : '',
+            l.prix_unit_ht !== 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
+            l.total_ht !== 0 ? fmtMontant(l.total_ht, lang) : '',
           ])
         }
       }
@@ -516,7 +516,7 @@ export default function ProjetDetail() {
         startY: 20,
         head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
         body,
-        foot: [['', '', '', '', t.totalHt.toUpperCase(), totalSansLot > 0 ? fmtMontant(totalSansLot, lang) : '']],
+        foot: [['', '', '', '', t.totalHt.toUpperCase(), totalSansLot !== 0 ? fmtMontant(totalSansLot, lang) : '']],
         styles: { ...TABLE_STYLE, fontSize: 7.5, cellPadding: 2 },
         headStyles: TABLE_HEAD_STYLE,
         footStyles: TABLE_FOOT_STYLE,
@@ -553,21 +553,21 @@ export default function ProjetDetail() {
         l.numero || '',
         l.descriptif || '',
         l.unite || '',
-        l.qte > 0 ? String(l.qte) : '',
-        l.prix_unit_ht > 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
-        l.total_ht > 0 ? fmtMontant(l.total_ht, lang) : '',
+        l.qte !== 0 ? String(l.qte) : '',
+        l.prix_unit_ht !== 0 ? fmtMontant(l.prix_unit_ht, lang) : '',
+        l.total_ht !== 0 ? fmtMontant(l.total_ht, lang) : '',
       ])
       const enteteGroupe = libelle => ([{ content: libelle.toUpperCase(), colSpan: 6,
         styles: { fontStyle: 'bold', fillColor: WARNING_BG, textColor: WARNING, fontSize: 7 } }])
 
       const bodyOptions = []
       for (const lot of lotsData) {
-        const optsDuLot = lignesOptions.filter(l => l.lot === lot.numero && (l.total_ht > 0 || l.prix_unit_ht > 0 || l.qte > 0))
+        const optsDuLot = lignesOptions.filter(l => l.lot === lot.numero && (l.total_ht !== 0 || l.prix_unit_ht !== 0 || l.qte !== 0))
         if (!optsDuLot.length) continue
         bodyOptions.push(enteteGroupe(t.lot(lot.numero) + ' — ' + (lot.categorie || '')))
         for (const l of optsDuLot) bodyOptions.push(ligneOptionVersRow(l))
       }
-      const optsSansLot = lignesOptions.filter(l => !l.lot && (l.total_ht > 0 || l.prix_unit_ht > 0 || l.qte > 0))
+      const optsSansLot = lignesOptions.filter(l => !l.lot && (l.total_ht !== 0 || l.prix_unit_ht !== 0 || l.qte !== 0))
       if (optsSansLot.length) {
         bodyOptions.push(enteteGroupe(t.lignesSansLot))
         for (const l of optsSansLot) bodyOptions.push(ligneOptionVersRow(l))
@@ -577,7 +577,7 @@ export default function ProjetDetail() {
         startY: 20,
         head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
         body: bodyOptions,
-        foot: [['', '', '', '', t.totalOptions, totalOptions > 0 ? fmtMontant(totalOptions, lang) : '']],
+        foot: [['', '', '', '', t.totalOptions, totalOptions !== 0 ? fmtMontant(totalOptions, lang) : '']],
         styles: { ...TABLE_STYLE, fontSize: 7.5, cellPadding: 2 },
         headStyles: { ...TABLE_HEAD_STYLE, fillColor: WARNING_BG, textColor: WARNING, lineColor: WARNING },
         footStyles: { ...TABLE_FOOT_STYLE, fillColor: WARNING_BG, textColor: WARNING, lineColor: WARNING },
@@ -2857,8 +2857,8 @@ export default function ProjetDetail() {
                                   style={{ ...inputStyle, color: colors.success }} />
                               )}
                             </td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente > 0 ? colors.success : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
-                              {totalVente > 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente !== 0 ? colors.success : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
+                              {totalVente !== 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               {/* Coeff — sans objet pour une ligne Honoraire, bloqué en mode V÷A (calculé) */}
@@ -2886,8 +2886,8 @@ export default function ProjetDetail() {
                                   style={{ ...inputStyle, color: colors.focus }} />
                               )}
                             </td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? colors.focus : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
-                              {estHonoraire ? '—' : totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat !== 0 ? colors.focus : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
+                              {estHonoraire ? '—' : totalAchat !== 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px', whiteSpace: 'nowrap' }}>
                               {estHonoraire ? (
@@ -3005,8 +3005,8 @@ export default function ProjetDetail() {
                               {modeLocal === 'ac' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>{getLigneVal(l, 'prix_unit_ht') || '—'}</div>
                               : <input type="number" min="0" value={getLigneVal(l, 'prix_unit_ht')} onChange={e => editLigne(l.id, 'prix_unit_ht', e.target.value, l)} style={{ ...inputStyle, color: colors.success }} />}
                             </td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente > 0 ? colors.success : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
-                              {totalVente > 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalVente !== 0 ? colors.success : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
+                              {totalVente !== 0 ? Number(totalVente).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px' }}>
                               {estHonoraire ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>—</div>
@@ -3018,8 +3018,8 @@ export default function ProjetDetail() {
                               : modeLocal === 'vc' ? <div style={{ padding: '3px 6px', fontSize: 12, textAlign: 'right', color: colors.inkFaint }}>{getLigneVal(l, 'prix_achat_ht') || '—'}</div>
                               : <input type="number" min="0" value={getLigneVal(l, 'prix_achat_ht')} onChange={e => editLigne(l.id, 'prix_achat_ht', e.target.value, l)} style={{ ...inputStyle, color: colors.focus }} />}
                             </td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat > 0 ? colors.focus : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
-                              {estHonoraire ? '—' : totalAchat > 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: totalAchat !== 0 ? colors.focus : colors.inkFaint, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
+                              {estHonoraire ? '—' : totalAchat !== 0 ? Number(totalAchat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                             </td>
                             <td style={{ padding: '4px 4px', whiteSpace: 'nowrap' }}>
                               {estHonoraire ? (
@@ -3145,7 +3145,7 @@ export default function ProjetDetail() {
                           <div key={lot.id}>
                             <div onClick={() => { setFormCmd(p => ({ ...p, description: 'LOT ' + lot.numero + ' — ' + (lot.categorie || '') + (lot.descriptif ? ' · ' + lot.descriptif : ''), montant_ht: lot.total_achat || lot.total_ht || '' })); setShowLignesSelector(false) }}
                               style={{ padding: '5px 8px', cursor: 'pointer', fontWeight: 600, fontSize: 12, color: colors.ink, background: colors.neutralChip, marginBottom: 2 }}>
-                              LOT {lot.numero} — {lot.categorie} · {lot.total_achat > 0 ? Number(lot.total_achat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : ''}
+                              LOT {lot.numero} — {lot.categorie} · {lot.total_achat !== 0 ? Number(lot.total_achat).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : ''}
                             </div>
                           </div>
                         ))}
