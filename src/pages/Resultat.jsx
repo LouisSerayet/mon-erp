@@ -17,6 +17,14 @@ import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/
 // générales par catégorie, résultat net. Pour le détail projet par
 // projet, voir l'onglet "Rentabilité" de chaque projet ; pour le détail
 // facture par facture, voir la page "Dépenses" ou l'onglet "Factures".
+//
+// Section TVA (collectée / déductible / nette) : indicative, pas une
+// déclaration — même logique de période/données que le reste de la page.
+// Autoliquidation (sous-traitance BTP, article 283 du CGI) neutralisée :
+// la TVA due est aussi la TVA déduite, effet net nul, donc exclue plutôt
+// que fausser les deux totaux. Les dépenses générales n'ayant pas de
+// taux/exonération renseigné en base, elles sont comptées à 20 % par
+// défaut.
 
 const MOIS_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
 const inputUnderline = {
@@ -35,7 +43,7 @@ export default function Resultat() {
   const [periodePerso, setPeriodePerso] = useState(false)
   const [debutPerso, setDebutPerso] = useState('')
   const [finPerso, setFinPerso] = useState('')
-  const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois }
+  const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois, tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette, nbAutoliquidation, montantAutoliquidation }
   const [sansDate, setSansDate] = useState([]) // lignes sans date_facture, donc invisibles dans le calcul ci-dessus quelle que soit la période
 
   const { debut, fin } = periodePerso && debutPerso && finPerso
@@ -68,8 +76,13 @@ export default function Resultat() {
     try {
       const [{ data: fcli, error: fcliErr }, { data: ffrs, error: ffrsErr }, { data: dep, error: depErr },
         { data: fcliSansDate }, { data: ffrsSansDate }, { data: depSansDate }] = await Promise.all([
-        supabase.from('factures_cli').select('montant_ht, date_facture').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
-        supabase.from('factures_frs').select('montant_ht, date_facture').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+        // projets(taux_tva) : le taux de TVA d'une facture client dépend du
+        // projet auquel elle est rattachée (voir sql/tva_taux_migration.sql).
+        supabase.from('factures_cli').select('montant_ht, date_facture, projets(taux_tva)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+        // commandes(regime_tva) / fournisseurs(autoliquidation) : une facture
+        // fournisseur en autoliquidation (sous-traitance BTP, article 283 du
+        // CGI) n'a pas de TVA à déduire — voir le calcul de TVA plus bas.
+        supabase.from('factures_frs').select('montant_ht, date_facture, commandes(regime_tva), fournisseurs(autoliquidation)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
         supabase.from('depenses_generales').select('montant_ht, date_facture, categorie').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
         // Une ligne sans date de facture ne peut matcher aucun filtre
         // gte/lte ci-dessus (comparaison avec null) : elle est donc invisible
@@ -99,6 +112,45 @@ export default function Resultat() {
       const totalDepenses = depData.reduce((s, d) => s + (d.montant_ht || 0), 0)
       const margeBrute = totalCA - totalAchats
       const resultatNet = margeBrute - totalDepenses
+
+      // ── TVA (indicatif) ────────────────────────────────────────────
+      // But : donner un ordre de grandeur de ce qui resterait à reverser
+      // (ou à récupérer) au titre de la TVA sur la période, pas une
+      // déclaration exacte — la déclaration réelle se fait dans Pennylane.
+      // TVA collectée : une facture client compte pour montant_ht × le
+      // taux de TVA de SON projet (par défaut 20 %, voir taux_tva ci-dessus).
+      const tvaCollectee = (fcli || []).reduce((s, f) => {
+        const taux = Number(f.projets?.taux_tva ?? 20)
+        return s + (f.montant_ht || 0) * (taux / 100)
+      }, 0)
+      // TVA déductible sur achats projets : taux fixe de 20 % (les
+      // commandes fournisseurs ne sont pas concernées par taux_tva, voir
+      // sql/tva_taux_migration.sql), sauf régime autoliquidation — le
+      // fournisseur ne facture pas de TVA, Partenaires Particuliers
+      // l'autoliquide (la déclare ET la déduit en même temps) : effet net
+      // nul, donc on l'exclut plutôt que de fausser les deux totaux.
+      // Régime lu sur la commande liée quand il y en a une, sinon sur le
+      // réglage par défaut du fournisseur (voir
+      // sql/fournisseur_autoliquidation_migration.sql).
+      let nbAutoliquidation = 0
+      let montantAutoliquidation = 0
+      const tvaDeductibleAchats = (ffrs || []).reduce((s, f) => {
+        const autoliquidation = f.commandes?.regime_tva
+          ? f.commandes.regime_tva === 'autoliquidation'
+          : !!f.fournisseurs?.autoliquidation
+        if (autoliquidation) {
+          nbAutoliquidation += 1
+          montantAutoliquidation += (f.montant_ht || 0)
+          return s
+        }
+        return s + (f.montant_ht || 0) * 0.20
+      }, 0)
+      // TVA déductible sur dépenses générales : pas de taux/exonération
+      // renseignés en base pour l'instant, donc taux standard 20 % par
+      // défaut sur tout (à affiner si besoin un jour).
+      const tvaDeductibleDepenses = depData.reduce((s, d) => s + (d.montant_ht || 0) * 0.20, 0)
+      const tvaDeductible = tvaDeductibleAchats + tvaDeductibleDepenses
+      const tvaNette = tvaCollectee - tvaDeductible
 
       const parCategorieMap = {}
       for (const d of depData) {
@@ -140,7 +192,11 @@ export default function Resultat() {
         if (idx !== undefined) parMois[idx].charges += (d.montant_ht || 0)
       }
 
-      setData({ totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois })
+      setData({
+        totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois,
+        tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette,
+        nbAutoliquidation, montantAutoliquidation,
+      })
     } catch (err) {
       setError('Impossible de calculer le compte de résultat : ' + err.message)
     }
@@ -223,6 +279,36 @@ export default function Resultat() {
                 <div style={{ fontSize: 11, color: colors.inkFaint }}>{k.sub}</div>
               </div>
             ))}
+          </div>
+
+          {/* TVA (indicatif) */}
+          <div style={{ borderTop: '1px solid ' + colors.line, paddingTop: 28, margin: '0 0 40px' }}>
+            <h2 style={sectionTitle}>TVA sur la période</h2>
+            <p style={{ fontSize: 12, color: colors.inkFaint, margin: '10px 0 20px', maxWidth: 620 }}>
+              Ordre de grandeur, pas une déclaration : calculé sur les mêmes factures que ci-dessus (avec date, émises ou reçues sur la période).
+              {data.nbAutoliquidation > 0 && (
+                <> {data.nbAutoliquidation} facture{data.nbAutoliquidation > 1 ? 's' : ''} fournisseur{data.nbAutoliquidation > 1 ? 's' : ''} en autoliquidation ({fmt(data.montantAutoliquidation)}) neutre{data.nbAutoliquidation > 1 ? 's' : ''} pour la TVA, donc exclue{data.nbAutoliquidation > 1 ? 's' : ''} du calcul.</>
+              )}
+              {' '}À confirmer avec Pennylane ou ton comptable avant de reverser quoi que ce soit.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)' }}>
+              {[
+                { label: 'TVA collectée', value: fmt(data.tvaCollectee), sub: 'Sur les factures clients' },
+                { label: 'TVA déductible', value: fmt(data.tvaDeductible), sub: 'Achats ' + fmt(data.tvaDeductibleAchats) + ' + dépenses ' + fmt(data.tvaDeductibleDepenses) },
+                {
+                  label: data.tvaNette >= 0 ? 'TVA à reverser' : 'Crédit de TVA',
+                  value: fmt(Math.abs(data.tvaNette)),
+                  sub: data.tvaNette >= 0 ? 'Collectée − déductible' : 'Déductible > collectée',
+                  color: data.tvaNette >= 0 ? colors.warning : colors.success,
+                },
+              ].map((k, i) => (
+                <div key={k.label} style={{ padding: isMobile ? '16px 0' : '0 24px', borderLeft: (!isMobile && i > 0) ? '1px solid ' + colors.line : 'none', borderTop: (isMobile && i > 1) ? '1px solid ' + colors.line : 'none' }}>
+                  <div style={eyebrow}>{k.label}</div>
+                  <div style={{ fontFamily: fonts.mono, fontSize: 20, fontWeight: 500, margin: '8px 0 4px', fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
+                  <div style={{ fontSize: 11, color: colors.inkFaint }}>{k.sub}</div>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr', gap: isMobile ? 40 : 48 }}>
