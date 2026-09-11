@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
-import { fmtEUR as fmt } from '../lib/calculs'
+import { fmtEUR as fmt, fmtDateFr } from '../lib/calculs'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 
 // Compte de résultat "en live" — vue d'ensemble de toute la société sur
@@ -43,7 +43,8 @@ export default function Resultat() {
   const [periodePerso, setPeriodePerso] = useState(false)
   const [debutPerso, setDebutPerso] = useState('')
   const [finPerso, setFinPerso] = useState('')
-  const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois, tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette, nbAutoliquidation, montantAutoliquidation }
+  const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois, tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette, nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible }
+  const [detailTvaOuvert, setDetailTvaOuvert] = useState(null) // null | 'collectee' | 'deductible' — quel détail TVA est déplié
   const [sansDate, setSansDate] = useState([]) // lignes sans date_facture, donc invisibles dans le calcul ci-dessus quelle que soit la période
 
   const { debut, fin } = periodePerso && debutPerso && finPerso
@@ -78,12 +79,14 @@ export default function Resultat() {
         { data: fcliSansDate }, { data: ffrsSansDate }, { data: depSansDate }] = await Promise.all([
         // projets(taux_tva) : le taux de TVA d'une facture client dépend du
         // projet auquel elle est rattachée (voir sql/tva_taux_migration.sql).
-        supabase.from('factures_cli').select('montant_ht, date_facture, projets(taux_tva)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+        // numero/projets(nom) : uniquement pour le détail TVA ligne par
+        // ligne (voir plus bas), pas utilisés dans les totaux CA/marge.
+        supabase.from('factures_cli').select('id, numero, montant_ht, date_facture, projets(nom, taux_tva)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
         // commandes(regime_tva) / fournisseurs(autoliquidation) : une facture
         // fournisseur en autoliquidation (sous-traitance BTP, article 283 du
         // CGI) n'a pas de TVA à déduire — voir le calcul de TVA plus bas.
-        supabase.from('factures_frs').select('montant_ht, date_facture, commandes(regime_tva), fournisseurs(autoliquidation)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
-        supabase.from('depenses_generales').select('montant_ht, date_facture, categorie').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+        supabase.from('factures_frs').select('id, numero, montant_ht, date_facture, commandes(numero, regime_tva), fournisseurs(nom, autoliquidation)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+        supabase.from('depenses_generales').select('id, libelle, montant_ht, date_facture, categorie, fournisseurs(nom)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
         // Une ligne sans date de facture ne peut matcher aucun filtre
         // gte/lte ci-dessus (comparaison avec null) : elle est donc invisible
         // dans le compte de résultat quelle que soit la période choisie, sans
@@ -152,6 +155,35 @@ export default function Resultat() {
       const tvaDeductible = tvaDeductibleAchats + tvaDeductibleDepenses
       const tvaNette = tvaCollectee - tvaDeductible
 
+      // Détail ligne par ligne, pour pouvoir retrouver d'où vient chaque
+      // somme ci-dessus plutôt que de devoir faire confiance à un total —
+      // mêmes lignes, mêmes calculs, juste non agrégés. Triés du plus
+      // récent au plus ancien, comme le reste de l'app.
+      const detailCollectee = (fcli || [])
+        .map(f => {
+          const taux = Number(f.projets?.taux_tva ?? 20)
+          return { id: f.id, ref: f.numero || 'Sans numéro', secondaire: f.projets?.nom || '—', date: f.date_facture, montantHt: f.montant_ht || 0, taux, tva: (f.montant_ht || 0) * (taux / 100) }
+        })
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      const detailDeductible = [
+        ...(ffrs || []).map(f => {
+          const autoliquidation = f.commandes?.regime_tva
+            ? f.commandes.regime_tva === 'autoliquidation'
+            : !!f.fournisseurs?.autoliquidation
+          const taux = autoliquidation ? 0 : 20
+          return {
+            id: 'ffrs-' + f.id, ref: f.numero || 'Sans numéro',
+            secondaire: (f.fournisseurs?.nom || '—') + (f.commandes?.numero ? ' · cmd ' + f.commandes.numero : ''),
+            source: autoliquidation ? 'Autoliquidation (neutre)' : 'Achat projet',
+            date: f.date_facture, montantHt: f.montant_ht || 0, taux, tva: (f.montant_ht || 0) * (taux / 100),
+          }
+        }),
+        ...depData.map(d => ({
+          id: 'dep-' + d.id, ref: d.libelle || 'Sans libellé', secondaire: (d.categorie || 'Autre') + (d.fournisseurs?.nom ? ' · ' + d.fournisseurs.nom : ''),
+          source: 'Dépense générale', date: d.date_facture, montantHt: d.montant_ht || 0, taux: 20, tva: (d.montant_ht || 0) * 0.20,
+        })),
+      ].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+
       const parCategorieMap = {}
       for (const d of depData) {
         const cat = d.categorie || 'Autre'
@@ -195,7 +227,7 @@ export default function Resultat() {
       setData({
         totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois,
         tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette,
-        nbAutoliquidation, montantAutoliquidation,
+        nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible,
       })
     } catch (err) {
       setError('Impossible de calculer le compte de résultat : ' + err.message)
@@ -293,8 +325,8 @@ export default function Resultat() {
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)' }}>
               {[
-                { label: 'TVA collectée', value: fmt(data.tvaCollectee), sub: 'Sur les factures clients' },
-                { label: 'TVA déductible', value: fmt(data.tvaDeductible), sub: 'Achats ' + fmt(data.tvaDeductibleAchats) + ' + dépenses ' + fmt(data.tvaDeductibleDepenses) },
+                { label: 'TVA collectée', value: fmt(data.tvaCollectee), sub: 'Sur les factures clients', detailKey: 'collectee' },
+                { label: 'TVA déductible', value: fmt(data.tvaDeductible), sub: 'Achats ' + fmt(data.tvaDeductibleAchats) + ' + dépenses ' + fmt(data.tvaDeductibleDepenses), detailKey: 'deductible' },
                 {
                   label: data.tvaNette >= 0 ? 'TVA à reverser' : 'Crédit de TVA',
                   value: fmt(Math.abs(data.tvaNette)),
@@ -306,9 +338,78 @@ export default function Resultat() {
                   <div style={eyebrow}>{k.label}</div>
                   <div style={{ fontFamily: fonts.mono, fontSize: 20, fontWeight: 500, margin: '8px 0 4px', fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
                   <div style={{ fontSize: 11, color: colors.inkFaint }}>{k.sub}</div>
+                  {k.detailKey && (
+                    <button onClick={() => setDetailTvaOuvert(p => (p === k.detailKey ? null : k.detailKey))} style={{ ...quietLink, fontSize: 11, marginTop: 8, display: 'inline-block' }}>
+                      {detailTvaOuvert === k.detailKey ? 'Masquer le détail' : 'Voir le détail'}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
+
+            {detailTvaOuvert === 'collectee' && (
+              <div style={{ marginTop: 24, borderTop: '1px solid ' + colors.line, overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: isMobile ? 560 : 'auto' }}>
+                  <thead>
+                    <tr style={{ color: colors.inkFaint, fontSize: 10.5, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Date</th>
+                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Facture</th>
+                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Projet</th>
+                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>Montant HT</th>
+                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>Taux</th>
+                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>TVA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.detailCollectee.length === 0 ? (
+                      <tr><td colSpan={6} style={{ padding: '20px 8px', textAlign: 'center', color: colors.inkFaint }}>Aucune facture client sur cette période.</td></tr>
+                    ) : data.detailCollectee.map(l => (
+                      <tr key={l.id} style={{ borderTop: '1px solid ' + colors.line }}>
+                        <td style={{ padding: '9px 8px', color: colors.inkMuted, whiteSpace: 'nowrap' }}>{fmtDateFr(l.date)}</td>
+                        <td style={{ padding: '9px 8px' }}>{l.ref}</td>
+                        <td style={{ padding: '9px 8px', color: colors.inkMuted }}>{l.secondaire}</td>
+                        <td style={{ padding: '9px 8px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(l.montantHt)}</td>
+                        <td style={{ padding: '9px 8px', textAlign: 'right', color: colors.inkMuted }}>{l.taux} %</td>
+                        <td style={{ padding: '9px 8px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(l.tva)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {detailTvaOuvert === 'deductible' && (
+              <div style={{ marginTop: 24, borderTop: '1px solid ' + colors.line, overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: isMobile ? 640 : 'auto' }}>
+                  <thead>
+                    <tr style={{ color: colors.inkFaint, fontSize: 10.5, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Date</th>
+                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Référence</th>
+                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Source</th>
+                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Détail</th>
+                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>Montant HT</th>
+                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>Taux</th>
+                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>TVA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.detailDeductible.length === 0 ? (
+                      <tr><td colSpan={7} style={{ padding: '20px 8px', textAlign: 'center', color: colors.inkFaint }}>Aucun achat ou dépense sur cette période.</td></tr>
+                    ) : data.detailDeductible.map(l => (
+                      <tr key={l.id} style={{ borderTop: '1px solid ' + colors.line }}>
+                        <td style={{ padding: '9px 8px', color: colors.inkMuted, whiteSpace: 'nowrap' }}>{fmtDateFr(l.date)}</td>
+                        <td style={{ padding: '9px 8px' }}>{l.ref}</td>
+                        <td style={{ padding: '9px 8px', color: l.source === 'Autoliquidation (neutre)' ? colors.warning : colors.inkMuted, whiteSpace: 'nowrap' }}>{l.source}</td>
+                        <td style={{ padding: '9px 8px', color: colors.inkMuted }}>{l.secondaire}</td>
+                        <td style={{ padding: '9px 8px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(l.montantHt)}</td>
+                        <td style={{ padding: '9px 8px', textAlign: 'right', color: colors.inkMuted }}>{l.taux} %</td>
+                        <td style={{ padding: '9px 8px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(l.tva)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr', gap: isMobile ? 40 : 48 }}>
