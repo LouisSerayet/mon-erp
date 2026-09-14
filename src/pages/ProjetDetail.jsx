@@ -2703,13 +2703,20 @@ export default function ProjetDetail() {
                 const totalAchatGlobal = achatLotsOnly + achatSansLot
                 const margeGlobal = totalVenteGlobal - totalAchatGlobal
                 const tauxGlobal = totalVenteGlobal > 0 ? ((margeGlobal / totalVenteGlobal) * 100).toFixed(1) : 0
+                // Coeff. prévu = Vente ÷ Achat sur l'ensemble du projet —
+                // même logique que le mode "Vente ÷ Achat → Coeff" d'une
+                // ligne (voir calculerLigne, lib/calculs.js), mais calculé
+                // sur les totaux globaux plutôt que ligne par ligne, pour
+                // donner un repère d'ensemble à côté du taux de marge.
+                const coeffGlobal = totalAchatGlobal > 0 ? (totalVenteGlobal / totalAchatGlobal).toFixed(2) : '—'
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid ' + colors.line }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 24, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid ' + colors.line }}>
                     {[
                       { label: 'Total Vente HT', value: totalVenteGlobal, color: colors.success },
                       { label: 'Total Achat HT', value: totalAchatGlobal, color: colors.focus },
                       { label: 'Marge brute', value: margeGlobal, color: margeGlobal >= 0 ? colors.success : colors.danger },
                       { label: 'Taux de marge', value: tauxGlobal + '%', color: ACCENT_MARGE, isText: true },
+                      { label: 'Coeff. prévu', value: coeffGlobal, color: ACCENT_MARGE, isText: true },
                     ].map(({ label, value, color, isText }) => (
                       <div key={label}>
                         <div style={eyebrow}>{label}</div>
