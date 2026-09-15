@@ -47,3 +47,20 @@ export function IconSupprimer({ size = 15, style }) {
     </svg>
   )
 }
+
+// Poignée de glisser-déposer (6 points, style "grip" standard) — voir
+// ProjetDetail.jsx onglet Lignes, glisser une ligne pour la déplacer vers un
+// autre lot. Seule icône "pleine" (points remplis) du fichier plutôt que des
+// traits : un grip se reconnaît par sa texture de points, pas par un tracé.
+export function IconGlisser({ size = 13, style }) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} style={{ display: 'block', ...style }} fill="currentColor" stroke="none">
+      <circle cx="7" cy="5" r="1.3" />
+      <circle cx="13" cy="5" r="1.3" />
+      <circle cx="7" cy="10" r="1.3" />
+      <circle cx="13" cy="10" r="1.3" />
+      <circle cx="7" cy="15" r="1.3" />
+      <circle cx="13" cy="15" r="1.3" />
+    </svg>
+  )
+}

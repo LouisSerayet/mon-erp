@@ -15,7 +15,7 @@ import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQon
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
-import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer } from '../components/Icons'
+import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer, IconGlisser } from '../components/Icons'
 
 const TABS = [
   { id: 'infos', label: 'Infos' },
@@ -156,6 +156,15 @@ export default function ProjetDetail() {
   const [confirmSuppressionLignesOuvert, setConfirmSuppressionLignesOuvert] = useState(false)
   const [suppressionLignesBusy, setSuppressionLignesBusy] = useState(false)
   const [lotsReduits, setLotsReduits] = useState({}) // { [lotNumero]: true/false }
+  // Glisser-déposer d'une ligne vers un autre lot (onglet Lignes) — voir
+  // deplacerLigne. `ligneDrag` retient la ligne en cours de glissement
+  // (id + lot d'origine), `ligneDragOverKey` la cible survolée en ce moment
+  // (id de ligne, ou 'lot:<numero>'/'lot:sans' pour un dépôt en fin de
+  // groupe) pour l'indication visuelle, et `ligneDragBusy` empêche deux
+  // dépôts concurrents pendant l'enregistrement Supabase.
+  const [ligneDrag, setLigneDrag] = useState(null) // { id, lot } | null
+  const [ligneDragOverKey, setLigneDragOverKey] = useState(null)
+  const [ligneDragBusy, setLigneDragBusy] = useState(false)
   const [showAddLigne, setShowAddLigne] = useState(false)
   const [ligneError, setLigneError] = useState('')
   const [showAddLot, setShowAddLot] = useState(false)
@@ -940,6 +949,95 @@ export default function ProjetDetail() {
       else idsGroupe.forEach(i => next.add(i))
       return next
     })
+  }
+
+  // ── Glisser-déposer d'une ligne vers un autre lot ───────────────────
+  // `avantId` = id de la ligne juste avant laquelle on dépose (insertion
+  // dans le tri), ou null pour un dépôt "en fin de groupe" (sur l'en-tête
+  // du lot, ou dans une zone vide). `nouveauLot` = numéro du lot cible, ou
+  // null/'' pour "Lignes sans lot".
+  //
+  // `ordre` pilote à la fois l'ordre global (requête `.order('ordre')`) et,
+  // via lignesParLot qui préserve cet ordre en groupant par lot, l'ordre
+  // affiché à l'intérieur de chaque lot — déplacer une ligne revient donc à
+  // la retirer du tableau trié, la réinsérer à la position visée avec son
+  // nouveau `lot`, puis renuméroter (0, 1, 2…) pour que l'ordre en base
+  // corresponde exactement à l'ordre voulu à l'écran. Seules les lignes
+  // dont l'ordre ou le lot changent réellement sont réécrites en base, pour
+  // ne pas ré-enregistrer un devis entier à chaque glissement.
+  async function deplacerLigne(ligneId, { lot: lotCibleBrut, avantId }) {
+    if (ligneDragBusy) return
+    const ligneDeplacee = lignes.find(l => l.id === ligneId)
+    if (!ligneDeplacee || ligneDeplacee.type !== 'ligne') return
+    if (ligneId === avantId) return // déposée sur elle-même : rien à faire
+    const nouveauLot = lotCibleBrut || null
+    const ancienLot = ligneDeplacee.lot || null
+    setLigneDragBusy(true)
+    const reste = lignes.filter(l => l.id !== ligneId)
+    let index = avantId ? reste.findIndex(l => l.id === avantId) : -1
+    if (index === -1) index = reste.length
+    const nouvelleListe = [...reste.slice(0, index), { ...ligneDeplacee, lot: nouveauLot }, ...reste.slice(index)]
+
+    const updates = []
+    nouvelleListe.forEach((l, i) => {
+      const patch = {}
+      if ((l.ordre || 0) !== i) patch.ordre = i
+      if (l.id === ligneId && ancienLot !== nouveauLot) patch.lot = nouveauLot
+      if (Object.keys(patch).length > 0) updates.push({ id: l.id, patch })
+    })
+    if (updates.length === 0) { setLigneDragBusy(false); return }
+
+    const resultats = await Promise.all(updates.map(u => supabase.from('projet_lignes').update(u.patch).eq('id', u.id)))
+    const echec = resultats.find(r => r.error)
+    if (echec) {
+      alert('Erreur lors du déplacement : ' + echec.error.message)
+      setLigneDragBusy(false)
+      return
+    }
+
+    let { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+    lg = lg || []
+    if (ancienLot) lg = await resynchroniserLot(lg, ancienLot)
+    if (nouveauLot && nouveauLot !== ancienLot) lg = await resynchroniserLot(lg, nouveauLot)
+    setLignes(lg)
+    setLigneDragBusy(false)
+  }
+
+  function onDragStartLigne(e, ligne) {
+    e.stopPropagation()
+    setLigneDrag({ id: ligne.id, lot: ligne.lot || null })
+    e.dataTransfer.effectAllowed = 'move'
+    // Firefox exige qu'un type de données soit défini pour autoriser le
+    // glissement, même si on ne s'en sert pas au drop (on lit ligneDrag
+    // depuis le state React à la place, plus simple que de parser dataTransfer).
+    e.dataTransfer.setData('text/plain', ligne.id)
+  }
+
+  function onDragEndLigne() {
+    setLigneDrag(null)
+    setLigneDragOverKey(null)
+  }
+
+  function onDragOverCible(e, key) {
+    if (!ligneDrag) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (ligneDragOverKey !== key) setLigneDragOverKey(key)
+  }
+
+  function onDropSurLigne(e, ligneCible) {
+    e.preventDefault()
+    e.stopPropagation()
+    setLigneDragOverKey(null)
+    if (!ligneDrag) return
+    deplacerLigne(ligneDrag.id, { lot: ligneCible.lot || null, avantId: ligneCible.id })
+  }
+
+  function onDropFinGroupe(e, numeroLot) {
+    e.preventDefault()
+    setLigneDragOverKey(null)
+    if (!ligneDrag) return
+    deplacerLigne(ligneDrag.id, { lot: numeroLot || null, avantId: null })
   }
 
   async function supprimerLot(lot) {
@@ -2737,13 +2835,16 @@ export default function ProjetDetail() {
                 // l'en-tête du tableau.
                 const idsGroupeLot = (lignesParLot[lot.numero] || []).filter(l => l.type === 'ligne').map(l => l.id)
                 const toutSelectionneLot = idsGroupeLot.length > 0 && idsGroupeLot.every(i => lignesSelectionnees.has(i))
+                const cleGroupeLot = 'lot:' + lot.numero
                 return (
-                <div key={lot.numero} style={{ marginBottom: 12, border: '1px solid ' + colors.line }}>
+                <div key={lot.numero} onDragOver={e => onDragOverCible(e, cleGroupeLot)} onDrop={e => onDropFinGroupe(e, lot.numero)}
+                  style={{ marginBottom: 12, border: '1px solid ' + (ligneDragOverKey === cleGroupeLot ? colors.focus : colors.line) }}>
                   <div onClick={() => setLotsReduits(prev => ({ ...prev, [lot.numero]: !prev[lot.numero] }))}
                     style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, color: colors.ink, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexWrap: 'wrap', gap: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontSize: 14, color: colors.inkFaint, transition: 'transform 0.2s', display: 'inline-block', transform: estReduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
                       <span style={{ fontWeight: 600, fontSize: 13 }}>LOT {lot.numero} — {lot.categorie}{lot.descriptif ? ' · ' + lot.descriptif : ''}</span>
+                      {ligneDrag && ligneDrag.lot !== lot.numero && <span style={{ fontSize: 10, color: colors.focus, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Déposer ici</span>}
                     </div>
                     <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
                       <span style={{ fontSize: 12, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>Vente : {Number(totalVenteLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
@@ -2829,9 +2930,16 @@ export default function ProjetDetail() {
                         const modeLocal = estHonoraire ? 'honoraire' : (modeLignes[l.id] || 'ac')
                         const compteDansTotal = nature !== 'option' && nature !== 'texte' && nature !== 'variante_inactive'
                         return (
-                          <tr key={i} style={{ borderBottom: '1px solid ' + colors.line, opacity: compteDansTotal ? 1 : 0.7 }}>
+                          <tr key={i} onDragOver={e => onDragOverCible(e, l.id)} onDrop={e => onDropSurLigne(e, l)}
+                            style={{ borderBottom: '1px solid ' + colors.line, borderTop: ligneDragOverKey === l.id ? '2px solid ' + colors.focus : '2px solid transparent',
+                              opacity: ligneDrag?.id === l.id ? 0.35 : compteDansTotal ? 1 : 0.7 }}>
                             <td style={{ padding: '4px 6px', color: colors.inkFaint, whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span draggable onDragStart={e => onDragStartLigne(e, l)} onDragEnd={onDragEndLigne} title="Glisser pour déplacer cette ligne vers un autre lot"
+                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
+                                  onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
+                                  <IconGlisser />
+                                </span>
                                 <input type="checkbox" checked={lignesSelectionnees.has(l.id)} onChange={() => toggleLigneSelection(l.id)}
                                   style={{ cursor: 'pointer' }} />
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
@@ -2926,11 +3034,17 @@ export default function ProjetDetail() {
                 </div>
               )
               })}
-              {/* Lignes sans lot */}
-              {(lignesParLot['sans'] || []).filter(l => l.type === 'ligne' || l.type === 'titre').length > 0 && (
-                <div style={{ marginBottom: 12, border: '1px solid ' + colors.line }}>
-                  <div style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, color: colors.ink, padding: '10px 16px', display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>Lignes sans lot</span>
+              {/* Lignes sans lot — affiché aussi le temps d'un glissement en
+                  cours (ligneDrag) même quand ce groupe est vide, pour
+                  servir de zone de dépôt "retirer du lot". */}
+              {((lignesParLot['sans'] || []).filter(l => l.type === 'ligne' || l.type === 'titre').length > 0 || ligneDrag) && (
+                <div onDragOver={e => onDragOverCible(e, 'lot:sans')} onDrop={e => onDropFinGroupe(e, null)}
+                  style={{ marginBottom: 12, border: '1px solid ' + (ligneDragOverKey === 'lot:sans' ? colors.focus : colors.line) }}>
+                  <div style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, color: colors.ink, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>Lignes sans lot</span>
+                      {ligneDrag && ligneDrag.lot && <span style={{ fontSize: 10, color: colors.focus, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Déposer ici</span>}
+                    </div>
                     <span style={{ fontSize: 12, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                       Vente : {Number((lignesParLot['sans'] || []).filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </span>
@@ -2986,9 +3100,16 @@ export default function ProjetDetail() {
                         const compteDansTotal = nature !== 'option' && nature !== 'texte' && nature !== 'variante_inactive'
                         return (
                           <>
-                          <tr key={i} style={{ borderBottom: '1px solid ' + colors.line, opacity: compteDansTotal ? 1 : 0.7 }}>
+                          <tr key={i} onDragOver={e => onDragOverCible(e, l.id)} onDrop={e => onDropSurLigne(e, l)}
+                            style={{ borderBottom: '1px solid ' + colors.line, borderTop: ligneDragOverKey === l.id ? '2px solid ' + colors.focus : '2px solid transparent',
+                              opacity: ligneDrag?.id === l.id ? 0.35 : compteDansTotal ? 1 : 0.7 }}>
                             <td style={{ padding: '4px 6px', color: colors.inkFaint, whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span draggable onDragStart={e => onDragStartLigne(e, l)} onDragEnd={onDragEndLigne} title="Glisser pour déplacer cette ligne vers un autre lot"
+                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
+                                  onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
+                                  <IconGlisser />
+                                </span>
                                 <input type="checkbox" checked={lignesSelectionnees.has(l.id)} onChange={() => toggleLigneSelection(l.id)}
                                   style={{ cursor: 'pointer' }} />
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
