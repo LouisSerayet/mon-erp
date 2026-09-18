@@ -1735,21 +1735,27 @@ export default function ProjetDetail() {
   }
 
   // Alternative à l'envoi automatique : enregistre le message (avec sa
-  // pièce jointe) comme brouillon dans la boîte Outlook configurée puis
-  // l'ouvre dans un nouvel onglet, pour que Louis le relise et l'envoie
-  // lui-même directement depuis Outlook.
+  // pièce jointe) comme brouillon dans la boîte Outlook configurée, pour que
+  // Louis le relise et l'envoie lui-même directement depuis Outlook. On
+  // n'ouvre plus le webLink renvoyé par Microsoft Graph : ce lien pointe
+  // toujours vers Outlook sur le web (OWA), même quand Outlook est ouvert en
+  // app de bureau — Graph ne fournit aucun moyen fiable de rouvrir un
+  // brouillon précis directement dans l'app (voir useOutlook.js). Le
+  // brouillon étant créé dans la vraie boîte Outlook de Louis, il apparaît
+  // de toute façon dans son dossier Brouillons, app comme web — il suffit
+  // d'aller le chercher là plutôt que de cliquer un lien.
   async function creerBrouillonEmailDepuisModal() {
     if (!envoiEmailModal) return
     setEnvoiEmailDraftBusy(true)
     setEnvoiEmailError('')
     try {
-      const webLink = await creerBrouillonOutlook({
+      await creerBrouillonOutlook({
         to: envoiEmailModal.to,
         subject: envoiEmailModal.subject,
         body: envoiEmailModal.body,
         attachments: envoiEmailModal.attachment ? [envoiEmailModal.attachment] : undefined,
       })
-      if (webLink) window.open(webLink, '_blank', 'noopener,noreferrer')
+      alert('Brouillon créé — tu le retrouves dans le dossier "Brouillons" de ta boîte Outlook (app ou web).')
       setEnvoiEmailModal(null)
     } catch (err) {
       setEnvoiEmailError(err.message)

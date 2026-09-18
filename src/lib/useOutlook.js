@@ -34,11 +34,17 @@ export async function envoyerEmailOutlook({ to, subject, body, cc, attachments }
 }
 
 // Crée un brouillon dans le dossier Brouillons de la boîte Outlook
-// configurée côté serveur, SANS l'envoyer, et renvoie son webLink — à
-// ouvrir dans un nouvel onglet pour que Louis retrouve le message
-// directement dans Outlook (web ou app) et l'envoie lui-même quand il le
-// souhaite. Alternative au "mailto:" qui ouvre la messagerie par défaut du
-// système (pas forcément Outlook) et ne permet pas de joindre de fichier.
+// configurée côté serveur, SANS l'envoyer. Le brouillon est créé
+// directement dans la vraie boîte Outlook de Louis (voir OUTLOOK_SENDER_EMAIL
+// côté api/outlook.js) : il apparaît donc de lui-même dans le dossier
+// Brouillons, aussi bien dans l'app de bureau que sur le web, sans qu'on ait
+// besoin d'ouvrir quoi que ce soit depuis ici. Le webLink renvoyé par
+// Microsoft Graph pointe toujours vers Outlook sur le web (OWA) — Graph ne
+// fournit aucun moyen fiable d'ouvrir un brouillon précis dans l'app de
+// bureau — donc l'appelant ne doit PAS l'ouvrir automatiquement dans un
+// onglet (voir ProjetDetail.jsx, creerBrouillonEmailDepuisModal). Alternative
+// au "mailto:" qui ouvre la messagerie par défaut du système (pas forcément
+// Outlook) et ne permet pas de joindre de fichier.
 export async function creerBrouillonOutlook({ to, subject, body, cc, attachments }) {
   const res = await fetch('/api/outlook', {
     method: 'POST',
