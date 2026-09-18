@@ -1647,9 +1647,39 @@ export default function ProjetDetail() {
     return dataUri.split('base64,')[1] || ''
   }
 
-  function ouvrirEnvoiFactureCli(f) {
-    const email = projet?.clients?.email
-    if (!email) { alert('Ce client n\'a pas d\'adresse email enregistrée.'); return }
+  // Ajoute/retire une adresse du champ "À" (chaîne d'emails séparés par une
+  // virgule) — utilisé par les cases à cocher "Destinataires" de la modale
+  // d'envoi (voir envoiEmailModal.destinatairesDisponibles ci-dessous).
+  function toggleDestinataireEmail(email) {
+    setEnvoiEmailModal(prev => {
+      if (!prev) return prev
+      const actuels = prev.to.split(',').map(e => e.trim()).filter(Boolean)
+      const dejaPresent = actuels.some(e => e.toLowerCase() === email.toLowerCase())
+      const nouveaux = dejaPresent ? actuels.filter(e => e.toLowerCase() !== email.toLowerCase()) : [...actuels, email]
+      return { ...prev, to: nouveaux.join(', ') }
+    })
+  }
+
+  async function ouvrirEnvoiFactureCli(f) {
+    const emailPrincipal = projet?.clients?.email
+    // En plus de l'email principal du client (clients.email), on propose
+    // tous ses contacts secondaires (client_contacts — Facturation,
+    // Livraison... voir Clients.jsx) comme destinataires à cocher : avant,
+    // seul l'email principal était utilisable, impossible d'envoyer à un
+    // contact Facturation différent sans changer la fiche client.
+    let contacts = []
+    if (projet?.client_id) {
+      const { data } = await supabase.from('client_contacts').select('*').eq('client_id', projet.client_id).is('deleted_at', null).order('created_at')
+      contacts = (data || []).filter(c => c.email)
+    }
+    const destinatairesDisponibles = [
+      ...(emailPrincipal ? [{ email: emailPrincipal, label: (projet?.clients?.nom || 'Client') + ' (principal)' }] : []),
+      ...contacts.map(c => ({ email: c.email, label: c.type + (c.nom ? ' — ' + c.nom : '') })),
+    ]
+    if (destinatairesDisponibles.length === 0) {
+      alert('Ce client n\'a aucune adresse email enregistrée — ajoute-en une dans sa fiche ou dans ses contacts (onglet Clients).')
+      return
+    }
     const doc = generateFactureCliPDF(f, 'fr')
     const sujet = 'Facture ' + (f.numero || '') + (projet?.nom ? ' — ' + projet.nom : '')
     // Une facture d'acompte réglée comptant a une échéance = date de
@@ -1666,7 +1696,8 @@ export default function ProjetDetail() {
     setEnvoiEmailModal({
       type: 'facture_cli',
       id: f.id,
-      to: email,
+      to: emailPrincipal || destinatairesDisponibles[0].email,
+      destinatairesDisponibles,
       subject: sujet,
       body: corps,
       attachment: { name: (f.numero || 'facture') + '.pdf', contentType: 'application/pdf', contentBytes: pdfEnBase64(doc) },
@@ -2244,7 +2275,33 @@ export default function ProjetDetail() {
               </div>
             )}
 
-            <label style={fieldLabel}>À</label>
+            {/* Sélecteur de destinataires — construit à partir de l'email
+                principal du client et de ses contacts (client_contacts,
+                voir Clients.jsx), pour pouvoir cocher plusieurs personnes
+                d'un coup plutôt que d'être limité à un seul email. Chaque
+                case cochée ajoute/retire son adresse du champ "À"
+                ci-dessous, qui reste éditable en texte libre (adresses
+                séparées par une virgule) pour toute autre adresse. */}
+            {envoiEmailModal.destinatairesDisponibles?.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <label style={fieldLabel}>Destinataires</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 5 }}>
+                  {envoiEmailModal.destinatairesDisponibles.map(d => {
+                    const selectionnes = envoiEmailModal.to.split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+                    const coche = selectionnes.includes(d.email.toLowerCase())
+                    return (
+                      <label key={d.email} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={coche} onChange={() => toggleDestinataireEmail(d.email)} style={{ cursor: 'pointer' }} />
+                        <span style={{ color: colors.ink }}>{d.label}</span>
+                        <span style={{ color: colors.inkFaint }}>— {d.email}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            <label style={fieldLabel}>À{envoiEmailModal.destinatairesDisponibles?.length > 0 ? ' (ou autre adresse, séparée par une virgule)' : ''}</label>
             <input value={envoiEmailModal.to} onChange={e => setEnvoiEmailModal(p => ({ ...p, to: e.target.value }))}
               style={{ ...inputUnderline, marginBottom: 14 }} />
 

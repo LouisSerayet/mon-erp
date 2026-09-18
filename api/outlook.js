@@ -20,6 +20,16 @@ import { requireAuth, authedClient } from './_auth.js'
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const RATE_LIMIT_PAR_HEURE = 40
 
+// "to"/"cc" peuvent contenir plusieurs adresses séparées par une virgule ou
+// un point-virgule (voir ProjetDetail.jsx, sélecteur de destinataires à
+// cocher pour une facture client — plusieurs contacts d'un même client
+// peuvent être visés en une seule fois). Renvoie un tableau nettoyé
+// (adresses vides ignorées, une seule adresse redonne un tableau à un
+// élément — comportement inchangé pour tous les appelants existants).
+function parseDestinataires(valeur) {
+  return String(valeur || '').split(/[,;]/).map(s => s.trim()).filter(Boolean)
+}
+
 export default async function handler(req, res) {
   // Seul un utilisateur connecté à l'ERP peut déclencher un envoi — sans ce
   // contrôle, l'URL publique du site suffirait à envoyer des emails depuis
@@ -55,7 +65,9 @@ export default async function handler(req, res) {
   if (!to || !subject || !body) {
     return res.status(400).json({ error: 'to, subject et body sont requis.' })
   }
-  if (!EMAIL_REGEX.test(String(to).trim()) || (cc && !EMAIL_REGEX.test(String(cc).trim()))) {
+  const toList = parseDestinataires(to)
+  const ccList = parseDestinataires(cc)
+  if (toList.length === 0 || toList.some(a => !EMAIL_REGEX.test(a)) || ccList.some(a => !EMAIL_REGEX.test(a))) {
     return res.status(400).json({ error: 'Adresse email invalide.' })
   }
   if (String(subject).length > 300 || String(body).length > 20000) {
@@ -82,8 +94,8 @@ export default async function handler(req, res) {
   const messagePayload = {
     subject,
     body: { contentType: 'Text', content: body },
-    toRecipients: [{ emailAddress: { address: to } }],
-    ...(cc ? { ccRecipients: [{ emailAddress: { address: cc } }] } : {}),
+    toRecipients: toList.map(a => ({ emailAddress: { address: a } })),
+    ...(ccList.length > 0 ? { ccRecipients: ccList.map(a => ({ emailAddress: { address: a } })) } : {}),
     ...(Array.isArray(attachments) && attachments.length > 0 ? {
       attachments: attachments.map(a => ({
         '@odata.type': '#microsoft.graph.fileAttachment',
