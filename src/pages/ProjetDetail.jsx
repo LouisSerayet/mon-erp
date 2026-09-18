@@ -1572,20 +1572,38 @@ export default function ProjetDetail() {
     return genererFactureCliPDF(f, projet, lang)
   }
 
+  // Date du jour au format JJ-MM-AA (ex : 18-09-26) — utilisée dans le nom
+  // de fichier téléchargé des devis/commandes (voir ouvrirApercuDevis /
+  // ouvrirApercuCommande) à la place d'un numéro qui grimpait à chaque
+  // nouvel export (devis_6.pdf, devis_7.pdf...) : le nom de fichier étant
+  // auparavant toujours identique pour un même projet/commande, chaque
+  // re-téléchargement (après modif des lignes, par ex.) faisait ajouter par
+  // le navigateur un suffixe "(1)", "(2)"... qui s'accumulait sans jamais
+  // repartir à zéro. La date se répète aussi en cas de plusieurs exports le
+  // même jour, mais redevient neutre le lendemain — contrairement à un
+  // compteur qui ne fait que croître.
+  function dateExportPdf() {
+    const d = new Date()
+    const jour = String(d.getDate()).padStart(2, '0')
+    const mois = String(d.getMonth() + 1).padStart(2, '0')
+    const annee = String(d.getFullYear()).slice(-2)
+    return `${jour}-${mois}-${annee}`
+  }
+
   // ── Aperçu visuel PDF (devis / commande / facture client) ───────────
   // Ouvre PdfPreviewModal au lieu de télécharger directement — voir
   // pdfPreview (état) et previewDoc (calculé plus bas, régénéré à chaque
   // changement de langue). onEnvoyer, quand fourni, ferme l'aperçu et
   // rouvre la modale d'envoi par email existante avec le même document.
   function ouvrirApercuDevis(lang = 'fr') {
-    setPdfPreview({ tipo: 'devis', titre: 'Devis — ' + (projet?.nom || ''), filenameBase: projet.nom.replace(/[^a-z0-9]/gi, '_'), lang })
+    setPdfPreview({ tipo: 'devis', titre: 'Devis — ' + (projet?.nom || ''), filenameBase: projet.nom.replace(/[^a-z0-9]/gi, '_') + '_' + dateExportPdf(), lang })
   }
   function ouvrirApercuCommande(cmd, lang = 'fr') {
     // Nom du fournisseur en tête du nom de fichier téléchargé : plus facile
     // à repérer dans un dossier Téléchargements que plusieurs "PP-XXX-003.pdf"
     // qui se ressemblent tous au premier coup d'œil.
     const fournisseurSlug = cmd.fournisseurs?.nom ? cmd.fournisseurs.nom.replace(/[^a-z0-9]/gi, '_') + '_' : ''
-    setPdfPreview({ tipo: 'commande', titre: 'Commande ' + (cmd.numero || ''), filenameBase: fournisseurSlug + (cmd.numero || 'commande'), payload: cmd, lang,
+    setPdfPreview({ tipo: 'commande', titre: 'Commande ' + (cmd.numero || ''), filenameBase: fournisseurSlug + dateExportPdf(), payload: cmd, lang,
       onEnvoyer: () => { setPdfPreview(null); ouvrirEnvoiCommande(cmd) } })
   }
   function ouvrirApercuFactureCli(f, lang = 'fr') {
