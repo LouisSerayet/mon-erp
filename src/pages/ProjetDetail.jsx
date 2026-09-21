@@ -4000,6 +4000,12 @@ export default function ProjetDetail() {
           const ca = projet.montant_ht || venteTotalLignes || 0
           const margePrevu = ca - achatPrevu
           const tauxMargePrevu = ca > 0 ? ((margePrevu / ca) * 100).toFixed(1) : 0
+          // Coefficient (Vente ÷ Achat) affiché systématiquement à côté du
+          // taux de marge — un pourcentage de marge seul prête à confusion
+          // (marge sur vente ou marge sur achat/"markup" ? cf. discussion
+          // avec Louis), alors que le coefficient est sans ambiguïté :
+          // Achat × Coeff = Vente, comme dans le formulaire de ligne.
+          const coeffPrevu = achatPrevu > 0 ? (ca / achatPrevu).toFixed(2) : '—'
 
           // Trois temps de lecture du budget achat/vente d'un projet :
           //  1. Prévisionnel : ce qui a été chiffré au devis (lignes projet)
@@ -4028,11 +4034,17 @@ export default function ProjetDetail() {
           const achatEnCours = aCommandesActives ? totalCommandesActives : null
           const margeEnCours = achatEnCours !== null ? caEnCours - achatEnCours : null
           const tauxMargeEnCours = margeEnCours !== null && caEnCours > 0 ? ((margeEnCours / caEnCours) * 100).toFixed(1) : null
+          const coeffEnCours = achatEnCours !== null && achatEnCours > 0 ? (caEnCours / achatEnCours).toFixed(2) : null
 
           const caReel = aFacturesCli ? totalFcli : null
           const achatReel = aFacturesFrs ? totalFfrs : null
           const margeReelle = (caReel !== null || achatReel !== null) ? (caReel || 0) - (achatReel || 0) : null
           const tauxMargeReelle = margeReelle !== null && caReel > 0 ? ((margeReelle / caReel) * 100).toFixed(1) : null
+          const coeffReel = achatReel !== null && achatReel > 0 ? (caReel / achatReel).toFixed(2) : null
+
+          // Formatte "12.3%" en "12.3% (coeff. 1.45)" — coeff "—" si
+          // l'achat correspondant est nul/inconnu (division impossible).
+          const fmtTauxCoeff = (taux, coeff) => taux === null ? '—' : (taux + '% (coeff. ' + (coeff ?? '—') + ')')
 
           // Écarts (réel vs prévisionnel — la comparaison qui compte au
           // final) : uniquement quand il y a vraiment un réel à comparer,
@@ -4067,7 +4079,7 @@ export default function ProjetDetail() {
                   { label: "Chiffre d'affaires (vente)", prev: ca, enCours: caEnCours, reel: caReel, showEcart: false },
                   { label: 'Coût achats', prev: achatPrevu, enCours: achatEnCours, reel: achatReel, showEcart: true, ecartPositifMauvais: true },
                   { label: 'Marge brute', prev: margePrevu, enCours: margeEnCours, reel: margeReelle, showEcart: true, ecartPositifMauvais: false, bold: true },
-                  { label: 'Taux de marge', prev: tauxMargePrevu + '%', enCours: tauxMargeEnCours !== null ? tauxMargeEnCours + '%' : '—', reel: tauxMargeReelle !== null ? tauxMargeReelle + '%' : '—', showEcart: false, isTaux: true },
+                  { label: 'Taux de marge', prev: fmtTauxCoeff(tauxMargePrevu, coeffPrevu), enCours: fmtTauxCoeff(tauxMargeEnCours, coeffEnCours), reel: fmtTauxCoeff(tauxMargeReelle, coeffReel), showEcart: false, isTaux: true },
                 ].map(({ label, prev, enCours, reel, showEcart, ecartPositifMauvais, bold, isTaux }, i) => {
                   const ecart = isTaux ? null : (typeof reel === 'number' && typeof prev === 'number' ? reel - prev : null)
                   return (
@@ -4132,17 +4144,17 @@ export default function ProjetDetail() {
                 <div>
                   <div style={eyebrow}>Marge prévisionnelle</div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: margePrevu >= 0 ? colors.ink : colors.danger, marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(margePrevu)}</div>
-                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {tauxMargePrevu}%</div>
+                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargePrevu, coeffPrevu)}</div>
                 </div>
                 <div>
                   <div style={eyebrow}>Marge en cours (commandes)</div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: margeEnCours === null ? colors.inkFaint : (margeEnCours >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeEnCours === null ? 'Aucune commande' : fmt(margeEnCours)}</div>
-                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {tauxMargeEnCours !== null ? tauxMargeEnCours + '%' : '—'}</div>
+                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargeEnCours, coeffEnCours)}</div>
                 </div>
                 <div>
                   <div style={eyebrow}>Marge réelle (factures)</div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: margeReelle === null ? colors.inkFaint : (margeReelle >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeReelle === null ? 'Aucune facture' : fmt(margeReelle)}</div>
-                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {tauxMargeReelle !== null ? tauxMargeReelle + '%' : '—'}</div>
+                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargeReelle, coeffReel)}</div>
                 </div>
               </div>
 
