@@ -119,14 +119,22 @@ export function natureLigneDepuisTexte(texte) {
   return trouve ? trouve.value : 'negoce'
 }
 
-// Marge brute et taux de marge, utilisés sur le Dashboard et l'onglet
-// Rentabilité d'un projet. Centralisé ici pour que les deux ne divergent
-// jamais silencieusement.
+// Marge brute, taux de marge et coefficient (vente ÷ achat), utilisés sur
+// le Dashboard et l'onglet Rentabilité d'un projet. Centralisé ici pour que
+// les deux ne divergent jamais silencieusement.
+//
+// `coeff` est systématiquement renvoyé à côté de `taux` : un pourcentage de
+// marge seul ne dit pas si c'est une marge sur vente ("margin") ou un taux
+// de marque sur achat ("markup"), deux notions différentes qui se
+// confondent facilement — le coefficient (Achat × coeff = Vente) lève
+// l'ambiguïté et doit être affiché juste après chaque taux de marge dans
+// l'interface. `null` quand `cout` est nul/négatif (division impossible).
 export function calculerMarge(ca, cout) {
   const chiffreAffaires = ca || 0
   const marge = chiffreAffaires - (cout || 0)
   const taux = chiffreAffaires > 0 ? Number(((marge / chiffreAffaires) * 100).toFixed(1)) : 0
-  return { marge, taux }
+  const coeff = cout > 0 ? Number((chiffreAffaires / cout).toFixed(2)) : null
+  return { marge, taux, coeff }
 }
 
 // ── Échéance de facture (conditions de paiement client/fournisseur) ────

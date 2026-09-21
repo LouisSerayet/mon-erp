@@ -196,6 +196,13 @@ export default function Resultat() {
 
   const anneesDispos = Array.from({ length: 6 }, (_, i) => anneeCourante() - 4 + i)
   const tauxMarge = data && data.totalCA ? Math.round((data.margeBrute / data.totalCA) * 1000) / 10 : 0
+  // Coefficient (CA ÷ Achats) affiché juste après le taux de marge — un
+  // pourcentage seul ne dit pas si c'est une marge sur vente ou un taux de
+  // marque sur achat, le coefficient lève l'ambiguïté (voir calculerMarge
+  // dans lib/calculs.js, même logique). Pas de coefficient équivalent pour
+  // le taux "Résultat net" ci-dessous : ce n'est pas un couple achat/vente,
+  // il inclut aussi les dépenses générales.
+  const coeffMarge = data && data.totalAchats > 0 ? Math.round((data.totalCA / data.totalAchats) * 100) / 100 : null
   const tauxNet = data && data.totalCA ? Math.round((data.resultatNet / data.totalCA) * 1000) / 10 : 0
   const maxMois = data ? Math.max(1, ...data.parMois.flatMap(m => [m.ca, m.charges])) : 1
 
@@ -260,7 +267,7 @@ export default function Resultat() {
             {[
               { label: 'Chiffre d\'affaires', value: fmt(data.totalCA), sub: 'Factures clients émises', detailKey: 'ca' },
               { label: 'Achats projets', value: fmt(data.totalAchats), sub: 'Factures fournisseurs', detailKey: 'achats' },
-              { label: 'Marge brute', value: fmt(data.margeBrute), sub: 'Taux : ' + tauxMarge + '%', color: data.margeBrute >= 0 ? colors.success : colors.danger },
+              { label: 'Marge brute', value: fmt(data.margeBrute), sub: 'Taux : ' + tauxMarge + '% (coeff. ' + (coeffMarge ?? '—') + ')', color: data.margeBrute >= 0 ? colors.success : colors.danger },
               { label: 'Dépenses générales', value: fmt(data.totalDepenses), sub: 'Loyer, compta, assurance...' },
               { label: 'Résultat net', value: fmt(data.resultatNet), sub: 'Taux : ' + tauxNet + '%', color: data.resultatNet >= 0 ? colors.success : colors.danger },
             ].map((k, i) => (

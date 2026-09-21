@@ -307,13 +307,13 @@ export default function Dashboard() {
   const projetsFiltresGlobal = projetsGlobal.filter(p => filtreStatutsGlobal.has(p.statut))
   const caGlobalFiltre = projetsFiltresGlobal.reduce((s, p) => s + (p.ca || 0), 0)
   const coutGlobalFiltre = projetsFiltresGlobal.reduce((s, p) => s + (baseCoutGlobal === 'prevu' ? p.coutPrevu : p.coutEngage), 0)
-  const { marge: margeGlobalFiltre, taux: tauxGlobalFiltre } = calculerMarge(caGlobalFiltre, coutGlobalFiltre)
+  const { marge: margeGlobalFiltre, taux: tauxGlobalFiltre, coeff: coeffGlobalFiltre } = calculerMarge(caGlobalFiltre, coutGlobalFiltre)
   const breakdownStatuts = STATUTS_ORDRE.map(s => {
     const ps = projetsGlobal.filter(p => p.statut === s)
     const ca = ps.reduce((sum, p) => sum + (p.ca || 0), 0)
     const cout = ps.reduce((sum, p) => sum + (baseCoutGlobal === 'prevu' ? p.coutPrevu : p.coutEngage), 0)
-    const { marge, taux } = calculerMarge(ca, cout)
-    return { statut: s, nb: ps.length, ca, cout, marge, taux, actif: filtreStatutsGlobal.has(s) }
+    const { marge, taux, coeff } = calculerMarge(ca, cout)
+    return { statut: s, nb: ps.length, ca, cout, marge, taux, coeff, actif: filtreStatutsGlobal.has(s) }
   }).filter(b => b.nb > 0)
 
   return (
@@ -518,7 +518,7 @@ export default function Dashboard() {
             { label: 'Projets sélectionnés', value: String(projetsFiltresGlobal.length) },
             { label: 'CA total HT', value: fmt(caGlobalFiltre) },
             { label: baseCoutGlobal === 'prevu' ? 'Coût prévu HT' : 'Coût engagé HT', value: fmt(coutGlobalFiltre) },
-            { label: 'Marge (' + tauxGlobalFiltre + ' %)', value: fmt(margeGlobalFiltre), color: margeGlobalFiltre >= 0 ? colors.success : colors.danger },
+            { label: 'Marge (' + tauxGlobalFiltre + ' % · coeff. ' + (coeffGlobalFiltre ?? '—') + ')', value: fmt(margeGlobalFiltre), color: margeGlobalFiltre >= 0 ? colors.success : colors.danger },
           ].map((k, i) => (
             <div key={k.label} style={{ padding: '18px 20px 20px 0', paddingLeft: i > 0 ? 20 : 0, borderLeft: i > 0 ? '1px solid ' + colors.line : 'none' }}>
               <div style={{ fontSize: 11, color: colors.inkMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.06em' }}>{k.label}</div>
@@ -529,7 +529,7 @@ export default function Dashboard() {
 
         {breakdownStatuts.length > 0 && (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <table style={{ width: '100%', minWidth: 600, borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
                 <tr>
                   {['Statut', 'Nb', 'CA HT', 'Coût HT', 'Marge', 'Taux'].map((h, i) => (
@@ -547,7 +547,7 @@ export default function Dashboard() {
                     <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.ca)}</td>
                     <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.cout)}</td>
                     <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', color: b.marge >= 0 ? colors.success : colors.danger }}>{fmt(b.marge)}</td>
-                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{b.taux} %</td>
+                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{b.taux} % (coeff. {b.coeff ?? '—'})</td>
                   </tr>
                 ))}
               </tbody>
