@@ -42,8 +42,12 @@ export default function Resultat() {
   const [periodePerso, setPeriodePerso] = useState(false)
   const [debutPerso, setDebutPerso] = useState('')
   const [finPerso, setFinPerso] = useState('')
-  const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois, tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette, nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible }
+  const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois, tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette, nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible, detailCA, detailAchats }
   const [detailTvaOuvert, setDetailTvaOuvert] = useState(null) // null | 'collectee' | 'deductible' — quel détail TVA est déplié
+  // Même principe que detailTvaOuvert, pour les tuiles "Chiffre d'affaires" /
+  // "Achats projets" du haut de page — Louis n'avait jusqu'ici que le total,
+  // sans savoir quelles factures (et quels projets) le composaient.
+  const [detailKpiOuvert, setDetailKpiOuvert] = useState(null) // null | 'ca' | 'achats'
   const [sansDate, setSansDate] = useState([]) // lignes sans date_facture, donc invisibles dans le calcul ci-dessus quelle que soit la période
 
   const { debut, fin } = periodePerso && debutPerso && finPerso
@@ -112,6 +116,19 @@ export default function Resultat() {
       const totalCA = (fcli || []).reduce((s, f) => s + (f.montant_ht || 0), 0)
       const totalAchats = (ffrs || []).reduce((s, f) => s + (f.montant_ht || 0), 0)
       const totalDepenses = depData.reduce((s, d) => s + (d.montant_ht || 0), 0)
+
+      // Détail facture par facture des tuiles "Chiffre d'affaires" / "Achats
+      // projets" — même principe que detailCollectee/detailDeductible
+      // (lib/tva.js) : la tuile ne montre qu'une somme, ces listes montrent
+      // d'où elle vient (voir "Voir le détail" plus bas dans le rendu).
+      const detailCA = (fcli || [])
+        .slice()
+        .sort((a, b) => (b.date_facture || '').localeCompare(a.date_facture || ''))
+        .map(f => ({ id: f.id, date: f.date_facture, ref: f.numero || '(sans numéro)', secondaire: f.projets?.nom || '—', montantHt: f.montant_ht || 0 }))
+      const detailAchats = (ffrs || [])
+        .slice()
+        .sort((a, b) => (b.date_facture || '').localeCompare(a.date_facture || ''))
+        .map(f => ({ id: f.id, date: f.date_facture, ref: f.numero || '(sans numéro)', secondaire: f.fournisseurs?.nom || (f.commandes?.numero ? 'Commande ' + f.commandes.numero : '—'), montantHt: f.montant_ht || 0 }))
       const margeBrute = totalCA - totalAchats
       const resultatNet = margeBrute - totalDepenses
 
@@ -169,6 +186,7 @@ export default function Resultat() {
         totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois,
         tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette,
         nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible,
+        detailCA, detailAchats,
       })
     } catch (err) {
       setError('Impossible de calculer le compte de résultat : ' + err.message)
@@ -240,8 +258,8 @@ export default function Resultat() {
           {/* KPIs */}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', margin: '36px 0 40px' }}>
             {[
-              { label: 'Chiffre d\'affaires', value: fmt(data.totalCA), sub: 'Factures clients émises' },
-              { label: 'Achats projets', value: fmt(data.totalAchats), sub: 'Factures fournisseurs' },
+              { label: 'Chiffre d\'affaires', value: fmt(data.totalCA), sub: 'Factures clients émises', detailKey: 'ca' },
+              { label: 'Achats projets', value: fmt(data.totalAchats), sub: 'Factures fournisseurs', detailKey: 'achats' },
               { label: 'Marge brute', value: fmt(data.margeBrute), sub: 'Taux : ' + tauxMarge + '%', color: data.margeBrute >= 0 ? colors.success : colors.danger },
               { label: 'Dépenses générales', value: fmt(data.totalDepenses), sub: 'Loyer, compta, assurance...' },
               { label: 'Résultat net', value: fmt(data.resultatNet), sub: 'Taux : ' + tauxNet + '%', color: data.resultatNet >= 0 ? colors.success : colors.danger },
@@ -250,9 +268,47 @@ export default function Resultat() {
                 <div style={eyebrow}>{k.label}</div>
                 <div style={{ fontFamily: fonts.mono, fontSize: 20, fontWeight: 500, margin: '8px 0 4px', fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
                 <div style={{ fontSize: 11, color: colors.inkFaint }}>{k.sub}</div>
+                {k.detailKey && (
+                  <button onClick={() => setDetailKpiOuvert(p => (p === k.detailKey ? null : k.detailKey))} style={{ ...quietLink, fontSize: 11, marginTop: 8, display: 'inline-block' }}>
+                    {detailKpiOuvert === k.detailKey ? 'Masquer le détail' : 'Voir le détail'}
+                  </button>
+                )}
               </div>
             ))}
           </div>
+
+          {/* Détail facture par facture du CA / des achats — voir detailCA /
+              detailAchats plus haut. Même table que la section TVA (Date,
+              Référence, Projet/Fournisseur, Montant HT), sans les colonnes
+              TVA qui n'ont pas de sens ici. */}
+          {(detailKpiOuvert === 'ca' || detailKpiOuvert === 'achats') && (
+            <div style={{ margin: '-24px 0 40px', borderTop: '1px solid ' + colors.line, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: isMobile ? 480 : 'auto' }}>
+                <thead>
+                  <tr style={{ color: colors.inkFaint, fontSize: 10.5, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                    <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Date</th>
+                    <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Facture</th>
+                    <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>{detailKpiOuvert === 'ca' ? 'Projet' : 'Fournisseur'}</th>
+                    <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>Montant HT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(detailKpiOuvert === 'ca' ? data.detailCA : data.detailAchats).length === 0 ? (
+                    <tr><td colSpan={4} style={{ padding: '20px 8px', textAlign: 'center', color: colors.inkFaint }}>
+                      {detailKpiOuvert === 'ca' ? 'Aucune facture client sur cette période.' : 'Aucune facture fournisseur sur cette période.'}
+                    </td></tr>
+                  ) : (detailKpiOuvert === 'ca' ? data.detailCA : data.detailAchats).map(l => (
+                    <tr key={l.id} style={{ borderTop: '1px solid ' + colors.line }}>
+                      <td style={{ padding: '9px 8px', color: colors.inkMuted, whiteSpace: 'nowrap' }}>{fmtDateFr(l.date)}</td>
+                      <td style={{ padding: '9px 8px' }}>{l.ref}</td>
+                      <td style={{ padding: '9px 8px', color: colors.inkMuted }}>{l.secondaire}</td>
+                      <td style={{ padding: '9px 8px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(l.montantHt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* TVA (indicatif) */}
           <div style={{ borderTop: '1px solid ' + colors.line, paddingTop: 28, margin: '0 0 40px' }}>
