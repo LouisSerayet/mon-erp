@@ -4,6 +4,7 @@ import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQon
 import { rapprocherFactures, appliquerRapprochement, appliquerRapprochementGroupe } from '../lib/rapprochement'
 import { useIsMobile } from '../lib/useIsMobile'
 import { CATEGORIES } from '../lib/depenses'
+import { CATEGORIES_ECRITURES } from '../lib/ecrituresDiverses'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { colors, fonts, eyebrow, quietLink, marker } from '../lib/theme'
 
@@ -27,7 +28,7 @@ const BADGE_CONFIANCE = {
 
 // Couleur de catégorisation par type de rapprochement (clients/fournisseurs/
 // dépenses) — un simple repère visuel, pas un statut fonctionnel.
-const TYPE_MARKER = { factures_cli: colors.success, factures_frs: colors.warning, depenses_generales: colors.focus }
+const TYPE_MARKER = { factures_cli: colors.success, factures_frs: colors.warning, depenses_generales: colors.focus, ecritures_diverses: '#7c4a8e' }
 
 const fmtTx = cents => cents !== undefined && cents !== null
   ? (Number(cents) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
@@ -57,11 +58,14 @@ export default function Rapprochement() {
   const [busy, setBusy] = useState(null) // clé "table:factureId:transactionId" en cours de confirmation
 
   // Modale "Créer une dépense" à partir d'une transaction (débit) sans
-  // correspondance, et modale "Créer une facture client" (crédit) — voir
-  // ouvrirCreationDepense / ouvrirCreationFacture ci-dessous. Une seule des
-  // deux est ouverte à la fois.
+  // correspondance, modale "Créer une facture client" (crédit), et modale
+  // "Décrire ce mouvement" (crédit ou débit, ex. apport en capital,
+  // emprunt...) — voir ouvrirCreationDepense / ouvrirCreationFacture /
+  // ouvrirCreationEcriture ci-dessous. Une seule des trois est ouverte à
+  // la fois.
   const [modalDepense, setModalDepense] = useState(null)
   const [modalFacture, setModalFacture] = useState(null)
+  const [modalEcriture, setModalEcriture] = useState(null)
   const [modalBusy, setModalBusy] = useState(false)
   const [modalError, setModalError] = useState('')
 
@@ -86,7 +90,7 @@ export default function Rapprochement() {
   // qu'une facture soit passée "Payée" et ait donc disparu des sections
   // "à confirmer" ci-dessus.
   async function chargerHistorique() {
-    const [{ data: hCli }, { data: hFrs }, { data: hDep }] = await Promise.all([
+    const [{ data: hCli }, { data: hFrs }, { data: hDep }, { data: hEcr }] = await Promise.all([
       supabase.from('factures_cli')
         .select('id, numero, montant_ht, qonto_transaction_id, qonto_matched_at, qonto_match_confiance, projets(nom, clients(nom))')
         .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
@@ -98,11 +102,21 @@ export default function Rapprochement() {
       supabase.from('depenses_generales')
         .select('id, libelle, categorie, montant_ht, qonto_transaction_id, qonto_matched_at, qonto_match_confiance, fournisseurs(nom)')
         .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
+      // Écritures diverses (apport en capital, emprunt...) — peut échouer si
+      // sql/ecritures_diverses_migration.sql n'a pas encore été exécuté,
+      // `hEcr` reste alors undefined (géré par `|| []`).
+      supabase.from('ecritures_diverses')
+        .select('id, libelle, categorie, montant, qonto_transaction_id, qonto_matched_at, qonto_match_confiance')
+        .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
     ])
     const combine = [
       ...(hCli || []).map(f => ({ table: 'factures_cli', facture: f, tiers: f.projets?.clients?.nom })),
       ...(hFrs || []).map(f => ({ table: 'factures_frs', facture: f, tiers: f.fournisseurs?.nom })),
       ...(hDep || []).map(d => ({ table: 'depenses_generales', facture: d, tiers: d.fournisseurs?.nom || d.categorie })),
+      // montant_ht est ici l'équivalent affiché de `montant` (toujours positif à
+      // l'affichage, comme pour toutes les autres lignes de l'historique — le
+      // signe réel du mouvement reste en base dans `montant`).
+      ...(hEcr || []).map(e => ({ table: 'ecritures_diverses', facture: { ...e, montant_ht: Math.abs(e.montant) }, tiers: e.categorie })),
     ].sort((a, b) => new Date(b.facture.qonto_matched_at || 0) - new Date(a.facture.qonto_matched_at || 0))
     setHistorique(combine)
   }
@@ -142,15 +156,19 @@ export default function Rapprochement() {
       // Important : on ignore les lignes supprimées (deleted_at) — sinon une
       // facture envoyée à la Corbeille garde sa transaction "réservée" pour
       // toujours et bloque tout rapprochement futur sur cette transaction.
-      const [{ data: liensCli }, { data: liensFrs }, { data: liensDep }] = await Promise.all([
+      const [{ data: liensCli }, { data: liensFrs }, { data: liensDep }, { data: liensEcr }] = await Promise.all([
         supabase.from('factures_cli').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
         supabase.from('factures_frs').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
         supabase.from('depenses_generales').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
+        // Peut échouer si sql/ecritures_diverses_migration.sql n'a pas encore
+        // été exécuté — `liensEcr` reste alors undefined (géré par `|| []`).
+        supabase.from('ecritures_diverses').select('qonto_transaction_id').not('qonto_transaction_id', 'is', null).is('deleted_at', null),
       ])
       const exclues = new Set([
         ...(liensCli || []).map(l => l.qonto_transaction_id),
         ...(liensFrs || []).map(l => l.qonto_transaction_id),
         ...(liensDep || []).map(l => l.qonto_transaction_id),
+        ...(liensEcr || []).map(l => l.qonto_transaction_id),
       ])
 
       // 4. Rapprochement — clients (encaissements, side "credit"),
@@ -263,6 +281,21 @@ export default function Rapprochement() {
     })
   }
 
+  // "Décrire ce mouvement" — pour une transaction qui n'est ni une facture
+  // ni une dépense (apport en capital, emprunt, remboursement...). Pas de
+  // TVA à déduire ici (contrairement à montantHtSuggere) : le montant
+  // affiché est directement celui de la transaction, signe compris.
+  function ouvrirCreationEcriture(tx) {
+    setModalError('')
+    setModalEcriture({
+      transaction: tx,
+      libelle: tx.label || tx.reference || '',
+      categorie: CATEGORIES_ECRITURES[0],
+      montant: (Math.abs(tx.amount_cents || 0) / 100).toFixed(2),
+      date_operation: dateTransaction(tx),
+    })
+  }
+
   // Crée directement la dépense/facture "Payée" et déjà liée à la
   // transaction (qonto_transaction_id) — pas besoin de repasser par le
   // rapprochement classique ensuite, l'argent est déjà là sur le compte.
@@ -309,6 +342,31 @@ export default function Rapprochement() {
     const txId = modalFacture.transaction.transaction_id
     setNonRapprochees(prev => prev.filter(t => t.transaction_id !== txId))
     setModalFacture(null)
+    setModalBusy(false)
+    chargerHistorique()
+  }
+
+  // Enregistre l'écriture diverse, déjà rapprochée de la transaction — le
+  // montant reprend le signe réel du mouvement bancaire (positif pour un
+  // crédit comme un apport en capital, négatif pour un débit) même si le
+  // champ de saisie n'affiche que la valeur absolue.
+  async function creerEcritureDepuisTransaction() {
+    if (!modalEcriture) return
+    setModalBusy(true); setModalError('')
+    const signe = modalEcriture.transaction.side === 'credit' ? 1 : -1
+    const { error: err } = await supabase.from('ecritures_diverses').insert([{
+      libelle: modalEcriture.libelle.trim() || 'Écriture diverse',
+      categorie: modalEcriture.categorie,
+      montant: signe * Math.abs(parseFloat(modalEcriture.montant) || 0),
+      date_operation: modalEcriture.date_operation || null,
+      qonto_transaction_id: modalEcriture.transaction.transaction_id,
+      qonto_matched_at: new Date().toISOString(),
+      qonto_match_confiance: 'creation',
+    }])
+    if (err) { setModalError(err.message); setModalBusy(false); return }
+    const txId = modalEcriture.transaction.transaction_id
+    setNonRapprochees(prev => prev.filter(t => t.transaction_id !== txId))
+    setModalEcriture(null)
     setModalBusy(false)
     chargerHistorique()
   }
@@ -493,6 +551,60 @@ export default function Rapprochement() {
         </div>
       )}
 
+      {/* Modale "Décrire ce mouvement" — transaction Qonto (crédit ou débit)
+          qui n'est ni une facture ni une dépense (apport en capital,
+          emprunt, remboursement...) — voir ouvrirCreationEcriture /
+          creerEcritureDepuisTransaction. */}
+      {modalEcriture && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ background: colors.surface, padding: 32, width: 440, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 700 }}>Décrire ce mouvement</h3>
+            <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 20 }}>
+              Depuis la transaction Qonto : {modalEcriture.transaction.label || modalEcriture.transaction.reference} · {fmtTx(Math.abs(modalEcriture.transaction.amount_cents))}
+            </div>
+
+            {modalError && (
+              <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 16, fontSize: 13 }}>
+                {modalError}
+              </div>
+            )}
+
+            <label style={fieldLabel}>Libellé</label>
+            <input value={modalEcriture.libelle} onChange={e => setModalEcriture(p => ({ ...p, libelle: e.target.value }))}
+              style={{ ...inputUnderline, marginBottom: 16 }} />
+
+            <label style={fieldLabel}>Catégorie</label>
+            <select value={modalEcriture.categorie} onChange={e => setModalEcriture(p => ({ ...p, categorie: e.target.value }))}
+              style={{ ...inputUnderline, marginBottom: 16, cursor: 'pointer' }}>
+              {CATEGORIES_ECRITURES.map(c => <option key={c}>{c}</option>)}
+            </select>
+
+            <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <label style={fieldLabel}>Montant (€)</label>
+                <input type="number" step="0.01" value={modalEcriture.montant} onChange={e => setModalEcriture(p => ({ ...p, montant: e.target.value }))}
+                  style={inputUnderline} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={fieldLabel}>Date</label>
+                <input type="date" value={modalEcriture.date_operation} onChange={e => setModalEcriture(p => ({ ...p, date_operation: e.target.value }))}
+                  style={inputUnderline} />
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: colors.inkFaint, margin: '10px 0 22px' }}>
+              Ce mouvement n'entre pas dans le Chiffre d'affaires, les achats ou les dépenses du Compte de résultat — il sert uniquement à rapprocher ta trésorerie avec une description claire.
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setModalEcriture(null)} disabled={modalBusy} style={btnGhost}>Annuler</button>
+              <button onClick={creerEcritureDepuisTransaction} disabled={modalBusy} style={btnPrimary}>
+                {modalBusy ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modale "Associer plusieurs factures" — paiement groupé qui règle
           plusieurs factures en une transaction — voir ouvrirAssociationGroupee
           / confirmerAssociationGroupee. */}
@@ -660,6 +772,10 @@ export default function Rapprochement() {
                           </button>
                           <button onClick={() => estCredit ? ouvrirCreationFacture(tx) : ouvrirCreationDepense(tx)} style={quietLink}>
                             {estCredit ? '+ Créer une facture client' : '+ Créer une dépense'}
+                          </button>
+                          <button onClick={() => ouvrirCreationEcriture(tx)} style={quietLink}
+                            title="Pour un mouvement qui n'est ni une facture ni une dépense : apport en capital, emprunt, remboursement...">
+                            + Décrire ce mouvement
                           </button>
                         </div>
                       </div>
