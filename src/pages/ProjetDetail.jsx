@@ -1294,6 +1294,13 @@ export default function ProjetDetail() {
   // ── Save infos ────────────────────────────────────────────────
   async function saveInfos() {
     setInfosError('')
+    // Le sélecteur "Client" vaut '' (chaîne vide) quand aucun client n'est
+    // choisi (voir value={formInfos.client_id || ''} plus bas) — client_id
+    // est une colonne uuid en base, qui refuse '' ("invalid input syntax
+    // for type uuid") mais accepte null. Sans cette conversion, impossible
+    // d'enregistrer un projet resté sans client (ex. un projet "Perdu"/déjà
+    // réalisé qu'on met à jour sans reprendre sa fiche client).
+    const payload = { ...formInfos, client_id: formInfos.client_id || null }
     // .select().single() force la requête à renvoyer la ligne mise à jour
     // (ou une erreur explicite si aucune ligne n'a été affectée, ex. policy
     // RLS qui bloque silencieusement) — avant ce correctif, une erreur ici
@@ -1301,7 +1308,7 @@ export default function ProjetDetail() {
     // sans rien enregistrer ni expliquer pourquoi : l'ancien nom (et les
     // autres champs) réapparaissait dès le prochain chargement de la page,
     // sans aucun indice sur la cause.
-    const { error } = await supabase.from('projets').update(formInfos).eq('id', id)
+    const { error } = await supabase.from('projets').update(payload).eq('id', id)
     if (error) { setInfosError(error.message); return }
     // Rechargé avec la même jointure clients(...) que fetchAll() plutôt que
     // de fusionner la ligne mise à jour telle quelle : un simple .update()
