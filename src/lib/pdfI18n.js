@@ -11,11 +11,13 @@ export const L = {
     titreDevis: 'DEVIS',
     titreFacture: 'FACTURE',
     titreFactureAcompte: 'FACTURE D’ACOMPTE',
+    titreAvoir: 'AVOIR',
     titreCommande: 'BON DE COMMANDE',
     contact: 'Contact : ',
     siret: 'SIRET : ',
     numeroDevis: 'N° devis :',
     numeroFacture: 'N° facture :',
+    numeroAvoir: 'N° avoir :',
     numeroCommande: 'N° :',
     referenceBonCommandeClient: 'Réf. bon de commande :',
     date: 'Date :',
@@ -75,6 +77,11 @@ export const L = {
     surface: 'Surface : ',
     accesLivraison: 'Accès/Livraison : ',
     prestations: 'Prestations — ',
+    // Avoir client (voir sql/avoir_facture_cli_migration.sql) : description
+    // affichée sur le PDF à la place de "Prestations — ...", avec la
+    // référence à la facture corrigée quand elle est renseignée.
+    avoirLabel: 'Avoir',
+    avoirSurFacture: numero => `Avoir sur la facture n° ${numero}`,
     page: (i, n) => `Page ${i} / ${n}`,
     cgvTitre: 'Conditions générales de vente',
     suite: ' (suite)',
@@ -108,16 +115,24 @@ export const L = {
       taux > 0 ? `Montants exprimés en euros HT, TVA au taux de ${taux} % en sus.` : 'Montants exprimés en euros HT — TVA non applicable sur cette facture.',
       'Tout retard de paiement entraîne l’application d’intérêts de retard et d’une indemnité forfaitaire de 40 € pour frais de recouvrement (art. L441-10 et D441-5 du Code de commerce). Aucun escompte pour paiement anticipé.',
     ],
+    // Avoir client — pas de mention de délai de paiement (ce n'est pas une
+    // somme due par le client) ni de pénalités de retard.
+    bulletsAvoir: taux => [
+      'Cet avoir vient en déduction de vos prochaines factures, ou fait l’objet d’un remboursement selon accord avec le client.',
+      taux > 0 ? `Montants exprimés en euros HT, TVA au taux de ${taux} % en sus.` : 'Montants exprimés en euros HT — TVA non applicable sur cet avoir.',
+    ],
   },
   en: {
     titreDevis: 'QUOTE',
     titreFacture: 'INVOICE',
     titreFactureAcompte: 'DEPOSIT INVOICE',
+    titreAvoir: 'CREDIT NOTE',
     titreCommande: 'PURCHASE ORDER',
     contact: 'Contact: ',
     siret: 'SIRET: ',
     numeroDevis: 'Quote No.:',
     numeroFacture: 'Invoice No.:',
+    numeroAvoir: 'Credit note No.:',
     numeroCommande: 'No.:',
     referenceBonCommandeClient: 'PO reference:',
     date: 'Date:',
@@ -169,6 +184,8 @@ export const L = {
     surface: 'Surface: ',
     accesLivraison: 'Access/Delivery: ',
     prestations: 'Services — ',
+    avoirLabel: 'Credit note',
+    avoirSurFacture: numero => `Credit note for invoice No. ${numero}`,
     page: (i, n) => `Page ${i} of ${n}`,
     cgvTitre: 'Terms and Conditions of Sale',
     suite: ' (cont’d)',
@@ -194,6 +211,10 @@ export const L = {
       'This invoice is payable in cash, immediately upon receipt, by bank transfer.',
       taux > 0 ? `Amounts are shown in euros excluding VAT; VAT applies at a rate of ${taux}% in addition.` : 'Amounts are shown in euros excluding VAT — VAT does not apply to this invoice.',
       'Late payment automatically incurs late-payment interest and a flat-rate compensation of €40 for collection costs (Articles L441-10 and D441-5 of the French Commercial Code). No discount is granted for early payment.',
+    ],
+    bulletsAvoir: taux => [
+      'This credit note will be deducted from your next invoices, or refunded as agreed with the client.',
+      taux > 0 ? `Amounts are shown in euros excluding VAT; VAT applies at a rate of ${taux}% in addition.` : 'Amounts are shown in euros excluding VAT — VAT does not apply to this credit note.',
     ],
   },
 }

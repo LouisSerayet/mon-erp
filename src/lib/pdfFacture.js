@@ -26,17 +26,25 @@ export function genererFactureCliPDF(facture, projet, lang = 'fr') {
   const tauxTva = Number(projet?.taux_tva ?? 20)
   const totalTva = totalHt * (tauxTva / 100)
   const totalTtc = totalHt + totalTva
-  const description = t.prestations + (projet?.nom || '')
+  const estAvoir = facture.type_facture === 'avoir'
+  const description = estAvoir
+    // Avoir : mentionne la facture corrigée quand elle est renseignée (voir
+    // sql/avoir_facture_cli_migration.sql, facture_origine_numero) plutôt
+    // que la description générique "Prestations — ...".
+    ? (facture.facture_origine_numero ? t.avoirSurFacture(facture.facture_origine_numero) : t.avoirLabel) + ' — ' + (projet?.nom || '')
+    : t.prestations + (projet?.nom || '')
   // Facture d'acompte : titre distinct ("FACTURE D'ACOMPTE") et, si réglée
   // comptant, conditions de paiement sans mention de délai de 30 jours —
-  // voir sql/facture_cli_type_migration.sql et lib/pdfI18n.js.
-  const titreDoc = facture.type_facture === 'acompte' ? t.titreFactureAcompte : t.titreFacture
-  const bullets = facture.paiement_comptant ? t.bulletsFactureComptant(tauxTva) : t.bulletsFacture(tauxTva)
+  // voir sql/facture_cli_type_migration.sql et lib/pdfI18n.js. Avoir : titre
+  // "AVOIR" et conditions dédiées (pas de délai de paiement puisque ce n'est
+  // pas une somme due par le client) — voir sql/avoir_facture_cli_migration.sql.
+  const titreDoc = estAvoir ? t.titreAvoir : facture.type_facture === 'acompte' ? t.titreFactureAcompte : t.titreFacture
+  const bullets = estAvoir ? t.bulletsAvoir(tauxTva) : facture.paiement_comptant ? t.bulletsFactureComptant(tauxTva) : t.bulletsFacture(tauxTva)
 
   let y = enTeteDocument(doc, { titre: titreDoc, lang })
   y = blocMetaEtDestinataire(doc, y, {
     metaGauche: [
-      [t.numeroFacture, facture.numero || '—'],
+      [estAvoir ? t.numeroAvoir : t.numeroFacture, facture.numero || '—'],
       [t.date, facture.date_facture ? fmtDatePdf(facture.date_facture, lang) : fmtDatePdf(new Date(), lang)],
       [t.echeance, facture.date_echeance ? fmtDatePdf(facture.date_echeance, lang) : '—'],
       // Réf. bon de commande client — un seul numéro par projet (voir

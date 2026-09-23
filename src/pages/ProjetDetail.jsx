@@ -122,7 +122,11 @@ export default function ProjetDetail() {
   // type_facture / paiement_comptant : voir sql/facture_cli_type_migration.sql
   // — choisis une seule fois à la création, non modifiables ensuite (comme
   // le numéro). paiement_comptant n'a de sens que pour une facture d'acompte.
-  const [formFcli, setFormFcli] = useState({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '', type_facture: 'avancement', paiement_comptant: false })
+  // origine_facture_id : champ UI seulement (sélecteur de la facture
+  // corrigée par un avoir) — jamais envoyé tel quel en base, voir
+  // ajouterFactureCli qui construit facture_origine_id/facture_origine_numero
+  // à part (sql/avoir_facture_cli_migration.sql).
+  const [formFcli, setFormFcli] = useState({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '', type_facture: 'avancement', paiement_comptant: false, origine_facture_id: '' })
   // Saisie auxiliaire "% du devis" pour la nouvelle facture client — ne va
   // pas en base (seul montant_ht est stocké), sert juste à calculer le
   // montant HT à partir d'un pourcentage d'avancement (situation de travaux).
@@ -1688,16 +1692,21 @@ export default function ProjetDetail() {
       return
     }
     const doc = generateFactureCliPDF(f, 'fr')
-    const sujet = 'Facture ' + (f.numero || '') + (projet?.nom ? ' — ' + projet.nom : '')
+    const estAvoir = f.type_facture === 'avoir'
+    const sujet = (estAvoir ? 'Avoir ' : 'Facture ') + (f.numero || '') + (projet?.nom ? ' — ' + projet.nom : '')
     // Une facture d'acompte réglée comptant a une échéance = date de
     // facture (voir echeanceFcliAuto) : "à régler avant le [aujourd'hui]"
     // serait trompeur, on préfère l'annoncer explicitement comme comptant.
-    const mentionEcheance = f.paiement_comptant
+    // Un avoir n'est pas "à régler" — pas de mention d'échéance.
+    const mentionEcheance = estAvoir ? '' : f.paiement_comptant
       ? ', à régler comptant dès réception'
       : (f.date_echeance ? ', à régler avant le ' + new Date(f.date_echeance).toLocaleDateString('fr-FR') : '')
-    const corps = 'Bonjour,\n\nVeuillez trouver ci-joint la facture ' + (f.numero || '') +
-      (projet?.nom ? ' relative au projet ' + projet.nom : '') +
-      ', d\'un montant de ' + Number(f.montant_ht || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' € HT' +
+    // Montant HT en valeur absolue dans le texte — c'est le PDF joint (qui
+    // affiche le vrai signe négatif) qui fait foi, le corps de l'email reste
+    // lisible ("d'un montant de 500,00 € HT" plutôt que "-500,00 € HT").
+    const corps = 'Bonjour,\n\nVeuillez trouver ci-joint ' + (estAvoir ? "l'avoir " : 'la facture ') + (f.numero || '') +
+      (estAvoir && f.facture_origine_numero ? ' relatif à la facture ' + f.facture_origine_numero : (projet?.nom ? ' relative au projet ' + projet.nom : '')) +
+      ', d\'un montant de ' + Math.abs(Number(f.montant_ht || 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' € HT' +
       mentionEcheance +
       '.\n\nN\'hésitez pas à revenir vers nous pour toute question.\n\nCordialement'
     setEnvoiEmailModal({
@@ -1999,15 +2008,34 @@ export default function ProjetDetail() {
     if (savingFactureCli) return
     setError('')
     setSavingFactureCli(true)
-    // Le numéro n'est plus saisi à la main : la loi impose une suite
-    // séquentielle et non modifiable pour les factures émises, donc il est
-    // généré côté base de données (fonction next_facture_numero(), voir
-    // sql/05_numerotation_factures.sql) au moment de la création.
-    const { data: numeroGenere, error: errNumero } = await supabase.rpc('next_facture_numero')
-    if (errNumero) { setError('Impossible de générer le numéro de facture : ' + errNumero.message); setSavingFactureCli(false); return }
-    const { error } = await supabase.from('factures_cli').insert([{ ...formFcli, numero: numeroGenere, projet_id: id, client_id: projet?.client_id || null, montant_ht: parseFloat(formFcli.montant_ht) || 0 }])
+    // Un avoir suit sa propre série de numérotation (AV-AAAA-NNN, voir
+    // next_avoir_numero() dans sql/avoir_facture_cli_migration.sql),
+    // distincte de celle des factures — même rigueur légale de suite
+    // séquentielle sans trou, mais deux séries qui ne se mélangent pas.
+    const estAvoir = formFcli.type_facture === 'avoir'
+    const { data: numeroGenere, error: errNumero } = await supabase.rpc(estAvoir ? 'next_avoir_numero' : 'next_facture_numero')
+    if (errNumero) { setError('Impossible de générer le numéro : ' + errNumero.message); setSavingFactureCli(false); return }
+    // Le champ "Montant de l'avoir" se saisit en positif (plus naturel) —
+    // enregistré en négatif en base pour venir naturellement en déduction
+    // du CA et de la TVA collectée dans le Compte de résultat (simple somme
+    // de montant_ht, signe compris — voir Resultat.jsx).
+    const montantSaisi = Math.abs(parseFloat(formFcli.montant_ht) || 0)
+    const origine = estAvoir && formFcli.origine_facture_id ? facturesCli.find(f => f.id === formFcli.origine_facture_id) : null
+    const { error } = await supabase.from('factures_cli').insert([{
+      statut: formFcli.statut,
+      date_facture: formFcli.date_facture || null,
+      date_echeance: formFcli.date_echeance || null,
+      type_facture: formFcli.type_facture,
+      paiement_comptant: formFcli.paiement_comptant,
+      numero: numeroGenere,
+      projet_id: id,
+      client_id: projet?.client_id || null,
+      montant_ht: estAvoir ? -montantSaisi : montantSaisi,
+      facture_origine_id: origine?.id || null,
+      facture_origine_numero: origine?.numero || null,
+    }])
     if (error) { setError(error.message); setSavingFactureCli(false); return }
-    setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '', type_facture: 'avancement', paiement_comptant: false }); setFormFcliPct(''); setEcheanceFcliVerrouillee(true)
+    setShowForm(false); setFormFcli({ numero: '', montant_ht: '', statut: 'À envoyer', date_facture: '', date_echeance: '', type_facture: 'avancement', paiement_comptant: false, origine_facture_id: '' }); setFormFcliPct(''); setEcheanceFcliVerrouillee(true)
     const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesCli(data || [])
     setSavingFactureCli(false)
@@ -3783,9 +3811,17 @@ export default function ProjetDetail() {
             )}
             {showForm && (
               <div style={{ background: colors.surface, padding: 20, border: '1px solid ' + colors.line, marginBottom: 16 }}>
-                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouvelle facture client</h4>
+                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>{formFcli.type_facture === 'avoir' ? 'Nouvel avoir' : 'Nouvelle facture client'}</h4>
                 {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{error}</div>}
-                {(() => {
+                {formFcli.type_facture === 'avoir' ? (
+                  // Le recap "Budget vente / Déjà facturé / Reste à facturer"
+                  // n'a pas de sens pour un avoir (il ne consomme pas le
+                  // budget du devis, il vient en déduction du CA déjà
+                  // facturé) — remplacé par une note simple.
+                  <div style={{ borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line, padding: '12px 0', marginBottom: 14, fontSize: 12, color: colors.inkMuted }}>
+                    Un avoir vient en déduction du Chiffre d'affaires et de la TVA collectée du Compte de résultat — il n'affecte pas le suivi du budget devis ci-dessus.
+                  </div>
+                ) : (() => {
                   const saisie = parseFloat(formFcli.montant_ht) || 0
                   const resteApres = resteAFacturer - saisie
                   const pctSaisi = totalVenteGlobal > 0 ? (saisie / totalVenteGlobal * 100) : 0
@@ -3821,9 +3857,12 @@ export default function ProjetDetail() {
                     <div style={{ fontSize: 13, color: colors.inkFaint, fontStyle: 'italic', padding: '8px 2px' }}>
                       Généré automatiquement à la création
                     </div></div>
-                  <div><label style={fieldLabel}>Montant HT (€)</label>
+                  <div><label style={fieldLabel}>{formFcli.type_facture === 'avoir' ? "Montant de l'avoir (€)" : 'Montant HT (€)'}</label>
                     <input type="number" min="0" value={formFcli.montant_ht} onChange={e => { setFormFcli(p => ({ ...p, montant_ht: e.target.value })); setFormFcliPct('') }}
-                      style={inputUnderline} /></div>
+                      style={inputUnderline} />
+                    {formFcli.type_facture === 'avoir' && (
+                      <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>Saisis un montant positif — il sera enregistré en négatif (déduction du CA).</div>
+                    )}</div>
                   <div><label style={fieldLabel}>— ou % du devis</label>
                     <div style={{ position: 'relative' }}>
                       <input type="number" min="0" max="100" value={formFcliPct} placeholder="Ex: 30" disabled={totalVenteGlobal <= 0}
@@ -3868,7 +3907,20 @@ export default function ProjetDetail() {
                       style={{ ...inputUnderline, cursor: 'pointer' }}>
                       <option value="avancement">Facture d'avancement</option>
                       <option value="acompte">Facture d'acompte</option>
+                      <option value="avoir">Avoir</option>
                     </select></div>
+                  {formFcli.type_facture === 'avoir' && (
+                    <div><label style={fieldLabel}>Facture d'origine (optionnel)</label>
+                      <select value={formFcli.origine_facture_id} onChange={e => setFormFcli(p => ({ ...p, origine_facture_id: e.target.value }))}
+                        style={{ ...inputUnderline, cursor: 'pointer' }}>
+                        <option value="">— Aucune (avoir global) —</option>
+                        {facturesCli.filter(f => f.type_facture !== 'avoir').map(f => (
+                          <option key={f.id} value={f.id}>{f.numero} — {fmt(f.montant_ht)} HT</option>
+                        ))}
+                      </select>
+                      <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>Rappelée sur le PDF de l'avoir ("Avoir sur la facture n° ...").</div>
+                    </div>
+                  )}
                   {formFcli.type_facture === 'acompte' && (
                     <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 8 }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: colors.ink, cursor: 'pointer' }}>
@@ -3917,6 +3969,11 @@ export default function ProjetDetail() {
                             Acompte{f.paiement_comptant ? ' · comptant' : ''}
                           </div>
                         )}
+                        {f.type_facture === 'avoir' && (
+                          <div style={{ marginTop: 3, fontSize: 10, fontWeight: 500, color: colors.danger }}>
+                            Avoir{f.facture_origine_numero ? ' · sur ' + f.facture_origine_numero : ''}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '8px 14px', color: colors.inkFaint }}>
                         <input type="date" value={getFacCliVal(f, 'date_facture')} onChange={e => editFacCli(f.id, 'date_facture', e.target.value, f)} style={{ ...inStyle, width: 130 }} />
@@ -3926,7 +3983,10 @@ export default function ProjetDetail() {
                           style={{ ...inStyle, width: 130, color: enRetard ? colors.danger : colors.ink }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" min="0" value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
+                        {/* Un avoir a un montant négatif en base (voir
+                            ajouterFactureCli) — pas de min="0" pour cette
+                            ligne, sinon impossible de le modifier ensuite. */}
+                        <input type="number" min={f.type_facture === 'avoir' ? undefined : 0} value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: (parseFloat(getFacCliVal(f, 'montant_ht')) || 0) < 0 ? colors.danger : colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
