@@ -172,16 +172,29 @@ export default function ProjetDetail() {
   const [showAddLigne, setShowAddLigne] = useState(false)
   const [ligneError, setLigneError] = useState('')
   const [showAddLot, setShowAddLot] = useState(false)
-  const [formLot, setFormLot] = useState({ numero: '', categorie: '', descriptif: '' })
+  const [formLot, setFormLot] = useState({ categorie: '', descriptif: '' })
   const [savingLot, setSavingLot] = useState(false)
   const [lotError, setLotError] = useState('')
-  // Édition d'un lot existant (N°, catégorie, descriptif) — voir
+  // Édition d'un lot existant (catégorie, descriptif) — voir
   // ouvrirEditionLot/enregistrerEditionLot. `lotEnEdition` retient le
-  // numéro du lot en cours d'édition (avant renommage éventuel), ou null.
+  // numéro du lot en cours d'édition. Le N° lui-même n'est plus éditable à
+  // la main depuis ce correctif — voir renumeroterLots : il reflète
+  // toujours automatiquement la position du lot (1, 2, 3... sans trou),
+  // recalculé après chaque glisser-déposer, création ou suppression de lot.
   const [lotEnEdition, setLotEnEdition] = useState(null)
-  const [formLotEdit, setFormLotEdit] = useState({ numero: '', categorie: '', descriptif: '' })
+  const [formLotEdit, setFormLotEdit] = useState({ categorie: '', descriptif: '' })
   const [savingLotEdit, setSavingLotEdit] = useState(false)
   const [lotEditError, setLotEditError] = useState('')
+  // Glisser-déposer d'un LOT pour le réordonner (distinct du glissement de
+  // ligne ci-dessus, qui déplace une ligne entre lots) — voir deplacerLot.
+  // `lotDrag` retient le numéro du lot en cours de glissement, `lotDragOverNumero`
+  // la cible survolée ('fin' = après le dernier lot) pour l'indication
+  // visuelle, `lotDragBusy` empêche deux dépôts concurrents.
+  const [lotDrag, setLotDrag] = useState(null)
+  // '' = rien survolé pour l'instant (distinct de `null`, qui signifie "zone
+  // de fin de liste" une fois réellement survolée — voir onDragOverLot).
+  const [lotDragOverNumero, setLotDragOverNumero] = useState('')
+  const [lotDragBusy, setLotDragBusy] = useState(false)
   const [showValidation, setShowValidation] = useState(false) // modale de validation étape
   const [validationDoc, setValidationDoc] = useState(null) // fichier uploadé
   const [validationDate, setValidationDate] = useState('') // date de début
@@ -804,16 +817,14 @@ export default function ProjetDetail() {
 
   async function ajouterLot() {
     setLotError('')
-    const numero = formLot.numero.trim()
     const categorie = formLot.categorie.trim()
-    if (!numero) { setLotError('Le numéro de lot est obligatoire.'); return }
     if (!categorie) { setLotError('La catégorie est obligatoire.'); return }
-    if (lots.some(l => l.numero.toLowerCase() === numero.toLowerCase())) {
-      setLotError('Un lot avec ce numéro existe déjà.')
-      return
-    }
     setSavingLot(true)
     const maxOrdre = Math.max(...lignes.map(l => l.ordre || 0), 0)
+    // Le N° est toujours automatique — voir renumeroterLots : un nouveau
+    // lot arrive en dernière position, donc son numéro est simplement
+    // "nombre de lots existants + 1".
+    const numero = String(lots.length + 1)
     const { error } = await supabase.from('projet_lignes').insert([{
       projet_id: id,
       type: 'lot',
@@ -830,13 +841,13 @@ export default function ProjetDetail() {
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
     setLignes(lg || [])
     setShowAddLot(false)
-    setFormLot({ numero: '', categorie: '', descriptif: '' })
+    setFormLot({ categorie: '', descriptif: '' })
     setSavingLot(false)
   }
 
   function ouvrirEditionLot(lot) {
     setLotEnEdition(lot.numero)
-    setFormLotEdit({ numero: lot.numero, categorie: lot.categorie || '', descriptif: lot.descriptif || '' })
+    setFormLotEdit({ categorie: lot.categorie || '', descriptif: lot.descriptif || '' })
     setLotEditError('')
   }
 
@@ -845,41 +856,19 @@ export default function ProjetDetail() {
     setLotEditError('')
   }
 
-  // Modifie le texte d'un lot existant (N°, catégorie, descriptif). Le N°
-  // de lot sert de clé de rattachement aux lignes qu'il contient
-  // (projet_lignes.lot === lot.numero) : s'il change, on répercute le
-  // renommage sur toutes ses lignes enfants pour qu'elles restent
-  // rattachées au bon lot, et on fait suivre son état plié/déplié
-  // (lotsReduits) au nouveau numéro.
+  // Modifie le texte d'un lot existant (catégorie, descriptif). Le N° n'est
+  // plus modifiable ici — il est automatique, voir renumeroterLots.
   async function enregistrerEditionLot() {
     if (savingLotEdit) return // garde-fou anti double-clic
     setLotEditError('')
     const ancienNumero = lotEnEdition
-    const numero = formLotEdit.numero.trim()
     const categorie = formLotEdit.categorie.trim()
-    if (!numero) { setLotEditError('Le numéro de lot est obligatoire.'); return }
     if (!categorie) { setLotEditError('La catégorie est obligatoire.'); return }
-    if (numero.toLowerCase() !== ancienNumero.toLowerCase() && lots.some(l => l.numero.toLowerCase() === numero.toLowerCase())) {
-      setLotEditError('Un lot avec ce numéro existe déjà.')
-      return
-    }
     const lotLigne = lignes.find(l => l.type === 'lot' && l.numero === ancienNumero)
     if (!lotLigne) { setLotEnEdition(null); return }
     setSavingLotEdit(true)
-    const { error } = await supabase.from('projet_lignes').update({ numero, categorie, descriptif: formLotEdit.descriptif.trim() }).eq('id', lotLigne.id)
+    const { error } = await supabase.from('projet_lignes').update({ categorie, descriptif: formLotEdit.descriptif.trim() }).eq('id', lotLigne.id)
     if (error) { setLotEditError(error.message); setSavingLotEdit(false); return }
-    if (numero !== ancienNumero) {
-      const enfants = lignes.filter(l => l.type !== 'lot' && l.lot === ancienNumero)
-      if (enfants.length > 0) {
-        const { error: errEnfants } = await supabase.from('projet_lignes').update({ lot: numero }).in('id', enfants.map(l => l.id))
-        if (errEnfants) { setLotEditError(errEnfants.message); setSavingLotEdit(false); return }
-      }
-      setLotsReduits(prev => {
-        if (!(ancienNumero in prev)) return prev
-        const { [ancienNumero]: valeurPliee, ...reste } = prev
-        return { ...reste, [numero]: valeurPliee }
-      })
-    }
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
     setLignes(lg || [])
     setLotEnEdition(null)
@@ -1044,6 +1033,109 @@ export default function ProjetDetail() {
     deplacerLigne(ligneDrag.id, { lot: numeroLot || null, avantId: null })
   }
 
+  // ── Renumérotation automatique des lots ─────────────────────────────
+  // Un lot n'a plus de N° saisi à la main (voir ajouterLot/enregistrerEditionLot
+  // ci-dessus) : sa position dans `lotsOrdonnes` détermine entièrement son
+  // numéro (1, 2, 3... sans trou, jamais de doublon puisqu'il n'y a par
+  // construction qu'un seul lot par position). Appelée après tout
+  // glisser-déposer de lot (deplacerLot) et après toute suppression de lot
+  // (supprimerLot) pour refermer le trou laissé. Le renommage d'un numéro
+  // de lot est répercuté sur les lignes qui lui sont rattachées
+  // (projet_lignes.lot === ancien numéro), même principe que l'ancienne
+  // enregistrerEditionLot. `lignesRef` permet de passer un jeu de lignes
+  // fraîchement rechargé (ex. juste après une suppression) plutôt que de
+  // se fier à l'état React `lignes`, qui n'est pas encore à jour au moment
+  // de l'appel (setLignes est asynchrone).
+  async function renumeroterLots(lotsOrdonnes, lignesRef = lignes) {
+    const renommages = [] // [{ id, ancien, nouveau }]
+    lotsOrdonnes.forEach((lot, i) => {
+      const nouveauNumero = String(i + 1)
+      if (lot.numero !== nouveauNumero) renommages.push({ id: lot.id, ancien: lot.numero, nouveau: nouveauNumero })
+    })
+    if (renommages.length === 0) return true
+    // Aucune contrainte d'unicité en base sur (projet_id, numero) — voir
+    // sql/, la seule validation existait côté client et a été retirée avec
+    // la saisie manuelle. On peut donc réattribuer les numéros en une seule
+    // passe, y compris pour une permutation (ex. lot 1 ↔ lot 2), sans
+    // risque de collision transitoire visible (aucun rendu n'a lieu tant
+    // que le setLignes final n'a pas eu lieu).
+    const resultatsLots = await Promise.all(renommages.map(r => supabase.from('projet_lignes').update({ numero: r.nouveau }).eq('id', r.id)))
+    const echecLot = resultatsLots.find(r => r.error)
+    if (echecLot) { alert('Erreur lors de la renumérotation des lots : ' + echecLot.error.message); return false }
+    for (const { ancien, nouveau } of renommages) {
+      const enfants = lignesRef.filter(l => l.type !== 'lot' && l.lot === ancien)
+      if (enfants.length > 0) {
+        const { error } = await supabase.from('projet_lignes').update({ lot: nouveau }).in('id', enfants.map(l => l.id))
+        if (error) { alert('Erreur lors de la mise à jour des lignes d\'un lot : ' + error.message); return false }
+      }
+    }
+    // Fait suivre l'état plié/déplié de chaque lot à son nouveau numéro —
+    // reconstruit depuis `prev` (et non modifié en place) pour éviter
+    // qu'un renommage en chaîne (1→2, 2→3...) n'écrase la valeur d'un lot
+    // par celle d'un autre avant qu'elle ait été reportée.
+    const numeroMap = new Map(renommages.map(r => [r.ancien, r.nouveau]))
+    setLotsReduits(prev => {
+      const next = {}
+      for (const [numero, valeurPliee] of Object.entries(prev)) next[numeroMap.get(numero) || numero] = valeurPliee
+      return next
+    })
+    const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+    setLignes(lg || [])
+    return true
+  }
+
+  // ── Glisser-déposer d'un LOT pour le réordonner ─────────────────────
+  // Distinct du glissement de ligne ci-dessus (deplacerLigne), qui déplace
+  // une ligne entre lots. Ici on réordonne les lots eux-mêmes : le lot
+  // source est retiré de la liste actuelle des lots (déjà dans l'ordre
+  // d'affichage), réinséré juste avant `numeroCible` (ou en fin de liste si
+  // `numeroCible` est null — dépôt sur la zone de fin), puis tous les lots
+  // sont renumérotés 1, 2, 3... selon leur position finale.
+  async function deplacerLot(numeroSource, numeroCible) {
+    if (lotDragBusy) return
+    if (numeroSource === numeroCible) return
+    const lotsActuels = lignes.filter(l => l.type === 'lot')
+    const source = lotsActuels.find(l => l.numero === numeroSource)
+    if (!source) return
+    const reste = lotsActuels.filter(l => l.numero !== numeroSource)
+    let index = numeroCible ? reste.findIndex(l => l.numero === numeroCible) : -1
+    if (index === -1) index = reste.length
+    const nouvelOrdre = [...reste.slice(0, index), source, ...reste.slice(index)]
+    setLotDragBusy(true)
+    await renumeroterLots(nouvelOrdre)
+    setLotDragBusy(false)
+  }
+
+  function onDragStartLot(e, lot) {
+    e.stopPropagation()
+    setLotDrag(lot.numero)
+    e.dataTransfer.effectAllowed = 'move'
+    // Firefox exige qu'un type de données soit défini pour autoriser le
+    // glissement — même principe que onDragStartLigne.
+    e.dataTransfer.setData('text/plain', 'lot:' + lot.numero)
+  }
+
+  function onDragEndLot() {
+    setLotDrag(null)
+    setLotDragOverNumero('')
+  }
+
+  function onDragOverLot(e, numero) {
+    if (!lotDrag) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    if (lotDragOverNumero !== numero) setLotDragOverNumero(numero)
+  }
+
+  function onDropSurLot(e, numeroCible) {
+    if (!lotDrag) return
+    e.preventDefault()
+    e.stopPropagation()
+    setLotDragOverNumero('')
+    deplacerLot(lotDrag, numeroCible)
+  }
+
   async function supprimerLot(lot) {
     // Les lignes rattachées à ce lot (l.lot === lot.numero) ne sont
     // rattachables à aucun autre groupe si on ne supprime que la ligne
@@ -1061,8 +1153,12 @@ export default function ProjetDetail() {
     const { error } = await supabase.from('projet_lignes').update({ deleted_at: new Date().toISOString() }).in('id', ids)
     if (error) { alert('Erreur lors de la suppression du lot : ' + error.message); return }
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
-    setLignes(lg || [])
-    await syncMontantHtProjet(lg || [])
+    const lgData = lg || []
+    setLignes(lgData)
+    await syncMontantHtProjet(lgData)
+    // Referme le trou laissé dans la numérotation (ex. suppression du lot 2
+    // sur 1,2,3 → 1,3 devient 1,2) — voir renumeroterLots.
+    await renumeroterLots(lgData.filter(l => l.type === 'lot'), lgData)
     setLignesSelectionnees(prev => {
       if (!ids.some(i => prev.has(i))) return prev
       const next = new Set(prev); ids.forEach(i => next.delete(i)); return next
@@ -2754,20 +2850,16 @@ export default function ProjetDetail() {
               </div>
             )}
 
-            {/* Formulaire nouveau lot — saisie libre (numéro + catégorie),
-                utile quand le projet n'a pas encore de lots (ex. pas
-                d'import Excel) et qu'il n'y a donc rien à choisir dans le
-                menu déroulant "N° Lot" du formulaire de ligne. */}
+            {/* Formulaire nouveau lot — saisie libre (catégorie uniquement,
+                le N° est automatique, voir renumeroterLots), utile quand le
+                projet n'a pas encore de lots (ex. pas d'import Excel) et
+                qu'il n'y a donc rien à choisir dans le menu déroulant
+                "N° Lot" du formulaire de ligne. */}
             {showAddLot && (
               <div style={{ background: colors.surface, border: '1px solid ' + colors.line, padding: 20, marginBottom: 16 }}>
-                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouveau lot</h4>
+                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouveau lot — N° {lots.length + 1} (automatique)</h4>
                 {lotError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{lotError}</div>}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
-                  <div>
-                    <label style={fieldLabel}>N° Lot *</label>
-                    <input value={formLot.numero} onChange={e => setFormLot(p => ({ ...p, numero: e.target.value }))} placeholder="Ex. 01"
-                      style={inputUnderline} />
-                  </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginBottom: 12 }}>
                   <div>
                     <label style={fieldLabel}>Catégorie *</label>
                     <input value={formLot.categorie} onChange={e => setFormLot(p => ({ ...p, categorie: e.target.value }))} placeholder="Ex. Électricité"
@@ -2780,7 +2872,7 @@ export default function ProjetDetail() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setShowAddLot(false); setLotError(''); setFormLot({ numero: '', categorie: '', descriptif: '' }) }} style={btnGhost}>Annuler</button>
+                  <button onClick={() => { setShowAddLot(false); setLotError(''); setFormLot({ categorie: '', descriptif: '' }) }} style={btnGhost}>Annuler</button>
                   <button onClick={ajouterLot} disabled={savingLot} style={btnPrimary}>
                     {savingLot ? 'Création...' : 'Créer le lot'}
                   </button>
@@ -2952,32 +3044,37 @@ export default function ProjetDetail() {
                 const toutSelectionneLot = idsGroupeLot.length > 0 && idsGroupeLot.every(i => lignesSelectionnees.has(i))
                 const cleGroupeLot = 'lot:' + lot.numero
                 return (
-                <div key={lot.numero} onDragOver={e => onDragOverCible(e, cleGroupeLot)} onDrop={e => onDropFinGroupe(e, lot.numero)}
-                  style={{ marginBottom: 12, border: '1px solid ' + (ligneDragOverKey === cleGroupeLot ? colors.focus : colors.line) }}>
+                <div key={lot.numero}
+                  onDragOver={e => { onDragOverCible(e, cleGroupeLot); onDragOverLot(e, lot.numero) }}
+                  onDrop={e => { onDropFinGroupe(e, lot.numero); onDropSurLot(e, lot.numero) }}
+                  style={{ marginBottom: 12, border: '1px solid ' + (lotDragOverNumero === lot.numero || ligneDragOverKey === cleGroupeLot ? colors.focus : colors.line),
+                    opacity: lotDrag === lot.numero ? 0.4 : 1, transition: 'opacity 0.15s' }}>
                   <div onClick={() => setLotsReduits(prev => ({ ...prev, [lot.numero]: !prev[lot.numero] }))}
                     style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, color: colors.ink, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexWrap: 'wrap', gap: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span draggable onDragStart={e => onDragStartLot(e, lot)} onDragEnd={onDragEndLot} onClick={e => e.stopPropagation()}
+                        title="Glisser pour réordonner les lots — le N° suit automatiquement la position"
+                        style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
+                        <IconGlisser />
+                      </span>
                       <span style={{ fontSize: 14, color: colors.inkFaint, transition: 'transform 0.2s', display: 'inline-block', transform: estReduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
                       <span style={{ fontWeight: 600, fontSize: 13 }}>LOT {lot.numero} — {lot.categorie}{lot.descriptif ? ' · ' + lot.descriptif : ''}</span>
                       {ligneDrag && ligneDrag.lot !== lot.numero && <span style={{ fontSize: 10, color: colors.focus, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Déposer ici</span>}
+                      {lotDrag && lotDrag !== lot.numero && <span style={{ fontSize: 10, color: colors.focus, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Déposer avant ce lot</span>}
                     </div>
                     <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
                       <span style={{ fontSize: 12, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>Vente : {Number(totalVenteLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                       <span style={{ fontSize: 12, color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>Achat : {Number(totalAchatLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                       <span style={{ fontSize: 12, color: margeLot >= 0 ? colors.success : colors.danger, fontWeight: 600, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>Marge : {Number(margeLot).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
-                      <button onClick={e => { e.stopPropagation(); ouvrirEditionLot(lot) }} title="Modifier ce lot (N°, catégorie, descriptif)" style={{ ...quietLink, padding: 0 }}>Modifier</button>
+                      <button onClick={e => { e.stopPropagation(); ouvrirEditionLot(lot) }} title="Modifier ce lot (catégorie, descriptif) — le N° suit automatiquement sa position" style={{ ...quietLink, padding: 0 }}>Modifier</button>
                       <button onClick={e => { e.stopPropagation(); supprimerLot(lot) }} title="Supprimer ce lot" style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger, padding: 0 }}>Supprimer</button>
                     </div>
                   </div>
                   {lotEnEdition === lot.numero && (
                     <div style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, padding: 16 }}>
                       {lotEditError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{lotEditError}</div>}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
-                        <div>
-                          <label style={fieldLabel}>N° Lot *</label>
-                          <input value={formLotEdit.numero} onChange={e => setFormLotEdit(p => ({ ...p, numero: e.target.value }))}
-                            style={inputUnderline} />
-                        </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginBottom: 12 }}>
                         <div>
                           <label style={fieldLabel}>Catégorie *</label>
                           <input value={formLotEdit.categorie} onChange={e => setFormLotEdit(p => ({ ...p, categorie: e.target.value }))}
@@ -3149,6 +3246,16 @@ export default function ProjetDetail() {
                 </div>
               )
               })}
+              {/* Zone de dépôt "fin de liste" pour le glisser-déposer de lot
+                  — n'apparaît que pendant un glissement de lot (lotDrag),
+                  pour déposer le lot en toute dernière position. */}
+              {lotDrag && (
+                <div onDragOver={e => onDragOverLot(e, null)} onDrop={e => onDropSurLot(e, null)}
+                  style={{ marginBottom: 12, padding: '10px 16px', border: '1px dashed ' + (lotDragOverNumero === null ? colors.focus : colors.line),
+                    textAlign: 'center', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Déposer ici pour mettre en dernière position
+                </div>
+              )}
               {/* Lignes sans lot — affiché aussi le temps d'un glissement en
                   cours (ligneDrag) même quand ce groupe est vide, pour
                   servir de zone de dépôt "retirer du lot". */}
