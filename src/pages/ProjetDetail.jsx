@@ -3911,14 +3911,24 @@ export default function ProjetDetail() {
                     </select></div>
                   {formFcli.type_facture === 'avoir' && (
                     <div><label style={fieldLabel}>Facture d'origine (optionnel)</label>
-                      <select value={formFcli.origine_facture_id} onChange={e => setFormFcli(p => ({ ...p, origine_facture_id: e.target.value }))}
+                      <select value={formFcli.origine_facture_id} onChange={e => {
+                          const origineId = e.target.value
+                          // Sélectionner une facture d'origine pré-remplit le
+                          // montant avec son montant HT (valeur absolue, même
+                          // convention que la saisie manuelle — voir
+                          // ajouterFactureCli) pour permettre une annulation
+                          // complète en un clic ; reste librement modifiable
+                          // ensuite pour un avoir partiel.
+                          const origine = origineId ? facturesCli.find(f => f.id === origineId) : null
+                          setFormFcli(p => ({ ...p, origine_facture_id: origineId, montant_ht: origine ? String(Math.abs(origine.montant_ht)) : p.montant_ht }))
+                        }}
                         style={{ ...inputUnderline, cursor: 'pointer' }}>
                         <option value="">— Aucune (avoir global) —</option>
                         {facturesCli.filter(f => f.type_facture !== 'avoir').map(f => (
                           <option key={f.id} value={f.id}>{f.numero} — {fmt(f.montant_ht)} HT</option>
                         ))}
                       </select>
-                      <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>Rappelée sur le PDF de l'avoir ("Avoir sur la facture n° ...").</div>
+                      <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>Rappelée sur le PDF de l'avoir ("Avoir sur la facture n° ..."). Sélectionner une facture pré-remplit le montant pour une annulation complète — modifiable pour un avoir partiel.</div>
                     </div>
                   )}
                   {formFcli.type_facture === 'acompte' && (
