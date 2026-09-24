@@ -27,6 +27,7 @@ const Corbeille = lazy(() => import('./pages/Corbeille'))
 const Historique = lazy(() => import('./pages/Historique'))
 const Exports = lazy(() => import('./pages/Exports'))
 const BoiteReceptionFactures = lazy(() => import('./pages/BoiteReceptionFactures'))
+const Parametres = lazy(() => import('./pages/Parametres'))
 
 function ChargementPage() {
   return (
@@ -76,6 +77,7 @@ function Gate() {
             <Route path="corbeille" element={<Corbeille />} />
             <Route path="historique" element={<Historique />} />
             <Route path="exports" element={<Exports />} />
+            <Route path="parametres" element={<Parametres />} />
           </Route>
         </Routes>
       </Suspense>

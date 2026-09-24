@@ -19,7 +19,9 @@ import { L, fmtDate as fmtDatePdf } from './pdfI18n'
 // `facture` : ligne factures_cli. `projet` : le projet auquel elle est
 // rattachée, avec projet.clients déjà chargé (voir l'appelant) — c'est
 // tout ce dont ce PDF a besoin, il ne touche jamais la base lui-même.
-export function genererFactureCliPDF(facture, projet, lang = 'fr') {
+// `contact` (optionnel) : { nom, tel, email } du créateur du projet, déjà
+// résolu par l'appelant (voir lib/contacts.js) — à défaut, ENTREPRISE.contact.
+export function genererFactureCliPDF(facture, projet, lang = 'fr', contact) {
   const t = L[lang]
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const totalHt = facture.montant_ht || 0
@@ -41,7 +43,7 @@ export function genererFactureCliPDF(facture, projet, lang = 'fr') {
   const titreDoc = estAvoir ? t.titreAvoir : facture.type_facture === 'acompte' ? t.titreFactureAcompte : t.titreFacture
   const bullets = estAvoir ? t.bulletsAvoir(tauxTva) : facture.paiement_comptant ? t.bulletsFactureComptant(tauxTva) : t.bulletsFacture(tauxTva)
 
-  let y = enTeteDocument(doc, { titre: titreDoc, lang })
+  let y = enTeteDocument(doc, { titre: titreDoc, lang, contact })
   y = blocMetaEtDestinataire(doc, y, {
     metaGauche: [
       [estAvoir ? t.numeroAvoir : t.numeroFacture, facture.numero || '—'],

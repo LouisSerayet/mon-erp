@@ -219,6 +219,14 @@ export default function Layout() {
               {session?.user?.email && (
                 <div style={{ padding: '6px 20px', fontSize: 12, color: colors.inkFaint }}>{session.user.email}</div>
               )}
+              <NavLink to="/parametres" onClick={() => setPlusOuvert(false)}
+                style={({ isActive }) => ({
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px',
+                  fontSize: 15, color: isActive ? colors.ink : colors.inkMuted, textDecoration: 'none',
+                  fontWeight: isActive ? 600 : 400, fontFamily: fonts.display,
+                })}>
+                Mes informations
+              </NavLink>
               <button onClick={logout}
                 style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '13px 20px', fontSize: 15, color: colors.inkMuted, background: 'none', border: 'none', fontFamily: fonts.display }}>
                 Se déconnecter
@@ -296,6 +304,9 @@ export default function Layout() {
               {session.user.email}
             </div>
           )}
+          <NavLink to="/parametres" style={{ ...quietLink, fontSize: 11, padding: 0, marginBottom: 6, display: 'inline-block' }}>
+            Mes informations
+          </NavLink>
           <button onClick={logout} style={{ ...quietLink, fontSize: 11, padding: 0, marginBottom: 6, display: 'inline-block' }}>
             Se déconnecter
           </button>

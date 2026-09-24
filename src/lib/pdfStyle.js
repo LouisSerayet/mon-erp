@@ -46,8 +46,12 @@ export function fmt(n, lang = 'fr') {
 // (nom, adresse, SIRET, contact), puis le titre du document (DEVIS,
 // FACTURE, BON DE COMMANDE...) souligné d'un filet fin. Retourne le Y où
 // démarrer le contenu suivant.
-export function enTeteDocument(doc, { titre, lang = 'fr' }) {
+// `contact` (optionnel) : { nom, tel, email } à afficher à la place des
+// coordonnées par défaut (ENTREPRISE.contact, toujours Louis) — utilisé
+// pour afficher celles du créateur du projet, voir lib/contacts.js.
+export function enTeteDocument(doc, { titre, lang = 'fr', contact }) {
   const t = L[lang]
+  const c = contact || ENTREPRISE.contact
   const logoH = 16
   const logoW = logoH * LOGO_PP_RATIO
   doc.addImage(LOGO_PP_BASE64, 'PNG', MARGIN_R - logoW, 12, logoW, logoH)
@@ -59,8 +63,8 @@ export function enTeteDocument(doc, { titre, lang = 'fr' }) {
   doc.text(ENTREPRISE.adresse, MARGIN_L, y); y += 4.5
   doc.text(ENTREPRISE.codePostal + ' ' + ENTREPRISE.ville, MARGIN_L, y); y += 4.5
   doc.text(t.siret + ENTREPRISE.siret, MARGIN_L, y); y += 6
-  doc.text(t.contact + ENTREPRISE.contact.nom + ' — ' + ENTREPRISE.contact.tel, MARGIN_L, y); y += 4.5
-  doc.text(ENTREPRISE.contact.email, MARGIN_L, y); y += 8
+  doc.text(t.contact + c.nom + ' — ' + c.tel, MARGIN_L, y); y += 4.5
+  doc.text(c.email, MARGIN_L, y); y += 8
 
   doc.setTextColor(...INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(24)
   doc.text(titre, MARGIN_L, y + 4); y += 10

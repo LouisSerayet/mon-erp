@@ -10,6 +10,7 @@ import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTo
 import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, enTeteContinuation, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { genererFactureCliPDF } from '../lib/pdfFacture'
+import { chargerProfilsParEmail, contactPourProjet } from '../lib/contacts'
 import { L, fmtMontant, fmtDate as fmtDatePdf } from '../lib/pdfI18n'
 import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
@@ -104,6 +105,10 @@ export default function ProjetDetail() {
   const focusId = location.state?.focusId || null
   const [projet, setProjet] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Contact à afficher sur les devis/factures/bons de commande — celui du
+  // créateur du projet (voir lib/contacts.js), chargé une fois avec le
+  // reste des données du projet.
+  const [profilsParEmail, setProfilsParEmail] = useState(new Map())
   const [fournisseurs, setFournisseurs] = useState([])
   const [clientsListe, setClientsListe] = useState([]) // pour le sélecteur "Client" du formulaire Infos — voir saveInfos
   const [commandes, setCommandes] = useState([])
@@ -325,7 +330,7 @@ export default function ProjetDetail() {
     const numero = 'DEV-' + projet.nom.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase() + '-' + new Date().getFullYear()
 
     // ── PAGE 1 : PRÉSENTATION ─────────────────────────────────
-    let y = enTeteDocument(doc, { titre: t.titreDevis, lang })
+    let y = enTeteDocument(doc, { titre: t.titreDevis, lang, contact: contactPourProjet(projet, profilsParEmail) })
     y = blocMetaEtDestinataire(doc, y, {
       metaGauche: [
         [t.numeroDevis, numero],
@@ -1227,7 +1232,7 @@ export default function ProjetDetail() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: p }, { data: f }, { data: cl }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }] = await Promise.all([
+    const [{ data: p }, { data: f }, { data: cl }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }, profils] = await Promise.all([
       supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois)').eq('id', id).single(),
       supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id, delai_paiement_jours, delai_paiement_fin_mois, autoliquidation').is('deleted_at', null).order('nom'),
       supabase.from('clients').select('id, nom').is('deleted_at', null).order('nom'),
@@ -1235,6 +1240,7 @@ export default function ProjetDetail() {
       supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre'),
+      chargerProfilsParEmail(),
     ])
     setProjet(p)
     setFournisseurs(f || [])
@@ -1243,6 +1249,7 @@ export default function ProjetDetail() {
     setFacturesFrs(ffrs || [])
     setFacturesCli(fcli || [])
     setLignes(lg || [])
+    setProfilsParEmail(profils)
     // Fetch documents - deux dossiers
     const [{ data: docsProjet }, { data: docsOfficiels }] = await Promise.all([
       supabase.storage.from('documents').list('projets/' + id, { sortBy: { column: 'created_at', order: 'desc' } }),
@@ -1600,7 +1607,7 @@ export default function ProjetDetail() {
     const t = L[lang]
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
 
-    let y = enTeteDocument(doc, { titre: t.titreCommande, lang })
+    let y = enTeteDocument(doc, { titre: t.titreCommande, lang, contact: contactPourProjet(projet, profilsParEmail) })
     y = blocMetaEtDestinataire(doc, y, {
       metaGauche: [
         [t.numeroCommande, cmd.numero || '—'],
@@ -1676,7 +1683,7 @@ export default function ProjetDetail() {
   // (export PDF groupé multi-projets). `projet` (état de ce composant) lui
   // est maintenant passé explicitement plutôt que lu par closure.
   function generateFactureCliPDF(f, lang = 'fr') {
-    return genererFactureCliPDF(f, projet, lang)
+    return genererFactureCliPDF(f, projet, lang, contactPourProjet(projet, profilsParEmail))
   }
 
   // Date du jour au format JJ-MM-AA (ex : 18-09-26) — utilisée dans le nom

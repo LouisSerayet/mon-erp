@@ -6,6 +6,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 import { genererFactureCliPDF } from '../lib/pdfFacture'
 import { envoyerFacturesPennylane } from '../lib/usePennylane'
+import { chargerProfilsParEmail, contactPourProjet } from '../lib/contacts'
 
 // Exports Excel pour la comptabilité — factures clients, factures
 // fournisseurs et commandes, tous projets confondus, avec un filtre de
@@ -62,6 +63,9 @@ export default function Exports() {
 
   // ── Envoi groupé vers Pennylane (email) + ZIP de secours ────────────
   const [projets, setProjets] = useState([])
+  // Contact à afficher sur les factures clients régénérées ici — celui du
+  // créateur de chaque projet, voir lib/contacts.js.
+  const [profilsParEmail, setProfilsParEmail] = useState(new Map())
   const [typesLot, setTypesLot] = useState(() => new Set(['clients', 'fournisseurs', 'depenses']))
   const [statutLot, setStatutLot] = useState('toutes')
   const [projetLotId, setProjetLotId] = useState('')
@@ -72,6 +76,7 @@ export default function Exports() {
 
   useEffect(() => {
     supabase.from('projets').select('id, nom').order('nom').then(({ data }) => setProjets(data || []))
+    chargerProfilsParEmail().then(setProfilsParEmail)
   }, [])
 
   function toggleTypeLot(key) {
@@ -190,7 +195,7 @@ export default function Exports() {
 
     if (typesLot.has('clients')) {
       let q = supabase.from('factures_cli')
-        .select('id, numero, date_facture, date_echeance, montant_ht, statut, type_facture, paiement_comptant, projet_id, pennylane_synced_at, projets(nom, taux_tva, numero_bon_commande_client, clients(nom, email, telephone, adresse, rue, code_postal, ville))')
+        .select('id, numero, date_facture, date_echeance, montant_ht, statut, type_facture, paiement_comptant, projet_id, pennylane_synced_at, projets(nom, taux_tva, numero_bon_commande_client, created_by_email, clients(nom, email, telephone, adresse, rue, code_postal, ville))')
         .is('deleted_at', null)
         .order('date_facture', { ascending: true })
       q = appliquerPeriode(q, 'date_facture')
@@ -254,7 +259,7 @@ export default function Exports() {
       const maintenant = new Date().toISOString()
 
       if (facturesCli.length) {
-        const pieces = facturesCli.map(f => ({ name: (f.numero || f.id) + '.pdf', blob: genererFactureCliPDF(f, f.projets, 'fr').output('blob') }))
+        const pieces = facturesCli.map(f => ({ name: (f.numero || f.id) + '.pdf', blob: genererFactureCliPDF(f, f.projets, 'fr', contactPourProjet(f.projets, profilsParEmail)).output('blob') }))
         const res = await envoyerFacturesPennylane('ventes', pieces)
         totalEmails += res.emails
         await supabase.from('factures_cli').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', facturesCli.map(f => f.id))
@@ -305,7 +310,7 @@ export default function Exports() {
       let nbFrsIgnorees = 0, nbDepIgnorees = 0
 
       for (const f of facturesCli) {
-        const doc = genererFactureCliPDF(f, f.projets, 'fr')
+        const doc = genererFactureCliPDF(f, f.projets, 'fr', contactPourProjet(f.projets, profilsParEmail))
         zip.file('Factures clients/' + (f.numero || f.id) + '.pdf', doc.output('blob'))
       }
       for (const f of facturesFrs) {
