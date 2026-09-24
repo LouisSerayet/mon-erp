@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 import { useLocation } from 'react-router-dom'
 import { PRESETS_DELAI_PAIEMENT, fmtEUR as fmt } from '../lib/calculs'
 import { useIsMobile } from '../lib/useIsMobile'
+import { useTri, appliquerTri } from '../lib/useTri'
+import { ThTri } from '../components/ThTri'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 
 const METIERS = ['Électricité', 'Plomberie', 'CVC', 'Menuiserie', 'Cloisons', 'Sols', 'Peinture', 'Serrurerie', 'Informatique', 'Autre']
@@ -10,6 +12,23 @@ const METIERS = ['Électricité', 'Plomberie', 'CVC', 'Menuiserie', 'Cloisons', 
 // Couleur de statut commande, cohérente avec le reste de l'app (voir
 // statutProjetMarker dans theme.js pour l'équivalent projets).
 const STATUT_COMMANDE_MARKER = { 'Validée': colors.success, 'Annulée': colors.danger, 'Brouillon': colors.inkFaint }
+
+// Tri par clic sur les en-têtes de colonne — voir lib/useTri.js.
+const COLONNES_TRI_FOURNISSEURS = {
+  nom: f => f.nom || '',
+  contact: f => f.contact || '',
+  email: f => f.email || '',
+  telephone: f => f.telephone || '',
+  metier: f => f.metier || '',
+}
+const COLONNES_TRI_COMMANDES = {
+  projet: c => c.projets?.nom || '',
+  numero: c => c.numero || '',
+  description: c => c.description || '',
+  date: c => c.date_commande || null,
+  montant: c => c.montant_ht || 0,
+  statut: c => c.statut || '',
+}
 
 const inputUnderline = {
   width: '100%', padding: '8px 2px', background: 'transparent', border: 'none',
@@ -70,6 +89,8 @@ export default function Fournisseurs() {
   // true = le champ Métier est en saisie libre (nouveau métier hors liste),
   // false = choix dans la liste déroulante existante.
   const [metierLibre, setMetierLibre] = useState(false)
+  const { cle: triCle, sens: triSens, trierPar } = useTri()
+  const { cle: triCmdCle, sens: triCmdSens, trierPar: trierParCmd } = useTri('date', 'desc')
 
   const FORM_VIDE = { nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false, autoliquidation: false }
 
@@ -143,8 +164,10 @@ export default function Fournisseurs() {
       f.contact?.toLowerCase().includes(search.toLowerCase())
     return matchSearch && (filtreMetier === 'Tous' || f.metier === filtreMetier)
   })
+  const filteredTries = appliquerTri(filtered, triCle, triSens, COLONNES_TRI_FOURNISSEURS)
 
   const totalCommandes = commandes.reduce((s, c) => s + (c.montant_ht || 0), 0)
+  const commandesTriees = appliquerTri(commandes, triCmdCle, triCmdSens, COLONNES_TRI_COMMANDES)
 
   // Modale de création/modification — partagée entre la vue liste et la vue
   // détail (toutes deux peuvent l'ouvrir : "+ Nouveau fournisseur" côté
@@ -284,13 +307,16 @@ export default function Fournisseurs() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: isMobile ? 560 : 'auto' }}>
                 <thead>
                   <tr>
-                    {['Projet', 'N°', 'Description', 'Date', 'Montant HT', 'Statut'].map(h => (
-                      <th key={h} style={{ padding: '0 14px 10px 0', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid ' + colors.line }}>{h}</th>
-                    ))}
+                    <ThTri col="projet" label="Projet" triActuel={{ cle: triCmdCle, sens: triCmdSens }} onClick={trierParCmd} />
+                    <ThTri col="numero" label="N°" triActuel={{ cle: triCmdCle, sens: triCmdSens }} onClick={trierParCmd} />
+                    <ThTri col="description" label="Description" triActuel={{ cle: triCmdCle, sens: triCmdSens }} onClick={trierParCmd} />
+                    <ThTri col="date" label="Date" triActuel={{ cle: triCmdCle, sens: triCmdSens }} onClick={trierParCmd} />
+                    <ThTri col="montant" label="Montant HT" triActuel={{ cle: triCmdCle, sens: triCmdSens }} onClick={trierParCmd} align="right" />
+                    <ThTri col="statut" label="Statut" triActuel={{ cle: triCmdCle, sens: triCmdSens }} onClick={trierParCmd} />
                   </tr>
                 </thead>
                 <tbody>
-                  {commandes.map(c => (
+                  {commandesTriees.map(c => (
                     <tr key={c.id} style={{ borderBottom: '1px solid ' + colors.line }}>
                       <td style={{ padding: '11px 14px 11px 0', fontWeight: 500 }}>{c.projets?.nom || '—'}</td>
                       <td style={{ padding: '11px 14px', color: colors.inkFaint, fontSize: 12 }}>{c.numero || '—'}</td>
@@ -355,7 +381,7 @@ export default function Fournisseurs() {
 
       {/* Liste */}
       {loading ? <div style={{ textAlign: 'center', padding: 60, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
-        : filtered.length === 0 ? (
+        : filteredTries.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: colors.ink }}>Aucun fournisseur</div>
           </div>
@@ -365,7 +391,7 @@ export default function Fournisseurs() {
           // c'est justement le cas d'usage principal ici (retrouver le
           // téléphone d'un fournisseur depuis le chantier).
           <div>
-            {filtered.map(f => (
+            {filteredTries.map(f => (
               <div key={f.id} onClick={() => ouvrirFournisseur(f)}
                 style={{ borderTop: '1px solid ' + colors.line, padding: '14px 0', cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
@@ -382,13 +408,15 @@ export default function Fournisseurs() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
-                {['Nom', 'Contact', 'Email', 'Téléphone', 'Métier'].map(h => (
-                  <th key={h} style={{ padding: '0 14px 10px 0', textAlign: 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid ' + colors.line }}>{h}</th>
-                ))}
+                <ThTri col="nom" label="Nom" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="contact" label="Contact" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="email" label="Email" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="telephone" label="Téléphone" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="metier" label="Métier" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
               </tr>
             </thead>
             <tbody>
-              {filtered.map(f => (
+              {filteredTries.map(f => (
                 <tr key={f.id} onClick={() => ouvrirFournisseur(f)} style={{ borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
                   <td style={{ padding: '12px 14px 12px 0', fontWeight: 600 }}>{f.nom}</td>
                   <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{f.contact || '—'}</td>

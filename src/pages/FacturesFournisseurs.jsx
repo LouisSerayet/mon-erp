@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { useTri, appliquerTri } from '../lib/useTri'
+import { ThTri } from '../components/ThTri'
 import { colors, fonts, eyebrow, marker } from '../lib/theme'
 
 // Page dédiée "Factures fournisseurs" — vue de navigation/consultation,
@@ -13,12 +15,16 @@ import { colors, fonts, eyebrow, marker } from '../lib/theme'
 // non liés à un projet (loyer, comptabilité...), voir la page Dépenses.
 const STATUTS = ['À payer', 'Payée']
 const STATUT_MARKER = { 'À payer': colors.warning, 'Payée': colors.success }
-const TRIS = [
-  { key: 'date_desc', label: 'Date (récent)' },
-  { key: 'date_asc', label: 'Date (ancien)' },
-  { key: 'montant_desc', label: 'Montant (élevé)' },
-  { key: 'montant_asc', label: 'Montant (faible)' },
-]
+// Tri par clic sur les en-têtes de colonne — voir lib/useTri.js.
+const COLONNES_TRI = {
+  fournisseur: f => f.fournisseurs?.nom || '',
+  projet: f => f.projets?.nom || '',
+  numero: f => f.numero || '',
+  date: f => f.date_facture || null,
+  echeance: f => f.date_echeance || null,
+  montant: f => f.montant_ht || 0,
+  statut: f => f.statut || '',
+}
 
 const inputUnderline = {
   padding: '8px 2px', background: 'transparent', border: 'none',
@@ -40,7 +46,7 @@ export default function FacturesFournisseurs() {
   })
   const [dateDebut, setDateDebut] = useState('')
   const [dateFin, setDateFin] = useState('')
-  const [tri, setTri] = useState('date_desc')
+  const { cle: triCle, sens: triSens, trierPar } = useTri('date', 'desc')
 
   useEffect(() => {
     (async () => {
@@ -75,12 +81,8 @@ export default function FacturesFournisseurs() {
     const matchDateDebut = !dateDebut || (f.date_facture && f.date_facture >= dateDebut)
     const matchDateFin = !dateFin || (f.date_facture && f.date_facture <= dateFin)
     return matchSearch && matchStatut && matchDateDebut && matchDateFin
-  }).sort((a, b) => {
-    if (tri === 'montant_desc') return (b.montant_ht || 0) - (a.montant_ht || 0)
-    if (tri === 'montant_asc') return (a.montant_ht || 0) - (b.montant_ht || 0)
-    const da = a.date_facture || '', db = b.date_facture || ''
-    return tri === 'date_asc' ? da.localeCompare(db) : db.localeCompare(da)
   })
+  const filtreesTriees = appliquerTri(filtrees, triCle, triSens, COLONNES_TRI)
 
   const aPayer = factures.filter(f => f.statut !== 'Payée').reduce((s, f) => s + (f.montant_ht || 0), 0)
   const enRetard = factures.filter(f => f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date())
@@ -126,21 +128,18 @@ export default function FacturesFournisseurs() {
             style={{ ...inputUnderline, flex: 2, minWidth: 160 }} />
           <input type="date" value={dateDebut} onChange={e => setDateDebut(e.target.value)} title="Date début" style={{ ...inputUnderline, flex: 1 }} />
           <input type="date" value={dateFin} onChange={e => setDateFin(e.target.value)} title="Date fin" style={{ ...inputUnderline, flex: 1 }} />
-          <select value={tri} onChange={e => setTri(e.target.value)} style={{ ...inputUnderline, flex: 1, cursor: 'pointer' }}>
-            {TRIS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-          </select>
         </div>
       </div>
 
-      {/* Liste */}
+      {/* Liste — tri par clic sur un en-tête de colonne en vue bureau (ThTri) */}
       {loading ? <div style={{ textAlign: 'center', padding: 60, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
-        : filtrees.length === 0 ? (
+        : filtreesTriees.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: colors.ink }}>Aucune facture fournisseur</div>
           </div>
         ) : isMobile ? (
           <div>
-            {filtrees.map(f => {
+            {filtreesTriees.map(f => {
               const enRetardF = f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date()
               return (
                 <div key={f.id} onClick={() => aller(f)}
@@ -168,13 +167,17 @@ export default function FacturesFournisseurs() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
-                {['Fournisseur', 'Projet', 'N°', 'Date', 'Échéance', 'Montant HT', 'Statut'].map(h => (
-                  <th key={h} style={{ padding: '0 14px 10px 0', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap', borderBottom: '1px solid ' + colors.line }}>{h}</th>
-                ))}
+                <ThTri col="fournisseur" label="Fournisseur" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="projet" label="Projet" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="numero" label="N°" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="date" label="Date" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="echeance" label="Échéance" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="montant" label="Montant HT" align="right" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="statut" label="Statut" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
               </tr>
             </thead>
             <tbody>
-              {filtrees.map(f => {
+              {filtreesTriees.map(f => {
                 const enRetardF = f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date()
                 return (
                   <tr key={f.id} onClick={() => aller(f)}

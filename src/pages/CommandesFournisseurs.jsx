@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { useTri, appliquerTri } from '../lib/useTri'
+import { ThTri } from '../components/ThTri'
 import { colors, fonts, eyebrow, marker } from '../lib/theme'
 
 // Page dédiée "Commandes fournisseurs" — vue de navigation/consultation,
@@ -12,12 +14,16 @@ import { colors, fonts, eyebrow, marker } from '../lib/theme'
 // en évidence (tab + focusId, voir ProjetDetail.jsx).
 const STATUTS = ['Brouillon', 'Validée', 'Annulée']
 const STATUT_MARKER = { 'Brouillon': colors.inkFaint, 'Validée': colors.success, 'Annulée': colors.danger }
-const TRIS = [
-  { key: 'date_desc', label: 'Date (récent)' },
-  { key: 'date_asc', label: 'Date (ancien)' },
-  { key: 'montant_desc', label: 'Montant (élevé)' },
-  { key: 'montant_asc', label: 'Montant (faible)' },
-]
+// Tri par clic sur les en-têtes de colonne — voir lib/useTri.js.
+const COLONNES_TRI = {
+  fournisseur: c => c.fournisseurs?.nom || '',
+  projet: c => c.projets?.nom || '',
+  numero: c => c.numero || '',
+  description: c => c.description || '',
+  date: c => c.date_commande || null,
+  montant: c => c.montant_ht || 0,
+  statut: c => c.statut || '',
+}
 
 const inputUnderline = {
   padding: '8px 2px', background: 'transparent', border: 'none',
@@ -39,7 +45,7 @@ export default function CommandesFournisseurs() {
   })
   const [dateDebut, setDateDebut] = useState('')
   const [dateFin, setDateFin] = useState('')
-  const [tri, setTri] = useState('date_desc')
+  const { cle: triCle, sens: triSens, trierPar } = useTri('date', 'desc')
 
   useEffect(() => {
     (async () => {
@@ -75,12 +81,8 @@ export default function CommandesFournisseurs() {
     const matchDateDebut = !dateDebut || (c.date_commande && c.date_commande >= dateDebut)
     const matchDateFin = !dateFin || (c.date_commande && c.date_commande <= dateFin)
     return matchSearch && matchStatut && matchDateDebut && matchDateFin
-  }).sort((a, b) => {
-    if (tri === 'montant_desc') return (b.montant_ht || 0) - (a.montant_ht || 0)
-    if (tri === 'montant_asc') return (a.montant_ht || 0) - (b.montant_ht || 0)
-    const da = a.date_commande || '', db = b.date_commande || ''
-    return tri === 'date_asc' ? da.localeCompare(db) : db.localeCompare(da)
   })
+  const filtreesTriees = appliquerTri(filtrees, triCle, triSens, COLONNES_TRI)
 
   const enAttente = commandes.filter(c => c.statut === 'Brouillon').reduce((s, c) => s + (c.montant_ht || 0), 0)
   const validees = commandes.filter(c => c.statut === 'Validée').reduce((s, c) => s + (c.montant_ht || 0), 0)
@@ -126,21 +128,18 @@ export default function CommandesFournisseurs() {
             style={{ ...inputUnderline, flex: 2, minWidth: 160 }} />
           <input type="date" value={dateDebut} onChange={e => setDateDebut(e.target.value)} title="Date début" style={{ ...inputUnderline, flex: 1 }} />
           <input type="date" value={dateFin} onChange={e => setDateFin(e.target.value)} title="Date fin" style={{ ...inputUnderline, flex: 1 }} />
-          <select value={tri} onChange={e => setTri(e.target.value)} style={{ ...inputUnderline, flex: 1, cursor: 'pointer' }}>
-            {TRIS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-          </select>
         </div>
       </div>
 
-      {/* Liste */}
+      {/* Liste — tri par clic sur un en-tête de colonne en vue bureau (ThTri) */}
       {loading ? <div style={{ textAlign: 'center', padding: 60, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
-        : filtrees.length === 0 ? (
+        : filtreesTriees.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: colors.ink }}>Aucune commande fournisseur</div>
           </div>
         ) : isMobile ? (
           <div>
-            {filtrees.map(c => (
+            {filtreesTriees.map(c => (
               <div key={c.id} onClick={() => aller(c)}
                 style={{ borderTop: '1px solid ' + colors.line, padding: '14px 0', cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 5 }}>
@@ -163,13 +162,17 @@ export default function CommandesFournisseurs() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
-                {['Fournisseur', 'Projet', 'N°', 'Description', 'Date', 'Montant HT', 'Statut'].map(h => (
-                  <th key={h} style={{ padding: '0 14px 10px 0', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap', borderBottom: '1px solid ' + colors.line }}>{h}</th>
-                ))}
+                <ThTri col="fournisseur" label="Fournisseur" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="projet" label="Projet" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="numero" label="N°" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="description" label="Description" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="date" label="Date" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="montant" label="Montant HT" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} align="right" />
+                <ThTri col="statut" label="Statut" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
               </tr>
             </thead>
             <tbody>
-              {filtrees.map(c => (
+              {filtreesTriees.map(c => (
                 <tr key={c.id} onClick={() => aller(c)} style={{ borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
                   <td style={{ padding: '12px 14px 12px 0', fontWeight: 500 }}>{c.fournisseurs?.nom || '—'}</td>
                   <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{c.projets?.nom || '—'}</td>

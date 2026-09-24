@@ -6,6 +6,8 @@ import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQon
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
 import { CATEGORIES } from '../lib/depenses'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { useTri, appliquerTri } from '../lib/useTri'
+import { ThTri } from '../components/ThTri'
 import { colors, fonts, eyebrow, quietLink } from '../lib/theme'
 
 // Dépenses générales de la société : loyer, comptabilité, assurance,
@@ -18,6 +20,18 @@ import { colors, fonts, eyebrow, quietLink } from '../lib/theme'
 // CATEGORIES vit maintenant dans lib/depenses.js (partagé avec
 // Rapprochement.jsx) — voir l'import ci-dessus.
 const STATUTS = ['À payer', 'Payée']
+
+// Tri par clic sur les en-têtes de colonne — voir lib/useTri.js.
+const COLONNES_TRI = {
+  libelle: d => d.libelle || '',
+  categorie: d => d.categorie || '',
+  fournisseur: d => d.fournisseurs?.nom || '',
+  numero: d => d.numero || '',
+  date: d => d.date_facture || null,
+  echeance: d => d.date_echeance || null,
+  montant: d => d.montant_ht || 0,
+  statut: d => d.statut || '',
+}
 
 const fmtTx = cents => cents !== undefined && cents !== null
   ? (Number(cents) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
@@ -61,6 +75,7 @@ export default function Depenses() {
   const [rapprochementError, setRapprochementError] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [confirmBusy, setConfirmBusy] = useState(null)
+  const { cle: triCle, sens: triSens, trierPar } = useTri('date', 'desc')
 
   useEffect(() => { fetchAll() }, [])
 
@@ -208,6 +223,8 @@ export default function Depenses() {
       (filtreCategorie === 'Toutes' || d.categorie === filtreCategorie) &&
       (filtreStatut === 'Toutes' || d.statut === filtreStatut)
   })
+
+  const filteredTries = appliquerTri(filtered, triCle, triSens, COLONNES_TRI)
 
   const totalAPayer = depenses.filter(d => d.statut !== 'Payée').reduce((s, d) => s + (d.montant_ht || 0), 0)
   const totalPaye = depenses.filter(d => d.statut === 'Payée').reduce((s, d) => s + (d.montant_ht || 0), 0)
@@ -359,7 +376,7 @@ export default function Depenses() {
 
       {/* Liste */}
       {loading ? <div style={{ textAlign: 'center', padding: 60, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
-        : filtered.length === 0 ? (
+        : filteredTries.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: colors.inkFaint, borderTop: '1px solid ' + colors.line, borderBottom: '1px solid ' + colors.line }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: colors.ink }}>Aucune dépense</div>
           </div>
@@ -368,13 +385,20 @@ export default function Depenses() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr>
-                  {['Libellé', 'Catégorie', 'Fournisseur', 'N°', 'Date', 'Échéance', 'Montant HT', 'Statut', 'Fichier', ''].map(h => (
-                    <th key={h} style={{ padding: '0 14px 10px 0', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap', borderBottom: '1px solid ' + colors.line }}>{h}</th>
-                  ))}
+                  <ThTri col="libelle" label="Libellé" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                  <ThTri col="categorie" label="Catégorie" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                  <ThTri col="fournisseur" label="Fournisseur" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                  <ThTri col="numero" label="N°" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                  <ThTri col="date" label="Date" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                  <ThTri col="echeance" label="Échéance" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                  <ThTri col="montant" label="Montant HT" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} align="right" />
+                  <ThTri col="statut" label="Statut" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                  <th style={{ padding: '0 14px 10px 0', textAlign: 'left', color: colors.inkFaint, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap', borderBottom: '1px solid ' + colors.line }}>Fichier</th>
+                  <th style={{ padding: '0 0 10px 14px', borderBottom: '1px solid ' + colors.line }} />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(d => {
+                {filteredTries.map(d => {
                   const isEdited = !!editees[d.id]
                   return (
                     <tr key={d.id} style={{ borderBottom: '1px solid ' + colors.line }}>
