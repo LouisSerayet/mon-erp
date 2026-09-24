@@ -10,7 +10,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
-  fmt as fmtEUR, enTeteDocument, blocMetaEtDestinataire, blocTotaux,
+  fmt as fmtEUR, enTeteDocument, bandeauHaut, blocMetaEtDestinataire, blocTotaux,
   blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse,
   TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_ALT_ROW_STYLE,
 } from './pdfStyle'
@@ -71,11 +71,11 @@ export function genererFactureCliPDF(facture, projet, lang = 'fr', contact) {
   })
 
   y = doc.lastAutoTable.finalY + 10
-  if (y > 220) { doc.addPage(); y = 20 }
+  if (y > 220) { doc.addPage(); bandeauHaut(doc); y = 20 }
   y = blocTotaux(doc, y, { totalHt, totalTva, totalTtc, tauxTva, lang })
-  if (y > 250) { doc.addPage(); y = 20 }
+  if (y > 250) { doc.addPage(); bandeauHaut(doc); y = 20 }
   y = blocConditionsEtSignature(doc, y, { bullets, avecSignature: false, lang })
-  if (y > 260) { doc.addPage(); y = 20 }
+  if (y > 260) { doc.addPage(); bandeauHaut(doc); y = 20 }
   blocCoordonneesBancaires(doc, y, { lang })
 
   piedDePage(doc, facture.numero || projet?.nom || '', lang)

@@ -43,9 +43,13 @@ export const L = {
     colUnite: 'Unité',
     colQte: 'Qté',
     colPuHt: 'P.U. HT',
-    colPuHtEur: 'P.U. HT (€)',
+    // Pas de "(€)" avec parenthèses collées au symbole : dans les polices
+    // standard de jsPDF, le glyphe € n'est pas centré verticalement entre
+    // deux parenthèses aussi rapprochées (constaté sur les vrais PDF, pas
+    // juste cosmétique — voir pdfStyle.js pour le même souci sur les totaux).
+    colPuHtEur: 'P.U. HT €',
     colTotalHt: 'Total HT',
-    colTotalHtEur: 'Total HT (€)',
+    colTotalHtEur: 'Total HT €',
     colDescription: 'Description',
     colMontantHt: 'Montant HT',
     totalHtFoot: 'TOTAL HT',
@@ -74,6 +78,11 @@ export const L = {
     adresseChantier: 'Adresse chantier : ',
     debutTravaux: 'Début des travaux : ',
     finPrevue: 'Fin prévisionnelle : ',
+    // Versions courtes des deux libellés ci-dessus, pour le bandeau PROJET
+    // en haut du devis (voir generateDevisPDF) — pas la place pour la
+    // version longue sur une seule ligne à cet endroit.
+    debutCourt: 'Début : ',
+    finCourt: 'Fin prévi. : ',
     surface: 'Surface : ',
     accesLivraison: 'Accès/Livraison : ',
     prestations: 'Prestations — ',
@@ -181,6 +190,8 @@ export const L = {
     adresseChantier: 'Site address: ',
     debutTravaux: 'Start of works: ',
     finPrevue: 'Expected completion: ',
+    debutCourt: 'Start: ',
+    finCourt: 'Est. end: ',
     surface: 'Surface: ',
     accesLivraison: 'Access/Delivery: ',
     prestations: 'Services — ',

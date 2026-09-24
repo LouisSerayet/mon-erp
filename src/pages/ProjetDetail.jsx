@@ -7,7 +7,7 @@ import autoTable from 'jspdf-autotable'
 import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane, envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
 import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
-import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, enTeteContinuation, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
+import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, bandeauHaut, titreSection, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { genererFactureCliPDF } from '../lib/pdfFacture'
 import { chargerProfilsParEmail, contactPourProjet } from '../lib/contacts'
@@ -317,7 +317,11 @@ export default function ProjetDetail() {
     const totalOptions = lignesOptions.reduce((s, l) => s + (l.total_ht || 0), 0)
     // Formatage sans séparateur de milliers problématique — voir fmtMontant
     // (lib/pdfI18n.js) pour la raison (caractère parasite affiché par jsPDF).
-    const fmtN = n => (n > 0 ? fmtMontant(n, lang) + ' EUR' : '—')
+    // Pas de "EUR"/"€" ajouté ici : titreSection (pdfStyle.js) dessine le €
+    // séparément, en Helvetica — voir la note sur le glyphe manquant en
+    // Courier dans pdfStyle.js. null quand il n'y a rien à afficher (au
+    // lieu d'un tiret cadratin) : titreSection saute alors le montant.
+    const fmtN = n => (n > 0 ? fmtMontant(n, lang) : null)
     const totalHT = lotsData.reduce((s, l) => s + (l.total_ht || 0), 0)
       + lignesSansLot.filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)
     // Taux de TVA du projet (réglage "TVA" dans l'onglet Infos) — 20 % par
@@ -330,6 +334,15 @@ export default function ProjetDetail() {
     const numero = 'DEV-' + projet.nom.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase() + '-' + new Date().getFullYear()
 
     // ── PAGE 1 : PRÉSENTATION ─────────────────────────────────
+    // Bandeau PROJET (nom + dates) à droite du bandeau CLIENT — mêmes infos
+    // que celles affichées plus bas dans l'app, reprises ici en tête plutôt
+    // que dans le texte libre qui suivait avant (retour de Louis/Alexis sur
+    // la maquette : voir la conversation, "SYNTHÈSE DES LOTS" doit remplir
+    // la page 1 avec le reste des infos, pas commencer une nouvelle page).
+    const debutFin = [
+      projet.date_debut ? t.debutCourt + fmtDatePdf(projet.date_debut, lang) : null,
+      projet.date_fin_prevue ? t.finCourt + fmtDatePdf(projet.date_fin_prevue, lang) : null,
+    ].filter(Boolean).join('   ')
     let y = enTeteDocument(doc, { titre: t.titreDevis, lang, contact: contactPourProjet(projet, profilsParEmail) })
     y = blocMetaEtDestinataire(doc, y, {
       metaGauche: [
@@ -338,27 +351,15 @@ export default function ProjetDetail() {
         [t.validite, t.jours30],
       ],
       destinataire: { titre: t.client, lignes: [projet.clients?.nom, ...lignesAdresse(projet.clients, lang)] },
+      destinataireDroite: { titre: t.projetLabel.replace(/\s*:\s*$/, ''), lignes: [projet.nom, debutFin || null] },
     })
 
-    // Nom du projet — retour à la ligne automatique si le nom est long,
-    // sinon il continuait hors de la page (texte coupé sur le bord droit)
-    // au lieu de passer à la ligne.
-    doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(...INK)
-    const nomLignes = doc.splitTextToSize(projet.nom, 182)
-    doc.text(nomLignes, 14, y); y += nomLignes.length * 5.5 + 0.5
+    // Le reste des infos projet (adresse chantier, surface, accès, notes) —
+    // nom + dates déjà affichés dans le bandeau PROJET ci-dessus.
     if (projet.adresse_chantier) {
       doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED)
-      const adresseLignes = doc.splitTextToSize(projet.adresse_chantier, 182)
+      const adresseLignes = doc.splitTextToSize(t.adresseChantier + projet.adresse_chantier, 182)
       doc.text(adresseLignes, 14, y); y += adresseLignes.length * 4.5 + 1.5
-    }
-    y += 2
-
-    // Infos projet
-    if (projet.date_debut || projet.date_fin_prevue) {
-      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(...INK)
-      if (projet.date_debut) doc.text(t.debutTravaux + fmtDatePdf(projet.date_debut, lang), 14, y)
-      if (projet.date_fin_prevue) doc.text(t.finPrevue + fmtDatePdf(projet.date_fin_prevue, lang), 111, y)
-      y += 6
     }
     if (projet.surface) {
       doc.setFontSize(8)
@@ -403,13 +404,14 @@ export default function ProjetDetail() {
     })
     const totalSansLotSynthese = lignesSansLot.filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)
     if (lotsAvecDetail.length || totalSansLotSynthese > 0) {
-      doc.addPage()
-      y = 26
-
-      // Même traitement d'en-tête que les pages de détail par lot plus bas
-      // (titre + filet fin, plus de bandeau plein) — cohérent avec le reste
-      // du document.
-      enTeteContinuation(doc, { titre: t.syntheseLots, note: t.syntheseLotsNote, montant: fmtN(totalHT) })
+      // Reste sur la page 1 (pas de doc.addPage() ici) : le récap des lots
+      // doit compléter la page de présentation plutôt que d'en ouvrir une
+      // nouvelle pour lui tout seul — retour explicite de Louis/Alexis sur
+      // la maquette ("il faut les informations de base plus le récap des
+      // lots pour combler toute la page"). Filet de sécurité si la page 1
+      // est déjà très chargée (notes longues, beaucoup d'infos projet).
+      if (y > 230) { doc.addPage(); bandeauHaut(doc); y = 20 }
+      y = titreSection(doc, y, { titre: t.syntheseLots, note: t.syntheseLotsNote, montant: fmtN(totalHT) })
 
       const bodySynthese = lotsAvecDetail.map(lot => ([
         t.lot(lot.numero),
@@ -432,17 +434,31 @@ export default function ProjetDetail() {
           2: { cellWidth: 40, halign: 'right', fontStyle: 'bold', font: 'courier' },
         },
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
-        margin: { left: 14, right: 14 },
+        margin: { left: 14, right: 14, top: 20 },
+        didDrawPage: () => bandeauHaut(doc),
       })
       y = doc.lastAutoTable.finalY + 10
     }
 
-    if (y > 220) { doc.addPage(); y = 20 }
+    // blocTotaux fait toujours ~35mm (3 barres fixes) : seuil basé sur sa
+    // hauteur réelle plutôt qu'une marge arbitraire, pour que le bloc de
+    // totaux reste sur la page 1 dans les cas qui tiennent tout juste (ex.
+    // 5 lots + adresse chantier/surface/accès renseignés) au lieu de
+    // basculer toute la page 1 restante sur une page 2 en grande partie
+    // vide.
+    if (y > 245) { doc.addPage(); bandeauHaut(doc); y = 20 }
     y = blocTotaux(doc, y, { totalHt: totalHT, totalTva: totalTVA, totalTtc: totalTTC, tauxTva, lang })
-    if (y > 250) { doc.addPage(); y = 20 }
+    if (y > 210) { doc.addPage(); bandeauHaut(doc); y = 20 }
     blocConditionsEtSignature(doc, y, { bullets: t.bulletsDevisDetaille(tauxTva), lang })
 
     // ── PAGES DÉTAIL PAR LOT ─────────────────────────────────
+    // Détail des lots à la suite, sans saut de page systématique entre deux
+    // lots (retour de Louis : "je ne veux pas un lot par page, sinon on a
+    // des grandes pages blanches") — un lot court enchaîne directement
+    // derrière le précédent sur la même page ; on ne tourne la page que
+    // quand il ne reste vraiment plus assez de place pour un titre + au
+    // moins une ligne.
+    let yLot = null
     for (const lot of lotsData) {
       const lgLot = lignesParLot[lot.numero] || []
       // Un lot qui ne contient (encore) que des Options — ou des variantes
@@ -451,10 +467,10 @@ export default function ProjetDetail() {
       // proposées" plus bas (avec le repère du lot d'origine).
       const lignesReellesLot = lgLot.filter(l => l.type === 'ligne' && l.categorie_ligne !== 'option' && !(l.categorie_ligne === 'variante' && l.variante_active === false))
       if (!lignesReellesLot.length) continue
-      doc.addPage()
+      if (yLot === null || yLot > 250) { doc.addPage(); bandeauHaut(doc); yLot = 18 }
 
-      // Header lot
-      enTeteContinuation(doc, { titre: t.lot(lot.numero) + ' — ' + (lot.categorie || ''), sousTitre: lot.descriptif, montant: fmtN(lot.total_ht) })
+      // Titre du lot
+      yLot = titreSection(doc, yLot, { titre: t.lot(lot.numero) + ' — ' + (lot.categorie || ''), sousTitre: lot.descriptif, montant: fmtN(lot.total_ht) })
 
       const body = []
       for (let li = 0; li < lgLot.length; li++) {
@@ -489,7 +505,7 @@ export default function ProjetDetail() {
       }
 
       autoTable(doc, {
-        startY: 20,
+        startY: yLot,
         head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
         body,
         foot: [['', '', '', '', t.totalLot(lot.numero), lot.total_ht !== 0 ? fmtMontant(lot.total_ht, lang) : '']],
@@ -505,15 +521,20 @@ export default function ProjetDetail() {
           5: { cellWidth: 28, halign: 'right', fontStyle: 'bold', font: 'courier' },
         },
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
-        margin: { left: 14, right: 14 },
+        margin: { left: 14, right: 14, top: 20 },
+        didDrawPage: () => bandeauHaut(doc),
       })
+      yLot = doc.lastAutoTable.finalY + 10
     }
 
-    // ── PAGE DÉTAIL : LIGNES SANS LOT ─────────────────────────
+    // ── LIGNES SANS LOT ────────────────────────────────────────
+    // Enchaîne directement à la suite du dernier lot (même logique de flux
+    // continu que la boucle ci-dessus) plutôt que de systématiquement
+    // ouvrir une nouvelle page.
     if (lignesSansLot.length) {
       const totalSansLot = lignesSansLot.filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)
-      doc.addPage()
-      enTeteContinuation(doc, { titre: t.lignesSansLot, montant: fmtN(totalSansLot) })
+      if (yLot === null || yLot > 250) { doc.addPage(); bandeauHaut(doc); yLot = 18 }
+      yLot = titreSection(doc, yLot, { titre: t.lignesSansLot, montant: fmtN(totalSansLot) })
 
       const body = []
       for (let li = 0; li < lignesSansLot.length; li++) {
@@ -544,7 +565,7 @@ export default function ProjetDetail() {
       }
 
       autoTable(doc, {
-        startY: 20,
+        startY: yLot,
         head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
         body,
         foot: [['', '', '', '', t.totalHt.toUpperCase(), totalSansLot !== 0 ? fmtMontant(totalSansLot, lang) : '']],
@@ -560,7 +581,8 @@ export default function ProjetDetail() {
           5: { cellWidth: 28, halign: 'right', fontStyle: 'bold', font: 'courier' },
         },
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
-        margin: { left: 14, right: 14 },
+        margin: { left: 14, right: 14, top: 20 },
+        didDrawPage: () => bandeauHaut(doc),
       })
     }
 
@@ -568,13 +590,13 @@ export default function ProjetDetail() {
     // Regroupe TOUTES les lignes marquées "Option" (tous lots confondus) :
     // proposées au client mais volontairement hors du TOTAL HT ci-dessus —
     // voir lignesOptions/totalOptions plus haut et ligneCompteDansTotal
-    // (lib/calculs.js) pour la règle de calcul.
+    // (lib/calculs.js) pour la règle de calcul. Garde sa propre page (plutôt
+    // que le flux continu ci-dessus) : c'est une rupture volontaire, la
+    // seule page du devis qui garde une teinte de couleur (ambre) pour
+    // signaler que ces lignes sont hors du total principal.
     if (lignesOptions.length) {
-      doc.addPage()
-      // Seule page du devis qui garde une teinte de couleur (ambre) — c'est
-      // la seule où la couleur porte un vrai sens fonctionnel : signaler
-      // que ces lignes sont hors du total principal ci-dessus.
-      enTeteContinuation(doc, { titre: t.optionsProposees, note: t.optionsNote, montant: fmtN(totalOptions), accent: WARNING })
+      doc.addPage(); bandeauHaut(doc)
+      const yOpt = titreSection(doc, 18, { titre: t.optionsProposees, note: t.optionsNote, montant: fmtN(totalOptions), accent: WARNING })
 
       // Regroupées par lot d'origine (un sous-en-tête "LOT X — Catégorie"
       // par groupe, même si ce lot n'a pas sa propre page détail ci-dessus)
@@ -605,7 +627,7 @@ export default function ProjetDetail() {
       }
 
       autoTable(doc, {
-        startY: 20,
+        startY: yOpt,
         head: [[t.colNumero, t.colDesignation, t.colUnite, t.colQte, t.colPuHtEur, t.colTotalHtEur]],
         body: bodyOptions,
         foot: [['', '', '', '', t.totalOptions, totalOptions !== 0 ? fmtMontant(totalOptions, lang) : '']],
@@ -621,7 +643,8 @@ export default function ProjetDetail() {
           5: { cellWidth: 28, halign: 'right', fontStyle: 'bold', font: 'courier' },
         },
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
-        margin: { left: 14, right: 14 },
+        margin: { left: 14, right: 14, top: 20 },
+        didDrawPage: () => bandeauHaut(doc),
       })
     }
 
@@ -1643,7 +1666,7 @@ export default function ProjetDetail() {
     })
 
     y = doc.lastAutoTable.finalY + 10
-    if (y > 220) { doc.addPage(); y = 20 }
+    if (y > 220) { doc.addPage(); bandeauHaut(doc); y = 20 }
     const totalHt = cmd.montant_ht || 0
     // Autoliquidation (sous-traitance BTP, article 283 du CGI) : le
     // fournisseur ne facture pas de TVA, c'est Partenaires Particuliers qui
