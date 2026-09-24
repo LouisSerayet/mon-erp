@@ -2513,6 +2513,15 @@ export default function ProjetDetail() {
                     style={quietLink}>Modifier</button>
                 )}
               </div>
+              {/* Créateur du projet — voir sql/projet_createur_migration.sql
+                  (created_by_email, renseigné automatiquement à la création
+                  et rétro-rempli depuis l'historique pour les projets déjà
+                  existants). Simple ligne d'info, pas éditable ici. */}
+              {projet.created_by_email && (
+                <div style={{ padding: '8px 20px', borderBottom: '1px solid ' + colors.line, fontSize: 11, color: colors.inkFaint }}>
+                  Créé par {projet.created_by_email}{projet.created_at ? ' le ' + fmtDate(projet.created_at) : ''}
+                </div>
+              )}
 
               {/* Bandeau progression */}
             {projet.statut === 'Perdu' ? (

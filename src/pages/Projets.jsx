@@ -234,6 +234,14 @@ export default function Projets() {
                         {p.date_debut ? ' · ' + new Date(p.date_debut).toLocaleDateString('fr-FR') : ''}
                         {p.date_fin_prevue ? ' → ' + new Date(p.date_fin_prevue).toLocaleDateString('fr-FR') : ''}
                       </div>
+                      {/* Créateur — voir sql/projet_createur_migration.sql.
+                          On n'affiche que la partie avant @ (compacte), le
+                          titre au survol donne l'adresse complète. */}
+                      {p.created_by_email && (
+                        <div title={'Créé par ' + p.created_by_email} style={{ fontSize: 11, color: colors.inkFaint, marginTop: 2 }}>
+                          Créé par {p.created_by_email.split('@')[0]}
+                        </div>
+                      )}
                     </div>
                     <div style={{ textAlign: isMobile ? 'left' : 'right', display: 'flex', flexDirection: isMobile ? 'row-reverse' : 'row', justifyContent: isMobile ? 'space-between' : 'flex-start', alignItems: 'center', gap: 20 }}>
                       <div>
