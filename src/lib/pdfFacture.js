@@ -63,7 +63,10 @@ export function genererFactureCliPDF(facture, projet, lang = 'fr', contact) {
     styles: TABLE_STYLE,
     headStyles: TABLE_HEAD_STYLE,
     alternateRowStyles: TABLE_ALT_ROW_STYLE,
-    columnStyles: { 1: { halign: 'right', cellWidth: 40, fontStyle: 'bold', font: 'courier' } },
+    // Helvetica plutôt que Courier : Courier n'a pas le glyphe « € » (voir
+    // pdfStyle.js), et cette cellule ne contient qu'une seule ligne — pas
+    // besoin d'alignement en colonnes de chiffres façon tableau.
+    columnStyles: { 1: { halign: 'right', cellWidth: 40, fontStyle: 'bold', font: 'helvetica' } },
     margin: { left: 14, right: 14 },
   })
 

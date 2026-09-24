@@ -42,6 +42,13 @@ export function fmt(n, lang = 'fr') {
   return m === '—' ? m : m + ' €'
 }
 
+// La police Courier standard de jsPDF n'a pas le glyphe « € » : le caractère
+// est silencieusement omis au rendu (constaté sur les devis/factures/BC
+// réels — c'est la cause du "€ pas affiché / pas centré" remonté plusieurs
+// fois). blocTotaux dessine donc le montant en Courier (aligné avec les
+// colonnes de tableau) puis le « € » séparément en Helvetica, seule police
+// standard qui le supporte.
+
 // En-tête commun : logo en haut à droite, bloc société en haut à gauche
 // (nom, adresse, SIRET, contact), puis le titre du document (DEVIS,
 // FACTURE, BON DE COMMANDE...) souligné d'un filet fin. Retourne le Y où
@@ -147,10 +154,17 @@ export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true
   doc.line(MARGIN_L, yy, MARGIN_R, yy); yy += 6
 
   const ligne = (label, valeur, taille = 9.5, gras = false) => {
-    doc.setFont('helvetica', gras ? 'bold' : 'normal'); doc.setFontSize(taille); doc.setTextColor(...(gras ? INK : MUTED))
+    const style = gras ? 'bold' : 'normal'
+    doc.setFont('helvetica', style); doc.setFontSize(taille); doc.setTextColor(...(gras ? INK : MUTED))
     doc.text(label, MARGIN_L, yy)
-    doc.setFont('courier', gras ? 'bold' : 'normal'); doc.setTextColor(...INK)
-    doc.text(fmt(valeur, lang), MARGIN_R, yy, { align: 'right' })
+    doc.setTextColor(...INK)
+    // € en Helvetica (Courier ne le supporte pas, voir plus haut), aligné à
+    // droite sur MARGIN_R ; le montant en Courier vient se coller juste avant.
+    doc.setFont('helvetica', style)
+    const euroW = doc.getStringUnitWidth(' €') * taille / doc.internal.scaleFactor
+    doc.text(' €', MARGIN_R, yy, { align: 'right' })
+    doc.setFont('courier', style)
+    doc.text(fmtMontant(valeur, lang), MARGIN_R - euroW, yy, { align: 'right' })
     yy += 6
   }
 
