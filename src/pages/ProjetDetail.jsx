@@ -4,7 +4,7 @@ import PdfPreviewModal from '../components/PdfPreviewModal'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { pushFactureClientPennylane, pushFactureFrsPennylane, syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane, envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
+import { syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane, envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
 import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, bandeauHaut, titreSection, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
@@ -1974,43 +1974,15 @@ export default function ProjetDetail() {
     setSavingFactureFrs(false)
   }
 
-  // ── Pennylane : envoi / synchro des factures ──────────────────
-  async function envoyerFactureCliVersPennylane(facture) {
-    setPennylaneError(''); setPennylaneBusy(facture.id)
-    try {
-      if (!projet.clients) throw new Error('Ce projet n\'a pas de client associé.')
-      await pushFactureClientPennylane(facture, projet.clients, projet.nom)
-      const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
-      setFacturesCli(data || [])
-    } catch (err) {
-      setPennylaneError(err.message)
-    }
-    setPennylaneBusy(null)
-  }
-
+  // ── Pennylane : synchro des factures ──────────────────
+  // (le push manuel par API a été retiré le 28/09/2026 — voir usePennylane.js ;
+  // l'envoi effectif se fait par email, automatiquement, voir envoyerFactureCliAutoPennylane)
   async function actualiserFactureCliPennylane(facture) {
     setPennylaneError(''); setPennylaneBusy(facture.id)
     try {
       await syncFactureClientStatut(facture)
       const { data } = await supabase.from('factures_cli').select('*').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
       setFacturesCli(data || [])
-    } catch (err) {
-      setPennylaneError(err.message)
-    }
-    setPennylaneBusy(null)
-  }
-
-  async function envoyerFactureFrsVersPennylane(facture) {
-    setPennylaneError(''); setPennylaneBusy(facture.id)
-    try {
-      if (!facture.fournisseurs) throw new Error('Cette facture n\'a pas de fournisseur associé.')
-      if (!facture.fichier_path) throw new Error('Aucun PDF joint à cette facture — supprime-la et recrée-la avec le fichier, ou ajoute cette fonctionnalité de complément.')
-      const { data: blob, error: dlErr } = await supabase.storage.from('documents').download(facture.fichier_path)
-      if (dlErr) throw new Error('Impossible de récupérer le PDF : ' + dlErr.message)
-      const file = new File([blob], facture.fichier_path.split('/').pop(), { type: 'application/pdf' })
-      await pushFactureFrsPennylane(facture, facture.fournisseurs, file)
-      const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
-      setFacturesFrs(data || [])
     } catch (err) {
       setPennylaneError(err.message)
     }
@@ -3903,9 +3875,7 @@ export default function ProjetDetail() {
                             <span style={marker(colors.success)} />Envoyée par email le {new Date(f.pennylane_synced_at).toLocaleDateString('fr-FR')}
                           </span>
                         ) : (
-                          <button onClick={() => envoyerFactureFrsVersPennylane(f)} disabled={pennylaneBusy === f.id} style={quietLink}>
-                            {pennylaneBusy === f.id ? 'Envoi...' : 'Envoyer'}
-                          </button>
+                          <span style={{ fontSize: 11, color: colors.inkFaint }}>—</span>
                         )}
                       </td>
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
@@ -4182,9 +4152,7 @@ export default function ProjetDetail() {
                             <span style={marker(colors.success)} />Envoyée par email le {new Date(f.pennylane_synced_at).toLocaleDateString('fr-FR')}
                           </span>
                         ) : (
-                          <button onClick={() => envoyerFactureCliVersPennylane(f)} disabled={pennylaneBusy === f.id} style={quietLink}>
-                            {pennylaneBusy === f.id ? 'Envoi...' : 'Envoyer'}
-                          </button>
+                          <span style={{ fontSize: 11, color: colors.inkFaint }}>—</span>
                         )}
                       </td>
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
