@@ -31,6 +31,13 @@ export default function Projets() {
   // plus haut, qui donne déjà l'ordre du workflow) — pratique pour voir
   // d'un coup d'œil tous les devis envoyés, tous les chantiers en cours...
   const [tri, setTri] = useState('statut')
+  // Les projets clôturés ne sont quasiment jamais consultés une fois le
+  // chantier terminé — masqués par défaut à chaque ouverture de la page
+  // (pas besoin de les supprimer, juste de ne pas les voir), avec une case
+  // pour les faire réapparaître ponctuellement. Ne s'applique qu'en vue
+  // "Tous" : sélectionner "Clôturé" dans le filtre de statut reste
+  // prioritaire et les affiche quand même.
+  const [masquerClotures, setMasquerClotures] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [clients, setClients] = useState([])
   const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
@@ -106,7 +113,10 @@ export default function Projets() {
 
   const filtered = projets.filter(p => {
     const matchSearch = p.nom?.toLowerCase().includes(search.toLowerCase()) || p.clients?.nom?.toLowerCase().includes(search.toLowerCase())
-    return matchSearch && (filtreStatut === 'Tous' || p.statut === filtreStatut)
+    const matchStatut = filtreStatut === 'Tous'
+      ? (!masquerClotures || p.statut !== 'Clôturé')
+      : p.statut === filtreStatut
+    return matchSearch && matchStatut
   })
   // .filter() renvoie déjà un nouveau tableau — .sort() en place ici ne
   // touche pas `projets` (l'ordre par date reste intact au prochain fetch).
@@ -144,6 +154,12 @@ export default function Projets() {
           <option value="date">Trier par date</option>
           <option value="statut">Trier par statut</option>
         </select>
+        {filtreStatut === 'Tous' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: colors.inkMuted, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <input type="checkbox" checked={masquerClotures} onChange={e => setMasquerClotures(e.target.checked)} />
+            Masquer les clôturés
+          </label>
+        )}
       </div>
 
       {showForm && (
