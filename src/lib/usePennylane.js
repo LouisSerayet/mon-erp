@@ -163,10 +163,22 @@ function blobVersBase64(blob) {
 
 // `pieces` : [{ name, blob }] — blob = Blob/File du PDF (généré à la volée
 // pour une facture client, déjà stocké pour une facture fournisseur).
+// `onLotEnvoye(lot)` (optionnel) : appelé avec le sous-tableau de `pieces`
+// de CHAQUE lot juste après que son email soit parti avec succès, AVANT de
+// passer au lot suivant — c'est ce qui permet à l'appelant de marquer
+// chaque facture comme envoyée (pennylane_synced_at) au fil de l'eau. Sans
+// ça (marquage global fait par l'appelant seulement après le retour de
+// cette fonction), un envoi groupé de plusieurs lots qui réussit sur les
+// premiers puis échoue sur un lot suivant laissait les factures des lots
+// déjà partis avec succès non marquées « envoyées » côté ERP — alors
+// qu'elles étaient bel et bien arrivées chez Pennylane. Au prochain essai,
+// l'ERP les considérait encore comme "à envoyer" et les renvoyait,
+// créant un doublon chez Pennylane (constaté en pratique le 28/09/2026 sur
+// une facture "La Cantine du 38").
 // Renvoie { factures, emails } — le nombre de factures transmises et le
 // nombre d'emails effectivement envoyés (plusieurs si le lot dépassait la
 // taille max par email).
-export async function envoyerFacturesPennylane(type, pieces) {
+export async function envoyerFacturesPennylane(type, pieces, onLotEnvoye) {
   const adresse = type === 'achats' ? PENNYLANE_EMAIL_ACHATS : PENNYLANE_EMAIL_VENTES
   if (!adresse) {
     throw new Error(`Adresse Pennylane (${type}) non configurée — ajoute VITE_PENNYLANE_EMAIL_${type === 'achats' ? 'ACHATS' : 'VENTES'} dans les variables d'environnement Vercel (voir Paramètres > Transmission de factures > Adresses e-mail dans Pennylane).`)
@@ -194,6 +206,9 @@ export async function envoyerFacturesPennylane(type, pieces) {
       body: attachments.length + ' facture(s) jointe(s) pour import automatique dans Pennylane.',
       attachments,
     })
+    // Marquage immédiat de CE lot, avant de risquer un échec sur le
+    // suivant — voir le commentaire au-dessus de la fonction.
+    if (onLotEnvoye) await onLotEnvoye(lots[i])
   }
   return { factures: pieces.length, emails: lots.length }
 }

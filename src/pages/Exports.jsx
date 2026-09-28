@@ -256,33 +256,45 @@ export default function Exports() {
     try {
       const { facturesCli, facturesFrs, depenses } = await recupererFacturesFiltrees()
       let nbFrsIgnorees = 0, nbDepIgnorees = 0, totalEmails = 0
-      const maintenant = new Date().toISOString()
 
+      // Marquage "envoyée" fait lot par lot, tout de suite après que CE lot
+      // soit parti avec succès (voir onLotEnvoye dans envoyerFacturesPennylane)
+      // — jamais en un seul .update() groupé après coup, sinon un lot déjà
+      // parti reste marqué "à envoyer" si un lot suivant échoue, et se
+      // retrouve renvoyé (donc dupliqué chez Pennylane) au prochain essai.
       if (facturesCli.length) {
-        const pieces = facturesCli.map(f => ({ name: (f.numero || f.id) + '.pdf', blob: genererFactureCliPDF(f, f.projets, 'fr', contactPourProjet(f.projets, profilsParEmail)).output('blob') }))
-        const res = await envoyerFacturesPennylane('ventes', pieces)
+        const pieces = facturesCli.map(f => ({ id: f.id, name: (f.numero || f.id) + '.pdf', blob: genererFactureCliPDF(f, f.projets, 'fr', contactPourProjet(f.projets, profilsParEmail)).output('blob') }))
+        const res = await envoyerFacturesPennylane('ventes', pieces, async lot => {
+          await supabase.from('factures_cli').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: new Date().toISOString() }).in('id', lot.map(p => p.id))
+        })
         totalEmails += res.emails
-        await supabase.from('factures_cli').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', facturesCli.map(f => f.id))
       }
 
       const piecesFrs = []
       for (const f of facturesFrs) {
         const { data: blob, error: dlErr } = await supabase.storage.from('documents').download(f.fichier_path)
         if (dlErr || !blob) { nbFrsIgnorees++; continue }
-        piecesFrs.push({ id: f.id, name: (f.numero || f.id) + '.pdf', blob })
+        piecesFrs.push({ id: f.id, table: 'factures_frs', name: (f.numero || f.id) + '.pdf', blob })
       }
       const piecesDep = []
       for (const d of depenses) {
         const { data: blob, error: dlErr } = await supabase.storage.from('documents').download(d.fichier_path)
         if (dlErr || !blob) { nbDepIgnorees++; continue }
-        piecesDep.push({ id: d.id, name: (d.numero || d.libelle || d.id) + '.pdf', blob })
+        piecesDep.push({ id: d.id, table: 'depenses_generales', name: (d.numero || d.libelle || d.id) + '.pdf', blob })
       }
       const piecesAchats = [...piecesFrs, ...piecesDep]
       if (piecesAchats.length) {
-        const res = await envoyerFacturesPennylane('achats', piecesAchats)
+        // Un même lot "achats" peut mélanger factures_frs et
+        // depenses_generales (voir piecesAchats ci-dessus) — on marque donc
+        // séparément les id de chaque table présents dans le lot.
+        const res = await envoyerFacturesPennylane('achats', piecesAchats, async lot => {
+          const maintenant = new Date().toISOString()
+          const idsFrs = lot.filter(p => p.table === 'factures_frs').map(p => p.id)
+          const idsDep = lot.filter(p => p.table === 'depenses_generales').map(p => p.id)
+          if (idsFrs.length) await supabase.from('factures_frs').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', idsFrs)
+          if (idsDep.length) await supabase.from('depenses_generales').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', idsDep)
+        })
         totalEmails += res.emails
-        if (piecesFrs.length) await supabase.from('factures_frs').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', piecesFrs.map(p => p.id))
-        if (piecesDep.length) await supabase.from('depenses_generales').update({ pennylane_statut: 'Envoyée par email', pennylane_synced_at: maintenant }).in('id', piecesDep.map(p => p.id))
       }
 
       const nbFrsEnvoyees = piecesFrs.length, nbDepEnvoyees = piecesDep.length
