@@ -19,7 +19,7 @@ const STATUT_MARKER = { 'À envoyer': colors.inkFaint, 'Envoyée': colors.focus,
 // l'ancien sélecteur "Date (récent)/Montant (élevé)/..." par un tri
 // disponible sur n'importe quelle colonne, pas seulement date/montant.
 const COLONNES_TRI = {
-  client: f => f.clients?.nom || '',
+  client: f => f.projets?.clients?.nom || '',
   projet: f => f.projets?.nom || '',
   numero: f => f.numero || '',
   date: f => f.date_facture || null,
@@ -62,7 +62,13 @@ export default function FacturesClients() {
     (async () => {
       setLoading(true)
       const { data } = await supabase.from('factures_cli')
-        .select('id, numero, montant_ht, statut, date_facture, date_echeance, projet_id, projets(nom), clients(nom)')
+        // Le client vient du projet (projets → clients), pas du client_id
+        // propre à la facture : celui-ci n'est qu'une copie figée au moment
+        // de la création de la facture (voir ProjetDetail.jsx) — si le
+        // client est rattaché au projet après coup, une facture déjà créée
+        // reste orpheline pour toujours si on la lit directement. Même
+        // jointure vive que Dashboard.jsx/Exports.jsx/Rapprochement.jsx.
+        .select('id, numero, montant_ht, statut, date_facture, date_echeance, projet_id, projets(nom, clients(nom))')
         .is('deleted_at', null)
         .order('date_facture', { ascending: false })
       setFactures(data || [])
@@ -85,7 +91,7 @@ export default function FacturesClients() {
   const filtrees = factures.filter(f => {
     const matchSearch = !search ||
       f.numero?.toLowerCase().includes(search.toLowerCase()) ||
-      f.clients?.nom?.toLowerCase().includes(search.toLowerCase()) ||
+      f.projets?.clients?.nom?.toLowerCase().includes(search.toLowerCase()) ||
       f.projets?.nom?.toLowerCase().includes(search.toLowerCase())
     const matchStatut = statutsActifs.has(f.statut)
     const matchDateDebut = !dateDebut || (f.date_facture && f.date_facture >= dateDebut)
@@ -163,7 +169,7 @@ export default function FacturesClients() {
                     </span>
                   </div>
                   <div style={{ fontSize: 12, color: colors.inkMuted, marginBottom: 5 }}>
-                    {f.clients?.nom || '—'}{f.projets?.nom ? ' · ' + f.projets.nom : ''}
+                    {f.projets?.clients?.nom || '—'}{f.projets?.nom ? ' · ' + f.projets.nom : ''}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 11, color: enRetardF ? colors.danger : colors.inkFaint }}>
@@ -204,7 +210,7 @@ export default function FacturesClients() {
                     <td style={{ padding: '12px 6px 12px ' + (enRetardF ? '10px' : '0') }} title={f.statut}>
                       <span style={marker(STATUT_MARKER[f.statut])} />
                     </td>
-                    <td style={{ padding: '12px 14px', fontWeight: 500 }}>{f.clients?.nom || '—'}</td>
+                    <td style={{ padding: '12px 14px', fontWeight: 500 }}>{f.projets?.clients?.nom || '—'}</td>
                     <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{f.projets?.nom || '—'}</td>
                     <td style={{ padding: '12px 14px', color: colors.inkFaint }}>{f.numero}</td>
                     <td style={{ padding: '12px 14px', color: colors.inkMuted, whiteSpace: 'nowrap' }}>{fmtDate(f.date_facture)}</td>
