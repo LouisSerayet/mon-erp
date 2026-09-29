@@ -26,6 +26,10 @@ const COLONNES_TRI = {
   echeance: f => f.date_echeance || null,
   montant: f => f.montant_ht || 0,
   statut: f => f.statut || '',
+  // Même définition que le "enRetardF" calculé ligne par ligne plus bas
+  // (statut "Envoyée" + échéance dépassée) — une facture "À envoyer" n'a
+  // pas encore été facturée au sens propre, donc jamais "impayée".
+  impayee: f => (f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date()) ? 1 : 0,
 }
 
 const inputUnderline = {
@@ -175,6 +179,12 @@ export default function FacturesClients() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
+                {/* Petite colonne muette (pas de tri propre, l'info est
+                    dupliquée de la colonne "Statut" ci-dessous, déjà
+                    triable) — juste le repère couleur, pour lire le statut
+                    d'un coup d'œil en descendant la liste sans avoir à lire
+                    le texte tout à droite. */}
+                <th style={{ width: 20, padding: '0 6px 10px 0', borderBottom: '1px solid ' + colors.line }} />
                 <ThTri col="client" label="Client" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
                 <ThTri col="projet" label="Projet" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
                 <ThTri col="numero" label="N°" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
@@ -182,6 +192,7 @@ export default function FacturesClients() {
                 <ThTri col="echeance" label="Échéance" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
                 <ThTri col="montant" label="Montant HT" align="right" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
                 <ThTri col="statut" label="Statut" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <ThTri col="impayee" label="Impayée" align="right" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
               </tr>
             </thead>
             <tbody>
@@ -190,7 +201,10 @@ export default function FacturesClients() {
                 return (
                   <tr key={f.id} onClick={() => aller(f)}
                     style={{ borderBottom: '1px solid ' + colors.line, borderLeft: enRetardF ? '2px solid ' + colors.danger : 'none', cursor: 'pointer' }}>
-                    <td style={{ padding: '12px 14px 12px ' + (enRetardF ? '12px' : '0'), fontWeight: 500 }}>{f.clients?.nom || '—'}</td>
+                    <td style={{ padding: '12px 6px 12px ' + (enRetardF ? '10px' : '0') }} title={f.statut}>
+                      <span style={marker(STATUT_MARKER[f.statut])} />
+                    </td>
+                    <td style={{ padding: '12px 14px', fontWeight: 500 }}>{f.clients?.nom || '—'}</td>
                     <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{f.projets?.nom || '—'}</td>
                     <td style={{ padding: '12px 14px', color: colors.inkFaint }}>{f.numero}</td>
                     <td style={{ padding: '12px 14px', color: colors.inkMuted, whiteSpace: 'nowrap' }}>{fmtDate(f.date_facture)}</td>
@@ -202,6 +216,9 @@ export default function FacturesClients() {
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.inkMuted }}>
                         <span style={marker(STATUT_MARKER[f.statut])} />{f.statut}
                       </span>
+                    </td>
+                    <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: enRetardF ? 600 : 400, color: enRetardF ? colors.danger : colors.inkFaint }}>
+                      {enRetardF ? 'Oui' : 'Non'}
                     </td>
                   </tr>
                 )
