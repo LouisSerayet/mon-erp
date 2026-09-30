@@ -3253,7 +3253,14 @@ export default function ProjetDetail() {
                       </div>
                     </div>
                   )}
-                  {!estReduit && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  {/* Tableau large (11 colonnes) — sur mobile, défilement
+                      horizontal contenu dans ce wrapper plutôt que de
+                      pousser toute la page en largeur (même principe que le
+                      tableau comparatif de l'onglet Rentabilité plus bas). */}
+                  {!estReduit && (
+                  <div style={{ overflow: isMobile ? 'auto' : 'hidden' }}>
+                  <div style={{ minWidth: isMobile ? 900 : 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
                         <th style={{ padding: '7px 10px', textAlign: 'left', color: colors.inkMuted, fontWeight: 500, width: 50 }}>
@@ -3404,7 +3411,10 @@ export default function ProjetDetail() {
                         )
                       })}
                     </tbody>
-                  </table>}
+                  </table>
+                  </div>
+                  </div>
+                  )}
                 </div>
               )
               })}
@@ -3433,6 +3443,10 @@ export default function ProjetDetail() {
                       Vente : {Number((lignesParLot['sans'] || []).filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </span>
                   </div>
+                  {/* Même wrapper "défilement contenu" que le tableau du lot
+                      ci-dessus. */}
+                  <div style={{ overflow: isMobile ? 'auto' : 'hidden' }}>
+                  <div style={{ minWidth: isMobile ? 900 : 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
@@ -3562,6 +3576,8 @@ export default function ProjetDetail() {
                       })}
                     </tbody>
                   </table>
+                  </div>
+                  </div>
                 </div>
               )}
             </>)}

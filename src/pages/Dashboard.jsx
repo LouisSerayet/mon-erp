@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { calculerMarge, ligneCompteDansTotal, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { getBankAccounts } from '../lib/useQonto'
+import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 
 // Ordre d'affichage des statuts dans le widget "Vue globale des projets"
@@ -26,6 +27,7 @@ const PRESETS_STATUTS = [
 ]
 
 export default function Dashboard() {
+  const isMobile = useIsMobile()
   const [stats, setStats] = useState(null)
   const [projets, setProjets] = useState([])
   // Tous les projets (non tronqués/filtrés comme `projets` ci-dessus), avec
@@ -317,10 +319,10 @@ export default function Dashboard() {
   }).filter(b => b.nb > 0)
 
   return (
-    <div style={{ padding: '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
+    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
       {/* Header */}
       <p style={eyebrow}>Partenaires Particuliers</p>
-      <h1 style={{ margin: '14px 0 0', fontSize: 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Tableau de bord</h1>
+      <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Tableau de bord</h1>
       <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0', textTransform: 'capitalize' }}>
         {new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
       </p>
@@ -329,15 +331,15 @@ export default function Dashboard() {
           vers Trésorerie/Rapprochement et Compte de résultat, seules portes
           d'entrée vers ces pages maintenant qu'elles n'ont plus d'onglet
           dans le menu (voir Layout.jsx). */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', marginTop: 44 }}>
-        <div onClick={() => navigate('/tresorerie')} style={{ padding: '26px 32px 26px 0', cursor: 'pointer' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', marginTop: isMobile ? 28 : 44 }}>
+        <div onClick={() => navigate('/tresorerie')} style={{ padding: isMobile ? '0 0 22px' : '26px 32px 26px 0', cursor: 'pointer' }}>
           <div style={{ ...eyebrow, marginBottom: 14 }}>Solde bancaire — Qonto</div>
           {loadingSoldeQonto ? (
             <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
           ) : soldeQontoError ? (
             <div style={{ fontSize: 12, color: colors.danger }} title={soldeQontoError}>Indisponible — {soldeQontoError}</div>
           ) : (
-            <div style={{ fontFamily: fonts.mono, fontSize: 34, fontWeight: 500, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{fmt(soldeQonto / 100)}</div>
+            <div style={{ fontFamily: fonts.mono, fontSize: isMobile ? 28 : 34, fontWeight: 500, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{fmt(soldeQonto / 100)}</div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
             <a style={quietLink}>Voir la trésorerie</a>
@@ -345,7 +347,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div onClick={() => navigate('/resultat')} style={{ padding: '26px 0 26px 32px', borderLeft: '1px solid ' + colors.line, cursor: 'pointer' }}>
+        <div onClick={() => navigate('/resultat')} style={{ padding: isMobile ? '22px 0 0' : '26px 0 26px 32px', borderTop: isMobile ? '1px solid ' + colors.line : 'none', borderLeft: isMobile ? 'none' : '1px solid ' + colors.line, cursor: 'pointer' }}>
           <div style={{ ...eyebrow, marginBottom: 14 }}>Compte de résultat — {new Date().getFullYear()}</div>
           {loadingResultat ? (
             <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
@@ -396,8 +398,8 @@ export default function Dashboard() {
           envoyerRelanceDepuisModal(). L'email ne part jamais tant qu'on n'a
           pas validé son contenu ici. */}
       {modalRelance && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
-          <div style={{ background: colors.surface, padding: 32, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.45)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 14 }}>
+          <div style={{ background: colors.surface, padding: isMobile ? 20 : 32, width: isMobile ? '100%' : 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
             <h3 style={{ margin: '0 0 22px', fontSize: 16, fontWeight: 600 }}>Relance par email</h3>
 
             {modalRelanceError && (
@@ -513,18 +515,24 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: '1px solid ' + colors.line }}>
-          {[
-            { label: 'Projets sélectionnés', value: String(projetsFiltresGlobal.length) },
-            { label: 'CA total HT', value: fmt(caGlobalFiltre) },
-            { label: baseCoutGlobal === 'prevu' ? 'Coût prévu HT' : 'Coût engagé HT', value: fmt(coutGlobalFiltre) },
-            { label: 'Marge (' + tauxGlobalFiltre + ' % · coeff. ' + (coeffGlobalFiltre ?? '—') + ')', value: fmt(margeGlobalFiltre), color: margeGlobalFiltre >= 0 ? colors.success : colors.danger },
-          ].map((k, i) => (
-            <div key={k.label} style={{ padding: '18px 20px 20px 0', paddingLeft: i > 0 ? 20 : 0, borderLeft: i > 0 ? '1px solid ' + colors.line : 'none' }}>
-              <div style={{ fontSize: 11, color: colors.inkMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.06em' }}>{k.label}</div>
-              <div style={{ fontFamily: fonts.mono, fontSize: 20, fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
-            </div>
-          ))}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', borderBottom: '1px solid ' + colors.line }}>
+          {(() => {
+            const parLigne = isMobile ? 2 : 4
+            return [
+              { label: 'Projets sélectionnés', value: String(projetsFiltresGlobal.length) },
+              { label: 'CA total HT', value: fmt(caGlobalFiltre) },
+              { label: baseCoutGlobal === 'prevu' ? 'Coût prévu HT' : 'Coût engagé HT', value: fmt(coutGlobalFiltre) },
+              { label: 'Marge (' + tauxGlobalFiltre + ' % · coeff. ' + (coeffGlobalFiltre ?? '—') + ')', value: fmt(margeGlobalFiltre), color: margeGlobalFiltre >= 0 ? colors.success : colors.danger },
+            ].map((k, i) => {
+              const debutLigne = i % parLigne === 0
+              return (
+                <div key={k.label} style={{ padding: isMobile ? '14px 14px 16px' : '18px 20px 20px 0', paddingLeft: debutLigne ? (isMobile ? 0 : 0) : (isMobile ? 14 : 20), borderLeft: debutLigne ? 'none' : '1px solid ' + colors.line, borderTop: isMobile && i >= parLigne ? '1px solid ' + colors.line : 'none' }}>
+                  <div style={{ fontSize: 11, color: colors.inkMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.06em' }}>{k.label}</div>
+                  <div style={{ fontFamily: fonts.mono, fontSize: isMobile ? 17 : 20, fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
+                </div>
+              )
+            })
+          })()}
         </div>
 
         {breakdownStatuts.length > 0 && (
@@ -556,7 +564,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 56, marginTop: 48 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 36 : 56, marginTop: 48 }}>
 
         {/* Projets en cours */}
         <div>
@@ -612,7 +620,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 40, marginTop: 48 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: isMobile ? 36 : 40, marginTop: 48 }}>
 
         {/* Factures frs à payer */}
         <div>
