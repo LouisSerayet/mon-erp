@@ -48,6 +48,18 @@ export function IconSupprimer({ size = 15, style }) {
   )
 }
 
+// Dupliquer une ligne (devis, onglet Lignes) — deux rectangles superposés,
+// pictogramme "copier" standard, tracé dans le même style que les icônes
+// ci-dessus (traits, pas de remplissage).
+export function IconDupliquer({ size = 13, style }) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} style={{ display: 'block', ...style }} {...base}>
+      <rect x="3" y="6.5" width="9.5" height="10.5" rx="1.2" />
+      <path d="M6.7 6.5V4.3a1 1 0 0 1 1-1H16a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1h-2" />
+    </svg>
+  )
+}
+
 // Poignée de glisser-déposer (6 points, style "grip" standard) — voir
 // ProjetDetail.jsx onglet Lignes, glisser une ligne pour la déplacer vers un
 // autre lot. Seule icône "pleine" (points remplis) du fichier plutôt que des

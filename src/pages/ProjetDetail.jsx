@@ -16,7 +16,7 @@ import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQon
 import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
-import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer, IconGlisser } from '../components/Icons'
+import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer, IconGlisser, IconDupliquer } from '../components/Icons'
 
 const TABS = [
   { id: 'infos', label: 'Infos' },
@@ -174,6 +174,20 @@ export default function ProjetDetail() {
   const [ligneDrag, setLigneDrag] = useState(null) // { id, lot } | null
   const [ligneDragOverKey, setLigneDragOverKey] = useState(null)
   const [ligneDragBusy, setLigneDragBusy] = useState(false)
+  // Duplication d'une ligne (bouton dans la colonne N°, voir
+  // dupliquerLigne) — anti double-clic pendant l'enregistrement Supabase,
+  // même principe que ligneDragBusy.
+  const [ligneDuplicationBusy, setLigneDuplicationBusy] = useState(false)
+  // Modification groupée du coefficient sur les lignes cochées (colonne N°)
+  // — voir modifierCoeffSelection ; pratique pour appliquer un même
+  // coefficient à tout un lot d'un coup (cocher "tout sélectionner" dans
+  // son en-tête) plutôt que ligne par ligne. Modale "maison" comme
+  // confirmSuppressionLignesOuvert (pas de window.prompt(), même anti-motif
+  // que confirmDupliquerOuvert plus haut).
+  const [coeffLotOuvert, setCoeffLotOuvert] = useState(false)
+  const [coeffLotValeur, setCoeffLotValeur] = useState('')
+  const [coeffLotBusy, setCoeffLotBusy] = useState(false)
+  const [coeffLotError, setCoeffLotError] = useState('')
   const [showAddLigne, setShowAddLigne] = useState(false)
   const [ligneError, setLigneError] = useState('')
   const [showAddLot, setShowAddLot] = useState(false)
@@ -918,6 +932,103 @@ export default function ProjetDetail() {
       if (!prev.has(ligneId)) return prev
       const next = new Set(prev); next.delete(ligneId); return next
     })
+  }
+
+  // Duplique une ligne juste en dessous d'elle-même (même lot, mêmes
+  // valeurs) — pour une série de lignes très proches (même prestation avec
+  // juste la désignation ou la quantité qui change) sans repartir d'un
+  // formulaire vide à chaque fois. La copie est insérée dans la liste
+  // locale juste après l'originale puis tout est renuméroté (0,1,2…), même
+  // principe que deplacerLigne, pour que l'ordre en base corresponde à la
+  // position affichée plutôt que d'atterrir en fin de liste.
+  async function dupliquerLigne(ligneId) {
+    if (ligneDuplicationBusy) return // garde-fou anti double-clic
+    const source = lignes.find(l => l.id === ligneId)
+    if (!source || source.type !== 'ligne') return
+    setLigneDuplicationBusy(true)
+    const maxOrdre = Math.max(...lignes.map(l => l.ordre || 0), 0)
+    const { data: inseree, error } = await supabase.from('projet_lignes').insert([{
+      projet_id: id,
+      type: 'ligne',
+      lot: source.lot || null,
+      descriptif: source.descriptif,
+      unite: source.unite,
+      qte: source.qte,
+      prix_achat_ht: source.prix_achat_ht,
+      prix_unit_ht: source.prix_unit_ht,
+      coeff: source.coeff,
+      total_ht: source.total_ht,
+      total_achat: source.total_achat,
+      categorie_ligne: source.categorie_ligne,
+      variante_active: source.variante_active,
+      ordre: maxOrdre + 1, // provisoire, renuméroté juste en dessous
+    }]).select().single()
+    if (error) { alert('Erreur lors de la duplication : ' + error.message); setLigneDuplicationBusy(false); return }
+
+    const indexSource = lignes.findIndex(l => l.id === ligneId)
+    const nouvelleListe = [...lignes.slice(0, indexSource + 1), inseree, ...lignes.slice(indexSource + 1)]
+    const updates = []
+    nouvelleListe.forEach((l, i) => { if ((l.ordre || 0) !== i) updates.push({ id: l.id, ordre: i }) })
+    const resultats = await Promise.all(updates.map(u => supabase.from('projet_lignes').update({ ordre: u.ordre }).eq('id', u.id)))
+    const echec = resultats.find(r => r.error)
+    if (echec) { alert('Erreur lors du réordonnancement après duplication : ' + echec.error.message); setLigneDuplicationBusy(false); return }
+
+    let { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+    lg = await resynchroniserLot(lg || [], source.lot || null)
+    setLignes(lg)
+    await syncMontantHtProjet(lg)
+    setLigneDuplicationBusy(false)
+  }
+
+  // Modifie le coefficient de toutes les lignes actuellement cochées
+  // (colonne N°) en une seule action — cocher "tout sélectionner" dans
+  // l'en-tête d'un lot puis appliquer un coefficient revient à changer le
+  // coefficient de tout le lot d'un coup, plutôt que ligne par ligne. Le
+  // prix de vente et le total sont recalculés à partir du prix d'achat
+  // actuel de chaque ligne (achat × nouveau coeff, mode par défaut) ; les
+  // lignes Honoraire (vente seule, sans achat/coeff) sont ignorées.
+  async function modifierCoeffSelection(nouveauCoeffBrut) {
+    if (coeffLotBusy) return
+    const nouveauCoeff = parseFloat(nouveauCoeffBrut)
+    if (!Number.isFinite(nouveauCoeff) || nouveauCoeff <= 0) { setCoeffLotError('Coefficient invalide.'); return }
+    const ids = Array.from(lignesSelectionnees)
+    if (ids.length === 0) { setCoeffLotOuvert(false); return }
+    setCoeffLotError('')
+    setCoeffLotBusy(true)
+    const lotsAffectes = new Set()
+    const echecs = []
+    for (const ligneId of ids) {
+      const ligne = lignes.find(l => l.id === ligneId)
+      if (!ligne || ligne.type !== 'ligne' || ligne.categorie_ligne === 'honoraire') continue
+      const prixAchat = parseFloat(ligne.prix_achat_ht) || 0
+      const qte = parseFloat(ligne.qte) || 0
+      const prixVente = prixAchat * nouveauCoeff
+      const { error } = await supabase.from('projet_lignes').update({
+        coeff: nouveauCoeff, prix_unit_ht: prixVente, total_ht: qte * prixVente,
+      }).eq('id', ligneId)
+      if (error) echecs.push(ligne.descriptif || ligneId)
+      else if (ligne.lot) lotsAffectes.add(ligne.lot)
+    }
+    // D'éventuelles modifications non sauvegardées sur ces lignes seraient
+    // écrasées par le nouveau coefficient — on les retire du brouillon pour
+    // ne pas laisser un affichage périmé (voir getLigneVal).
+    setLignesEditees(prev => {
+      const n = { ...prev }
+      ids.forEach(i => delete n[i])
+      return n
+    })
+    let { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+    lg = lg || []
+    for (const numeroLot of lotsAffectes) lg = await resynchroniserLot(lg, numeroLot)
+    setLignes(lg)
+    await syncMontantHtProjet(lg)
+    setCoeffLotBusy(false)
+    if (echecs.length) {
+      setCoeffLotError('Certaines lignes n\'ont pas pu être mises à jour : ' + echecs.join(', '))
+    } else {
+      setCoeffLotOuvert(false)
+      setLignesSelectionnees(new Set())
+    }
   }
 
   // Sélection multiple de lignes (checkboxes, onglet Lignes) → suppression
@@ -2825,7 +2936,9 @@ export default function ProjetDetail() {
             {/* Barre d'action groupée — apparaît dès qu'au moins une ligne
                 est cochée (checkbox dans la colonne N° de chaque tableau
                 ci-dessous). Suppression groupée en un seul appel plutôt
-                qu'un clic sur ✕ par ligne. */}
+                qu'un clic sur ✕ par ligne ; "Coefficient" pour changer le
+                coefficient de tout un lot d'un coup (cocher "tout
+                sélectionner" dans son en-tête) — voir modifierCoeffSelection. */}
             {lignesSelectionnees.size > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '2px solid ' + colors.focus, padding: '9px 14px', marginBottom: 16, position: 'sticky', top: 0, zIndex: 5, background: colors.bg }}>
                 <span style={{ fontSize: 13, color: colors.ink, fontWeight: 500 }}>
@@ -2835,9 +2948,40 @@ export default function ProjetDetail() {
                   <button onClick={() => setLignesSelectionnees(new Set())} style={quietLink}>
                     Annuler
                   </button>
+                  <button onClick={() => { setCoeffLotValeur(''); setCoeffLotError(''); setCoeffLotOuvert(true) }} style={quietLink}>
+                    Coefficient
+                  </button>
                   <button onClick={() => setConfirmSuppressionLignesOuvert(true)} style={{ ...quietLink, color: colors.danger, borderBottomColor: colors.danger }}>
                     Supprimer
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* Modification groupée du coefficient — voir
+                modifierCoeffSelection. Modale "maison", pas de
+                window.prompt() (même raison que confirmDupliquerOuvert plus
+                haut : une fois une boîte navigateur fermée, les suivantes
+                sont silencieusement bloquées). */}
+            {coeffLotOuvert && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: 14 }}>
+                <div style={{ background: colors.surface, padding: isMobile ? 20 : 28, width: isMobile ? '100%' : 420, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
+                  <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 600 }}>
+                    Coefficient — {lignesSelectionnees.size} ligne{lignesSelectionnees.size > 1 ? 's' : ''}
+                  </h3>
+                  <p style={{ fontSize: 13, color: colors.inkMuted, marginBottom: 18 }}>
+                    Le prix de vente et le total de chaque ligne sont recalculés à partir de son prix d'achat actuel × ce coefficient. Les lignes Honoraire (sans achat) ne sont pas concernées.
+                  </p>
+                  {coeffLotError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{coeffLotError}</div>}
+                  <input type="number" min="0" step="0.01" autoFocus value={coeffLotValeur} onChange={e => setCoeffLotValeur(e.target.value)}
+                    placeholder="Ex. 1.30" style={{ ...inputUnderline, marginBottom: 20 }} />
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                    <button onClick={() => setCoeffLotOuvert(false)} disabled={coeffLotBusy} style={btnGhost}>Annuler</button>
+                    <button onClick={() => modifierCoeffSelection(coeffLotValeur)} disabled={coeffLotBusy}
+                      style={{ ...btnPrimary, cursor: coeffLotBusy ? 'default' : 'pointer', opacity: coeffLotBusy ? 0.7 : 1 }}>
+                      {coeffLotBusy ? 'Application...' : 'Appliquer'}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -3169,7 +3313,11 @@ export default function ProjetDetail() {
                                 <input type="checkbox" checked={lignesSelectionnees.has(l.id)} onChange={() => toggleLigneSelection(l.id)}
                                   style={{ cursor: 'pointer' }} />
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
-                                <button onClick={() => supprimerLigne(l.id)}
+                                <button onClick={() => dupliquerLigne(l.id)} disabled={ligneDuplicationBusy} title="Dupliquer cette ligne"
+                                  style={{ background: 'none', border: 'none', color: colors.inkMuted, cursor: ligneDuplicationBusy ? 'default' : 'pointer', padding: '0 2px', lineHeight: 1, opacity: 0.55 }}
+                                  onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                  onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}><IconDupliquer /></button>
+                                <button onClick={() => supprimerLigne(l.id)} title="Supprimer cette ligne"
                                   style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 11, padding: '0 2px', lineHeight: 1, opacity: 0.6 }}
                                   onMouseEnter={e => e.currentTarget.style.opacity = '1'}
                                   onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}>✕</button>
@@ -3349,7 +3497,10 @@ export default function ProjetDetail() {
                                 <input type="checkbox" checked={lignesSelectionnees.has(l.id)} onChange={() => toggleLigneSelection(l.id)}
                                   style={{ cursor: 'pointer' }} />
                                 <span style={{ fontSize: 11 }}>{l.numero}</span>
-                                <button onClick={() => supprimerLigne(l.id)} style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 11, padding: '0 2px', opacity: 0.6 }}
+                                <button onClick={() => dupliquerLigne(l.id)} disabled={ligneDuplicationBusy} title="Dupliquer cette ligne"
+                                  style={{ background: 'none', border: 'none', color: colors.inkMuted, cursor: ligneDuplicationBusy ? 'default' : 'pointer', padding: '0 2px', lineHeight: 1, opacity: 0.55 }}
+                                  onMouseEnter={e => e.currentTarget.style.opacity='1'} onMouseLeave={e => e.currentTarget.style.opacity='0.55'}><IconDupliquer /></button>
+                                <button onClick={() => supprimerLigne(l.id)} title="Supprimer cette ligne" style={{ background: 'none', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 11, padding: '0 2px', opacity: 0.6 }}
                                   onMouseEnter={e => e.currentTarget.style.opacity='1'} onMouseLeave={e => e.currentTarget.style.opacity='0.6'}>✕</button>
                               </div>
                             </td>
