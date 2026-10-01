@@ -127,7 +127,13 @@ export default function Dashboard() {
       supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('commandes').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'Brouillon').order('created_at', { ascending: false }),
       supabase.from('factures_frs').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
-      supabase.from('factures_cli').select('*, projets(nom), clients(nom, email, telephone)').is('deleted_at', null).in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
+      // Le client vient du projet (projets → clients), pas du client_id
+      // propre à la facture : celui-ci n'est qu'une copie figée au moment
+      // de la création de la facture (voir ProjetDetail.jsx) — si le
+      // client est rattaché au projet après coup, une facture déjà créée
+      // reste orpheline pour toujours si on la lit directement (même
+      // correctif que FacturesClients.jsx, voir ce fichier pour le détail).
+      supabase.from('factures_cli').select('*, projets(nom, clients(nom, email, telephone))').is('deleted_at', null).in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
       // Dépenses générales (loyer, compta, assurance...) — non liées à un
       // projet, voir src/pages/Depenses.jsx. La table peut ne pas encore
       // exister si sql/depenses_generales_migration.sql n'a pas été
@@ -253,9 +259,9 @@ export default function Dashboard() {
   // au clic sur "Relancer", il faut valider (et éventuellement corriger) le
   // contenu dans la modale qui s'ouvre ensuite. Voir modalRelance ci-dessous.
   function ouvrirRelance(f) {
-    if (!f.clients?.email) return
+    if (!f.projets?.clients?.email) return
     const { sujet, corps } = contenuRelance(f)
-    setModalRelance({ factureId: f.id, to: f.clients.email, subject: sujet, body: corps })
+    setModalRelance({ factureId: f.id, to: f.projets.clients.email, subject: sujet, body: corps })
     setModalRelanceError('')
   }
 
@@ -450,14 +456,14 @@ export default function Dashboard() {
               return (
                 <div key={f.id} style={{ borderLeft: '2px solid ' + colors.danger, paddingLeft: 14, marginLeft: -16, borderBottom: '1px solid ' + colors.line, padding: '13px 0 13px 14px', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
                   <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate('/projets/' + f.projet_id, { state: { tab: 'factures_cli', focusId: f.id } })}>
-                    <div style={{ fontWeight: 500, fontSize: 13.5 }}>{f.clients?.nom || 'Client inconnu'} · {f.numero}</div>
+                    <div style={{ fontWeight: 500, fontSize: 13.5 }}>{f.projets?.clients?.nom || 'Client inconnu'} · {f.numero}</div>
                     <div style={{ fontSize: 11.5, color: colors.danger, marginTop: 2 }}>
                       {f.projets?.nom ? f.projets.nom + ' · ' : ''}Échue depuis {joursRetard} jour(s) ({fmtDate(f.date_echeance)})
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontFamily: fonts.mono, fontSize: 13.5, fontVariantNumeric: 'tabular-nums', color: colors.danger }}>{fmt(f.montant_ht)}</div>
-                    {f.clients?.email ? (
+                    {f.projets?.clients?.email ? (
                       envoiRelance[f.id] === 'envoye' ? (
                         <span style={{ fontSize: 11, color: colors.success, fontWeight: 500 }}>Envoyé</span>
                       ) : (
