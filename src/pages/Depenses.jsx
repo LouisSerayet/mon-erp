@@ -134,6 +134,11 @@ export default function Depenses() {
     const payload = { ...changes }
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
     if (changes.fournisseur_id !== undefined) payload.fournisseur_id = changes.fournisseur_id || null
+    // Vider une des deux dates en édition inline envoie '' sinon — refusé
+    // par Postgres ("invalid input syntax for type date"), voir le même
+    // correctif dans ProjetDetail.jsx (saveCmd/saveFacCli/saveFacFrs).
+    if (changes.date_facture !== undefined) payload.date_facture = changes.date_facture || null
+    if (changes.date_echeance !== undefined) payload.date_echeance = changes.date_echeance || null
     const { error: err } = await supabase.from('depenses_generales').update(payload).eq('id', depense.id)
     if (err) { alert('Erreur lors de l\'enregistrement : ' + err.message); return }
     setEditees(prev => { const n = { ...prev }; delete n[depense.id]; return n })

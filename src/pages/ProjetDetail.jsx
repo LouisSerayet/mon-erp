@@ -1541,7 +1541,16 @@ export default function ProjetDetail() {
     // for type uuid") mais accepte null. Sans cette conversion, impossible
     // d'enregistrer un projet resté sans client (ex. un projet "Perdu"/déjà
     // réalisé qu'on met à jour sans reprendre sa fiche client).
-    const payload = { ...formInfos, client_id: formInfos.client_id || null }
+    // Même souci que client_id juste au-dessus, mais pour les colonnes date
+    // (date, pas uuid) : vider un des deux champs date du formulaire laisse
+    // '' dans formInfos (voir value={formInfos.date_debut || ''} plus bas),
+    // que Postgres refuse aussi ("invalid input syntax for type date").
+    const payload = {
+      ...formInfos,
+      client_id: formInfos.client_id || null,
+      date_debut: formInfos.date_debut || null,
+      date_fin_prevue: formInfos.date_fin_prevue || null,
+    }
     // .select().single() force la requête à renvoyer la ligne mise à jour
     // (ou une erreur explicite si aucune ligne n'a été affectée, ex. policy
     // RLS qui bloque silencieusement) — avant ce correctif, une erreur ici
@@ -1693,6 +1702,10 @@ export default function ProjetDetail() {
     // champ (chaîne vide) est ignoré silencieusement au lieu d'être remis à 0,
     // et l'ancienne valeur brute ('' ) part telle quelle vers une colonne numérique.
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
+    // Même logique pour la date (colonne "date", pas texte) : vider le champ
+    // envoie '' telle quelle sinon — Postgres la refuse ("invalid input
+    // syntax for type date"), alors qu'il accepte null.
+    if (changes.date_commande !== undefined) payload.date_commande = changes.date_commande || null
     const { error } = await supabase.from('commandes').update(payload).eq('id', cmdId)
     if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setCmdEditees(prev => { const n = { ...prev }; delete n[cmdId]; return n })
@@ -2059,7 +2072,11 @@ export default function ProjetDetail() {
     // ajouterCommande, même exigence côté commandes fournisseurs.
     if (!fileFfrs) { setError('Le PDF de la facture est obligatoire — joins le document reçu du fournisseur.'); return }
     setSavingFactureFrs(true)
-    const { data: inserted, error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null }]).select().single()
+    // date_echeance peut rester vide (verrouillée/auto-calculée tant qu'on
+    // n'a pas de date_facture) — même garde-fou date que saveFacFrs, pour
+    // rester cohérent avec l'insertion de factures_cli (ajouterFactureCli)
+    // qui le fait déjà.
+    const { data: inserted, error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null, date_facture: formFfrs.date_facture || null, date_echeance: formFfrs.date_echeance || null }]).select().single()
     if (error) { setError(error.message); setSavingFactureFrs(false); return }
 
     // Si un PDF a été joint, on l'archive dans le stockage du projet — ce
@@ -2304,6 +2321,10 @@ export default function ProjetDetail() {
     if (!changes) return
     const payload = { ...changes }
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
+    // Vider une des deux dates (ex: échéance) envoie '' sinon — refusé par
+    // Postgres ("invalid input syntax for type date"), voir saveCmd.
+    if (changes.date_facture !== undefined) payload.date_facture = changes.date_facture || null
+    if (changes.date_echeance !== undefined) payload.date_echeance = changes.date_echeance || null
     const { error } = await supabase.from('factures_cli').update(payload).eq('id', facture.id)
     if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setFacCliEditees(prev => { const n = { ...prev }; delete n[facture.id]; return n })
@@ -2382,6 +2403,9 @@ export default function ProjetDetail() {
     if (!changes) return
     const payload = { ...changes }
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
+    // Même garde-fou que saveFacCli/saveCmd pour les colonnes date.
+    if (changes.date_facture !== undefined) payload.date_facture = changes.date_facture || null
+    if (changes.date_echeance !== undefined) payload.date_echeance = changes.date_echeance || null
     const { error } = await supabase.from('factures_frs').update(payload).eq('id', facture.id)
     if (error) { alert('Erreur lors de l\'enregistrement : ' + error.message); return }
     setFacFrsEditees(prev => { const n = { ...prev }; delete n[facture.id]; return n })
