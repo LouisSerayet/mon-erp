@@ -2,8 +2,41 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../lib/useIsMobile'
-import { fmtEUR as fmt } from '../lib/calculs'
+import { fmtEUR as fmt, ligneCompteDansTotal } from '../lib/calculs'
 import { colors, fonts, eyebrow, quietLink, marker, statutProjetMarker } from '../lib/theme'
+import { IconClient, IconFournisseur } from '../components/Icons'
+
+// Statuts à partir desquels la facturation a un sens à afficher : avant
+// "En cours", le projet n'est encore qu'un devis — une barre à 0% ne
+// dirait rien d'utile, voir hasBars plus bas.
+const STATUTS_AVEC_FACTURATION = ['En cours', 'Finalisation', 'Clôturé']
+
+// Une mini barre "% facturé" (client ou fournisseur) sur la liste des
+// projets — voir la simulation validée avec Louis avant déploiement.
+// `pct` null = pas assez de données pour calculer un pourcentage (ni
+// prévisionnel ni facturé) : on affiche un tiret plutôt qu'une barre à 0%
+// trompeuse (même logique que la colonne "Facturé" de l'onglet Commandes
+// fournisseurs dans ProjetDetail.jsx).
+function BarreFacturation({ pct, Icon, color, title }) {
+  if (pct === null) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <Icon size={12} style={{ color, flexShrink: 0, opacity: 0.5 }} />
+        <span style={{ fontSize: 11, color: colors.inkFaint }}>—</span>
+      </div>
+    )
+  }
+  const largeur = Math.max(0, Math.min(100, pct))
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }} title={title}>
+      <Icon size={12} style={{ color, flexShrink: 0 }} />
+      <div style={{ flex: 1, height: 4, background: colors.line, overflow: 'hidden' }}>
+        <div style={{ height: '100%', background: color, width: largeur + '%' }} />
+      </div>
+      <span style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.inkMuted, width: 30, textAlign: 'right', flexShrink: 0 }}>{pct}%</span>
+    </div>
+  )
+}
 
 // 'Brouillon' = devis en préparation (pas encore envoyé) ; 'Perdu' = devis
 // refusé / projet abandonné. Un projet démarre toujours en 'Brouillon' et
@@ -40,6 +73,9 @@ export default function Projets() {
   const [masquerClotures, setMasquerClotures] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [clients, setClients] = useState([])
+  // Agrégats de facturation par projet (barres "% facturé"), calculés une
+  // fois au chargement de la liste — voir fetchAll. Objets {projet_id: montant}.
+  const [facturation, setFacturation] = useState({ venteParProjet: {}, achatParProjet: {}, factClientParProjet: {}, factFournisseurParProjet: {} })
   const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
   const [error, setError] = useState('')
   const [savingProjet, setSavingProjet] = useState(false) // garde-fou anti double-clic
@@ -50,12 +86,40 @@ export default function Projets() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: p }, { data: c }] = await Promise.all([
+    const [{ data: p }, { data: c }, { data: fc }, { data: ff }, { data: lg }] = await Promise.all([
       supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
-      supabase.from('clients').select('id, nom').is('deleted_at', null).order('nom')
+      supabase.from('clients').select('id, nom').is('deleted_at', null).order('nom'),
+      supabase.from('factures_cli').select('projet_id, montant_ht').is('deleted_at', null),
+      supabase.from('factures_frs').select('projet_id, montant_ht').is('deleted_at', null),
+      supabase.from('projet_lignes').select('projet_id, type, lot, total_ht, total_achat, categorie_ligne, variante_active').is('deleted_at', null),
     ])
     setProjets(p || [])
     setClients(c || [])
+
+    // Même logique que les budgets prévisionnels de l'onglet Rentabilité
+    // (ProjetDetail.jsx) : vente/achat prévus = total des lots + lignes
+    // sans lot (hors options/variantes non retenues/texte, voir
+    // ligneCompteDansTotal) ; facturé = somme des factures du projet.
+    const sommeParProjet = (lignes, champ) => (lignes || []).reduce((acc, l) => {
+      if (!l.projet_id) return acc
+      acc[l.projet_id] = (acc[l.projet_id] || 0) + (l[champ] || 0)
+      return acc
+    }, {})
+    const venteParProjet = {}
+    const achatParProjet = {}
+    for (const l of lg || []) {
+      if (!l.projet_id) continue
+      const compteDansBudget = l.type === 'lot' || (l.type === 'ligne' && !l.lot && ligneCompteDansTotal(l))
+      if (!compteDansBudget) continue
+      venteParProjet[l.projet_id] = (venteParProjet[l.projet_id] || 0) + (l.total_ht || 0)
+      achatParProjet[l.projet_id] = (achatParProjet[l.projet_id] || 0) + (l.total_achat || 0)
+    }
+    setFacturation({
+      venteParProjet,
+      achatParProjet,
+      factClientParProjet: sommeParProjet(fc, 'montant_ht'),
+      factFournisseurParProjet: sommeParProjet(ff, 'montant_ht'),
+    })
     setLoading(false)
   }
 
@@ -162,6 +226,18 @@ export default function Projets() {
         )}
       </div>
 
+      {!loading && filtered.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 20, marginBottom: 20, fontSize: 11, color: colors.inkMuted }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconClient size={12} style={{ color: colors.focus }} />% facturé aux clients
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconFournisseur size={12} style={{ color: colors.warning }} />% facturé par les fournisseurs
+          </div>
+          <span style={{ color: colors.inkFaint }}>— à partir du statut "En cours"</span>
+        </div>
+      )}
+
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 100, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center' }}>
           <div style={{ background: colors.surface, padding: isMobile ? 22 : 32, width: isMobile ? '100%' : 500, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
@@ -234,6 +310,19 @@ export default function Projets() {
               // visible qu'au marqueur de statut de chaque ligne, facile à
               // manquer en survolant vite la liste.
               const nouveauGroupe = tri === 'statut' && (i === 0 || filtered[i - 1].statut !== p.statut)
+
+              // Barres "% facturé" — voir BarreFacturation plus haut. Même
+              // garde-fou que l'onglet Rentabilité : avant "En cours", un
+              // devis n'a normalement aucune facture, une barre à 0% ne
+              // ferait que bruiter la liste (voir STATUTS_AVEC_FACTURATION).
+              const hasBars = STATUTS_AVEC_FACTURATION.includes(p.statut)
+              const ca = p.montant_ht || facturation.venteParProjet[p.id] || 0
+              const achatPrevu = facturation.achatParProjet[p.id] || 0
+              const factClient = facturation.factClientParProjet[p.id] || 0
+              const factFournisseur = facturation.factFournisseurParProjet[p.id] || 0
+              const pctClient = (ca <= 0 && factClient <= 0) ? null : (ca > 0 ? Math.round((factClient / ca) * 100) : 100)
+              const pctFournisseur = (achatPrevu <= 0 && factFournisseur <= 0) ? null : (achatPrevu > 0 ? Math.round((factFournisseur / achatPrevu) * 100) : 100)
+
               return (
                 <div key={p.id}>
                   {nouveauGroupe && (
@@ -257,6 +346,18 @@ export default function Projets() {
                         <div title={'Créé par ' + p.created_by_email} style={{ fontSize: 11, color: colors.inkFaint, marginTop: 2 }}>
                           Créé par {p.created_by_email.split('@')[0]}
                         </div>
+                      )}
+                    </div>
+                    <div style={{ width: isMobile ? '100%' : 170, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {hasBars ? (
+                        <>
+                          <BarreFacturation pct={pctClient} Icon={IconClient} color={colors.focus}
+                            title={pctClient === null ? undefined : fmt(factClient) + ' facturés aux clients sur ' + fmt(ca) + ' prévus au devis (' + pctClient + '%)'} />
+                          <BarreFacturation pct={pctFournisseur} Icon={IconFournisseur} color={colors.warning}
+                            title={pctFournisseur === null ? undefined : fmt(factFournisseur) + ' facturés par les fournisseurs sur ' + fmt(achatPrevu) + ' d’achats prévus (' + pctFournisseur + '%)'} />
+                        </>
+                      ) : (
+                        <div style={{ fontSize: 11, color: colors.inkFaint, textAlign: isMobile ? 'left' : 'right' }}>Pas encore facturé</div>
                       )}
                     </div>
                     <div style={{ textAlign: isMobile ? 'left' : 'right', display: 'flex', flexDirection: isMobile ? 'row-reverse' : 'row', justifyContent: isMobile ? 'space-between' : 'flex-start', alignItems: 'center', gap: 20 }}>

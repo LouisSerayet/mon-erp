@@ -60,6 +60,29 @@ export function IconDupliquer({ size = 13, style }) {
   )
 }
 
+// Client (silhouette) et Fournisseur (colis) — mini-pictogrammes des deux
+// barres de progression "% facturé" sur la liste des projets (Projets.jsx) :
+// un symbole par type de facturation, à la fois dans la légende et sur
+// chaque ligne, pour reconnaître les deux barres sans lire le texte.
+export function IconClient({ size = 13, style }) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} style={{ display: 'block', ...style }} {...base}>
+      <circle cx="10" cy="7" r="3.2" />
+      <path d="M4 16.5c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" />
+    </svg>
+  )
+}
+
+export function IconFournisseur({ size = 13, style }) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} style={{ display: 'block', ...style }} {...base}>
+      <path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" />
+      <path d="M3 6.5v7L10 17l7-3.5v-7" />
+      <path d="M10 10v7" />
+    </svg>
+  )
+}
+
 // Poignée de glisser-déposer (6 points, style "grip" standard) — voir
 // ProjetDetail.jsx onglet Lignes, glisser une ligne pour la déplacer vers un
 // autre lot. Seule icône "pleine" (points remplis) du fichier plutôt que des
