@@ -83,6 +83,21 @@ export function IconFournisseur({ size = 13, style }) {
   )
 }
 
+// Commande (presse-papier + coche) — troisième mini-pictogramme des barres
+// de progression sur la liste des projets (Projets.jsx), à côté de
+// IconClient et IconFournisseur : "% commandé" = part du budget d'achat
+// prévu au devis déjà couverte par une commande fournisseur passée (voir
+// pctCommande dans Projets.jsx).
+export function IconCommande({ size = 13, style }) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} style={{ display: 'block', ...style }} {...base}>
+      <rect x="4" y="3.5" width="12" height="14" rx="1.2" />
+      <path d="M7.5 3.5V2.8a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v.7" />
+      <path d="M7 10.5 9 12.5 13.3 8" />
+    </svg>
+  )
+}
+
 // Poignée de glisser-déposer (6 points, style "grip" standard) — voir
 // ProjetDetail.jsx onglet Lignes, glisser une ligne pour la déplacer vers un
 // autre lot. Seule icône "pleine" (points remplis) du fichier plutôt que des

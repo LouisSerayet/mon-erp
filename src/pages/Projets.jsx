@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt, ligneCompteDansTotal } from '../lib/calculs'
 import { colors, fonts, eyebrow, quietLink, marker, statutProjetMarker } from '../lib/theme'
-import { IconClient, IconFournisseur } from '../components/Icons'
+import { IconClient, IconFournisseur, IconCommande } from '../components/Icons'
 
 // Statuts à partir desquels la facturation a un sens à afficher : avant
 // "En cours", le projet n'est encore qu'un devis — une barre à 0% ne
@@ -73,9 +73,10 @@ export default function Projets() {
   const [masquerClotures, setMasquerClotures] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [clients, setClients] = useState([])
-  // Agrégats de facturation par projet (barres "% facturé"), calculés une
-  // fois au chargement de la liste — voir fetchAll. Objets {projet_id: montant}.
-  const [facturation, setFacturation] = useState({ venteParProjet: {}, achatParProjet: {}, factClientParProjet: {}, factFournisseurParProjet: {} })
+  // Agrégats de facturation par projet (barres "% facturé"/"% commandé"),
+  // calculés une fois au chargement de la liste — voir fetchAll. Objets
+  // {projet_id: montant}.
+  const [facturation, setFacturation] = useState({ venteParProjet: {}, achatParProjet: {}, factClientParProjet: {}, factFournisseurParProjet: {}, commandeParProjet: {} })
   const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
   const [error, setError] = useState('')
   const [savingProjet, setSavingProjet] = useState(false) // garde-fou anti double-clic
@@ -86,12 +87,16 @@ export default function Projets() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: p }, { data: c }, { data: fc }, { data: ff }, { data: lg }] = await Promise.all([
+    const [{ data: p }, { data: c }, { data: fc }, { data: ff }, { data: lg }, { data: cmd }] = await Promise.all([
       supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('clients').select('id, nom').is('deleted_at', null).order('nom'),
       supabase.from('factures_cli').select('projet_id, montant_ht').is('deleted_at', null),
       supabase.from('factures_frs').select('projet_id, montant_ht').is('deleted_at', null),
       supabase.from('projet_lignes').select('projet_id, type, lot, total_ht, total_achat, categorie_ligne, variante_active').is('deleted_at', null),
+      // statut exclu : 'Annulée' — même convention que le "coût engagé" du
+      // Dashboard (une commande annulée puis remplacée ne doit pas compter
+      // double, ni comme un engagement réel).
+      supabase.from('commandes').select('projet_id, montant_ht, statut').is('deleted_at', null),
     ])
     setProjets(p || [])
     setClients(c || [])
@@ -114,11 +119,17 @@ export default function Projets() {
       venteParProjet[l.projet_id] = (venteParProjet[l.projet_id] || 0) + (l.total_ht || 0)
       achatParProjet[l.projet_id] = (achatParProjet[l.projet_id] || 0) + (l.total_achat || 0)
     }
+    const commandeParProjet = (cmd || []).reduce((acc, c) => {
+      if (!c.projet_id || c.statut === 'Annulée') return acc
+      acc[c.projet_id] = (acc[c.projet_id] || 0) + (c.montant_ht || 0)
+      return acc
+    }, {})
     setFacturation({
       venteParProjet,
       achatParProjet,
       factClientParProjet: sommeParProjet(fc, 'montant_ht'),
       factFournisseurParProjet: sommeParProjet(ff, 'montant_ht'),
+      commandeParProjet,
     })
     setLoading(false)
   }
@@ -232,6 +243,9 @@ export default function Projets() {
             <IconClient size={12} style={{ color: colors.focus }} />% facturé aux clients
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconCommande size={12} style={{ color: colors.success }} />% commandé aux fournisseurs
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <IconFournisseur size={12} style={{ color: colors.warning }} />% facturé par les fournisseurs
           </div>
           <span style={{ color: colors.inkFaint }}>— à partir du statut "En cours"</span>
@@ -320,8 +334,10 @@ export default function Projets() {
               const achatPrevu = facturation.achatParProjet[p.id] || 0
               const factClient = facturation.factClientParProjet[p.id] || 0
               const factFournisseur = facturation.factFournisseurParProjet[p.id] || 0
+              const commande = facturation.commandeParProjet[p.id] || 0
               const pctClient = (ca <= 0 && factClient <= 0) ? null : (ca > 0 ? Math.round((factClient / ca) * 100) : 100)
               const pctFournisseur = (achatPrevu <= 0 && factFournisseur <= 0) ? null : (achatPrevu > 0 ? Math.round((factFournisseur / achatPrevu) * 100) : 100)
+              const pctCommande = (achatPrevu <= 0 && commande <= 0) ? null : (achatPrevu > 0 ? Math.round((commande / achatPrevu) * 100) : 100)
 
               return (
                 <div key={p.id}>
@@ -353,6 +369,8 @@ export default function Projets() {
                         <>
                           <BarreFacturation pct={pctClient} Icon={IconClient} color={colors.focus}
                             title={pctClient === null ? undefined : fmt(factClient) + ' facturés aux clients sur ' + fmt(ca) + ' prévus au devis (' + pctClient + '%)'} />
+                          <BarreFacturation pct={pctCommande} Icon={IconCommande} color={colors.success}
+                            title={pctCommande === null ? undefined : fmt(commande) + ' commandés aux fournisseurs sur ' + fmt(achatPrevu) + ' d’achats prévus (' + pctCommande + '%)'} />
                           <BarreFacturation pct={pctFournisseur} Icon={IconFournisseur} color={colors.warning}
                             title={pctFournisseur === null ? undefined : fmt(factFournisseur) + ' facturés par les fournisseurs sur ' + fmt(achatPrevu) + ' d’achats prévus (' + pctFournisseur + '%)'} />
                         </>
