@@ -3972,6 +3972,13 @@ export default function ProjetDetail() {
                     {commandes.map((c) => {
                       const isEdited = !!cmdEditees[c.id]
                       const inStyle = cellInput(isEdited)
+                      // Tant qu'une commande Validée n'a pas été explicitement
+                      // déverrouillée (clic sur le cadenas 🔒, voir plus bas),
+                      // AUCUN champ de la ligne n'est modifiable — fini de
+                      // tomber sur l'invite de motif au milieu d'une saisie,
+                      // le cadenas est désormais le seul point d'entrée.
+                      const verrouille = c.statut === 'Validée' && !cmdDeverrouillees.has(c.id)
+                      const styleVerrouille = verrouille ? { opacity: 0.55, cursor: 'not-allowed' } : {}
                       return (
                         <>
                         <tr key={c.id} id={'row-' + c.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: c.id === focusId ? '2px solid ' + colors.focus : 'none' }}>
@@ -3982,26 +3989,26 @@ export default function ProjetDetail() {
                                   title="Commande validée — figée, cliquer pour déverrouiller (modification tracée)"
                                   style={{ fontSize: 11, background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 1 }}>🔒</button>
                               )}
-                              <input value={getCmdVal(c, 'numero')} onChange={e => editCmd(c.id, 'numero', e.target.value)}
-                                style={{ ...inStyle, width: 140, fontWeight: 600, color: colors.ink }} />
+                              <input value={getCmdVal(c, 'numero')} onChange={e => editCmd(c.id, 'numero', e.target.value)} disabled={verrouille}
+                                style={{ ...inStyle, width: 140, fontWeight: 600, color: colors.ink, ...styleVerrouille }} />
                             </span>
                           </td>
                           <td style={{ padding: '8px 14px' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
                               <span style={marker(STATUT_COMMANDE_MARKER[getCmdVal(c, 'statut')])} />
-                              <select value={getCmdVal(c, 'statut')} onChange={e => { editCmd(c.id, 'statut', e.target.value) }}
-                                style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display }}
-                                title={c.statut === 'Validée' ? 'Commande validée — une confirmation sera demandée avant modification' : ''}>
+                              <select value={getCmdVal(c, 'statut')} onChange={e => { editCmd(c.id, 'statut', e.target.value) }} disabled={verrouille}
+                                style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display, ...styleVerrouille }}
+                                title={verrouille ? 'Commande validée — cliquer sur le cadenas pour déverrouiller' : ''}>
                                 {STATUTS_CMD.map(s => <option key={s}>{s}</option>)}
                               </select>
                             </span>
                           </td>
                           <td style={{ padding: '8px 14px', color: colors.inkFaint, whiteSpace: 'nowrap' }}>
-                            <input type="date" value={getCmdVal(c, 'date_commande')} onChange={e => editCmd(c.id, 'date_commande', e.target.value)}
-                              style={{ ...inStyle, width: 120, color: colors.inkMuted }} />
+                            <input type="date" value={getCmdVal(c, 'date_commande')} onChange={e => editCmd(c.id, 'date_commande', e.target.value)} disabled={verrouille}
+                              style={{ ...inStyle, width: 120, color: colors.inkMuted, ...styleVerrouille }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
-                            <select value={getCmdVal(c, 'fournisseur_id') || ''} onChange={e => {
+                            <select value={getCmdVal(c, 'fournisseur_id') || ''} disabled={verrouille} onChange={e => {
                                 const fournisseur_id = e.target.value
                                 editCmd(c.id, 'fournisseur_id', fournisseur_id)
                                 // Même pré-sélection automatique du régime de TVA qu'à la
@@ -4009,18 +4016,18 @@ export default function ProjetDetail() {
                                 const f = fournisseurs.find(fr => fr.id === fournisseur_id)
                                 editCmd(c.id, 'regime_tva', f?.autoliquidation ? 'autoliquidation' : 'normale')
                               }}
-                              style={{ ...inStyle, width: 160, cursor: 'pointer' }}>
+                              style={{ ...inStyle, width: 160, cursor: 'pointer', ...styleVerrouille }}>
                               <option value=''>— Aucun —</option>
                               {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
                             </select>
                           </td>
                           <td style={{ padding: '8px 14px' }}>
-                            <input value={getCmdVal(c, 'description')} onChange={e => editCmd(c.id, 'description', e.target.value)}
-                              style={{ ...inStyle, minWidth: 200 }} />
+                            <input value={getCmdVal(c, 'description')} onChange={e => editCmd(c.id, 'description', e.target.value)} disabled={verrouille}
+                              style={{ ...inStyle, minWidth: 200, ...styleVerrouille }} />
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                            <input type="number" min="0" value={getCmdVal(c, 'montant_ht')} onChange={e => editCmd(c.id, 'montant_ht', e.target.value)}
-                              style={{ ...inStyle, width: 100, textAlign: 'right', fontWeight: 600, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
+                            <input type="number" min="0" value={getCmdVal(c, 'montant_ht')} onChange={e => editCmd(c.id, 'montant_ht', e.target.value)} disabled={verrouille}
+                              style={{ ...inStyle, width: 100, textAlign: 'right', fontWeight: 600, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', ...styleVerrouille }} />
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                             {(() => {
@@ -4043,10 +4050,10 @@ export default function ProjetDetail() {
                             })()}
                           </td>
                           <td style={{ padding: '8px 14px' }}>
-                            <select value={getCmdVal(c, 'regime_tva') || 'normale'} onChange={e => editCmd(c.id, 'regime_tva', e.target.value)}
+                            <select value={getCmdVal(c, 'regime_tva') || 'normale'} onChange={e => editCmd(c.id, 'regime_tva', e.target.value)} disabled={verrouille}
                               title="Autoliquidation : le fournisseur facture hors taxe, vous déclarez la TVA vous-même (sous-traitance BTP, article 283 du CGI)."
                               style={{ border: 'none', borderBottom: '1px solid ' + (getCmdVal(c, 'regime_tva') === 'autoliquidation' ? colors.warning : 'transparent'), background: 'transparent', fontSize: 11, cursor: 'pointer', padding: '3px 2px', fontFamily: fonts.display,
-                                color: getCmdVal(c, 'regime_tva') === 'autoliquidation' ? colors.warning : colors.inkMuted }}>
+                                color: getCmdVal(c, 'regime_tva') === 'autoliquidation' ? colors.warning : colors.inkMuted, ...styleVerrouille }}>
                               <option value="normale">Normale</option>
                               <option value="autoliquidation">Autoliq.</option>
                             </select>
@@ -4230,6 +4237,10 @@ export default function ProjetDetail() {
                     const isEdited = !!facFrsEditees[f.id]
                     const inStyle = cellInput(isEdited)
                     const enRetard = f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date()
+                    // Même principe que côté commandes : rien n'est modifiable
+                    // tant que le cadenas n'a pas été cliqué explicitement.
+                    const verrouille = !facFrsDeverrouillees.has(f.id)
+                    const styleVerrouille = verrouille ? { opacity: 0.55, cursor: 'not-allowed' } : {}
                     return (
                     <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: f.id === focusId ? '2px solid ' + colors.focus : enRetard ? '2px solid ' + colors.danger : 'none' }}>
                       <td style={{ padding: '8px 14px', fontWeight: 500 }}>
@@ -4239,38 +4250,38 @@ export default function ProjetDetail() {
                               title="Facture fournisseur — figée dès la création, cliquer pour déverrouiller (modification tracée)"
                               style={{ fontSize: 11, background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 1 }}>🔒</button>
                           )}
-                          <input value={getFacFrsVal(f, 'numero')} onChange={e => editFacFrs(f.id, 'numero', e.target.value)} style={{ ...inStyle, width: 110, fontWeight: 600 }} />
+                          <input value={getFacFrsVal(f, 'numero')} onChange={e => editFacFrs(f.id, 'numero', e.target.value)} disabled={verrouille} style={{ ...inStyle, width: 110, fontWeight: 600, ...styleVerrouille }} />
                         </span>
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <select value={getFacFrsVal(f, 'fournisseur_id') || ''} onChange={e => editFacFrs(f.id, 'fournisseur_id', e.target.value)}
-                          style={{ ...inStyle, width: 140, cursor: 'pointer' }}>
+                        <select value={getFacFrsVal(f, 'fournisseur_id') || ''} onChange={e => editFacFrs(f.id, 'fournisseur_id', e.target.value)} disabled={verrouille}
+                          style={{ ...inStyle, width: 140, cursor: 'pointer', ...styleVerrouille }}>
                           <option value=''>— Aucun —</option>
                           {fournisseurs.map(fr => <option key={fr.id} value={fr.id}>{fr.nom}</option>)}
                         </select>
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <select value={getFacFrsVal(f, 'commande_id') || ''} onChange={e => editFacFrs(f.id, 'commande_id', e.target.value)}
-                          style={{ ...inStyle, width: 140, cursor: 'pointer', fontSize: 12 }}>
+                        <select value={getFacFrsVal(f, 'commande_id') || ''} onChange={e => editFacFrs(f.id, 'commande_id', e.target.value)} disabled={verrouille}
+                          style={{ ...inStyle, width: 140, cursor: 'pointer', fontSize: 12, ...styleVerrouille }}>
                           <option value=''>— Aucune —</option>
                           {commandes.map(c => <option key={c.id} value={c.id}>{c.numero || c.description}</option>)}
                         </select>
                       </td>
                       <td style={{ padding: '8px 14px', color: colors.inkFaint }}>
-                        <input type="date" value={getFacFrsVal(f, 'date_facture')} onChange={e => editFacFrs(f.id, 'date_facture', e.target.value)} style={{ ...inStyle, width: 130 }} />
+                        <input type="date" value={getFacFrsVal(f, 'date_facture')} onChange={e => editFacFrs(f.id, 'date_facture', e.target.value)} disabled={verrouille} style={{ ...inStyle, width: 130, ...styleVerrouille }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <input type="date" value={getFacFrsVal(f, 'date_echeance')} onChange={e => editFacFrsEcheance(f.id, e.target.value)}
-                          style={{ ...inStyle, width: 130, color: enRetard ? colors.danger : colors.ink }} />
+                        <input type="date" value={getFacFrsVal(f, 'date_echeance')} onChange={e => editFacFrsEcheance(f.id, e.target.value)} disabled={verrouille}
+                          style={{ ...inStyle, width: 130, color: enRetard ? colors.danger : colors.ink, ...styleVerrouille }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" min="0" value={getFacFrsVal(f, 'montant_ht')} onChange={e => editFacFrs(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
+                        <input type="number" min="0" value={getFacFrsVal(f, 'montant_ht')} onChange={e => editFacFrs(f.id, 'montant_ht', e.target.value)} disabled={verrouille} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', ...styleVerrouille }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
                           <span style={marker(STATUT_FFRS_MARKER[getFacFrsVal(f, 'statut')])} />
-                          <select value={getFacFrsVal(f, 'statut')} onChange={e => editFacFrs(f.id, 'statut', e.target.value)}
-                            style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display }}>
+                          <select value={getFacFrsVal(f, 'statut')} onChange={e => editFacFrs(f.id, 'statut', e.target.value)} disabled={verrouille}
+                            style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display, ...styleVerrouille }}>
                             {STATUTS_FFRS.map(s => <option key={s}>{s}</option>)}
                           </select>
                         </span>
@@ -4521,6 +4532,13 @@ export default function ProjetDetail() {
                     const isEdited = !!facCliEditees[f.id]
                     const inStyle = cellInput(isEdited)
                     const enRetard = f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date()
+                    // Même principe que côté commandes/factures fournisseurs :
+                    // rien n'est modifiable tant que le cadenas n'a pas été
+                    // cliqué explicitement (le numéro, lui, reste toujours
+                    // non modifiable — obligation légale, voir le title ci-
+                    // dessous — déverrouiller ne change rien pour ce champ).
+                    const verrouille = f.statut !== 'À envoyer' && !facCliDeverrouillees.has(f.id)
+                    const styleVerrouille = verrouille ? { opacity: 0.55, cursor: 'not-allowed' } : {}
                     return (
                     <tr key={f.id} id={'row-' + f.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: f.id === focusId ? '2px solid ' + colors.focus : enRetard ? '2px solid ' + colors.danger : 'none' }}>
                       <td style={{ padding: '8px 14px', fontWeight: 600, color: colors.ink }} title="Numéro non modifiable (obligation légale de numérotation séquentielle)">
@@ -4542,23 +4560,23 @@ export default function ProjetDetail() {
                         )}
                       </td>
                       <td style={{ padding: '8px 14px', color: colors.inkFaint }}>
-                        <input type="date" value={getFacCliVal(f, 'date_facture')} onChange={e => editFacCli(f.id, 'date_facture', e.target.value, f)} style={{ ...inStyle, width: 130 }} />
+                        <input type="date" value={getFacCliVal(f, 'date_facture')} onChange={e => editFacCli(f.id, 'date_facture', e.target.value, f)} disabled={verrouille} style={{ ...inStyle, width: 130, ...styleVerrouille }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <input type="date" value={getFacCliVal(f, 'date_echeance')} onChange={e => editFacCliEcheance(f.id, e.target.value)}
-                          style={{ ...inStyle, width: 130, color: enRetard ? colors.danger : colors.ink }} />
+                        <input type="date" value={getFacCliVal(f, 'date_echeance')} onChange={e => editFacCliEcheance(f.id, e.target.value)} disabled={verrouille}
+                          style={{ ...inStyle, width: 130, color: enRetard ? colors.danger : colors.ink, ...styleVerrouille }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
                         {/* Un avoir a un montant négatif en base (voir
                             ajouterFactureCli) — pas de min="0" pour cette
                             ligne, sinon impossible de le modifier ensuite. */}
-                        <input type="number" min={f.type_facture === 'avoir' ? undefined : 0} value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: (parseFloat(getFacCliVal(f, 'montant_ht')) || 0) < 0 ? colors.danger : colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
+                        <input type="number" min={f.type_facture === 'avoir' ? undefined : 0} value={getFacCliVal(f, 'montant_ht')} onChange={e => editFacCli(f.id, 'montant_ht', e.target.value)} disabled={verrouille} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, color: (parseFloat(getFacCliVal(f, 'montant_ht')) || 0) < 0 ? colors.danger : colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', ...styleVerrouille }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
                           <span style={marker(STATUT_FCLI_MARKER[getFacCliVal(f, 'statut')])} />
-                          <select value={getFacCliVal(f, 'statut')} onChange={e => editFacCli(f.id, 'statut', e.target.value)}
-                            style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display }}>
+                          <select value={getFacCliVal(f, 'statut')} onChange={e => editFacCli(f.id, 'statut', e.target.value)} disabled={verrouille}
+                            style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display, ...styleVerrouille }}>
                             {STATUTS_FCLI.map(s => <option key={s}>{s}</option>)}
                           </select>
                         </span>
