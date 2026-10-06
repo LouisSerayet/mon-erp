@@ -17,7 +17,7 @@ import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer, IconGlisser, IconDupliquer } from '../components/Icons'
-import { aDeLaMiseEnForme, mettreEnPage, dessiner, hauteurLigne } from '../lib/pdfRichText'
+import { aDeLaMiseEnForme, mettreEnPage, dessiner, hauteurLigne, PALETTE_COULEURS } from '../lib/pdfRichText'
 import { markupVersHtml, domVersMarkup, interceptionEntree, interceptionCollage } from '../lib/richTextEditeur'
 
 const TABS = [
@@ -844,19 +844,22 @@ export default function ProjetDetail() {
     return val
   }
 
-  // Applique (ou retire, si déjà appliqué) le gras/italique/souligné sur la
-  // sélection actuelle dans la zone de descriptif (contentEditable) d'une
-  // ligne — voir lib/richTextEditeur.js pour pourquoi document.execCommand
-  // plutôt qu'une manipulation manuelle de marqueurs texte (**gras** était
-  // peu pratique à retirer une fois posé, retour de Louis). La sélection
-  // n'est jamais perdue avant l'appel grâce à onMouseDown={preventDefault}
-  // sur le bouton (sans ça, cliquer le bouton ferait d'abord perdre le
-  // focus — et la sélection — au contentEditable avant même ce handler).
-  // La syntaxe **/_/~ stockée en base (lue par generateDevisPDF) est
-  // reconstruite depuis le DOM juste après, voir domVersMarkup.
-  function formaterSelectionLigne(ligneId, ligne, editableEl, commande) {
+  // Applique (ou retire, si déjà appliqué) le gras/italique/souligné/couleur
+  // sur la sélection actuelle dans la zone de descriptif (contentEditable)
+  // d'une ligne — voir lib/richTextEditeur.js pour pourquoi
+  // document.execCommand plutôt qu'une manipulation manuelle de marqueurs
+  // texte (**gras** était peu pratique à retirer une fois posé, retour de
+  // Louis). `valeur` n'est utilisé que pour la couleur (execCommand
+  // 'foreColor' a besoin d'un hex ; bold/italic/underline l'ignorent). La
+  // sélection n'est jamais perdue avant l'appel grâce à
+  // onMouseDown={preventDefault} sur le bouton/la pastille (sans ça, cliquer
+  // ferait d'abord perdre le focus — et la sélection — au contentEditable
+  // avant même ce handler). La syntaxe **/_/~/{couleur:...} stockée en base
+  // (lue par generateDevisPDF) est reconstruite depuis le DOM juste après,
+  // voir domVersMarkup.
+  function formaterSelectionLigne(ligneId, ligne, editableEl, commande, valeur) {
     if (!editableEl) return
-    document.execCommand(commande)
+    document.execCommand(commande, false, valeur)
     editLigne(ligneId, 'descriptif', domVersMarkup(editableEl), ligne)
   }
 
@@ -3456,7 +3459,7 @@ export default function ProjetDetail() {
                                   modifier directement. Mini-toolbar G/I/S affichée seulement
                                   pendant l'édition de cette ligne. */}
                               {ligneFocusDescriptif === l.id && (
-                                <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
+                                <div style={{ display: 'flex', gap: 2, marginBottom: 2, alignItems: 'center' }}>
                                   {BOUTONS_FORMAT.map(b => (
                                     <button key={b.commande} type="button" title={b.titre}
                                       onMouseDown={e => e.preventDefault()}
@@ -3464,6 +3467,22 @@ export default function ProjetDetail() {
                                       style={{ ...b.style, width: 20, height: 18, lineHeight: '18px', padding: 0, fontSize: 11, background: colors.neutralChip, color: colors.ink, border: 'none', cursor: 'pointer' }}>
                                       {b.label}
                                     </button>
+                                  ))}
+                                  <span style={{ width: 1, height: 14, background: colors.line, margin: '0 3px' }} />
+                                  {/* Pastille "couleur par défaut" — remet explicitement la couleur
+                                      d'encre normale (execCommand 'foreColor' a besoin d'une valeur
+                                      concrète, il n'existe pas de "retirer la couleur" natif) plutôt
+                                      qu'une des couleurs de PALETTE_COULEURS, ci-dessous. */}
+                                  <button type="button" title="Couleur par défaut"
+                                    onMouseDown={e => e.preventDefault()}
+                                    onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], 'foreColor', colors.ink)}
+                                    style={{ width: 14, height: 14, borderRadius: '50%', padding: 0, cursor: 'pointer', border: '1px solid ' + colors.line,
+                                      background: `linear-gradient(135deg, transparent calc(50% - 1px), ${colors.inkMuted} 50%, transparent calc(50% + 1px))` }} />
+                                  {PALETTE_COULEURS.map(([nom, hex]) => (
+                                    <button key={nom} type="button" title={nom.charAt(0).toUpperCase() + nom.slice(1)}
+                                      onMouseDown={e => e.preventDefault()}
+                                      onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], 'foreColor', hex)}
+                                      style={{ width: 14, height: 14, borderRadius: '50%', padding: 0, cursor: 'pointer', border: '1px solid rgba(0,0,0,0.15)', background: hex }} />
                                   ))}
                                 </div>
                               )}
@@ -3675,7 +3694,7 @@ export default function ProjetDetail() {
                             </td>
                             <td style={{ padding: '4px 6px', color: colors.ink }}>
                               {ligneFocusDescriptif === l.id && (
-                                <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
+                                <div style={{ display: 'flex', gap: 2, marginBottom: 2, alignItems: 'center' }}>
                                   {BOUTONS_FORMAT.map(b => (
                                     <button key={b.commande} type="button" title={b.titre}
                                       onMouseDown={e => e.preventDefault()}
@@ -3683,6 +3702,22 @@ export default function ProjetDetail() {
                                       style={{ ...b.style, width: 20, height: 18, lineHeight: '18px', padding: 0, fontSize: 11, background: colors.neutralChip, color: colors.ink, border: 'none', cursor: 'pointer' }}>
                                       {b.label}
                                     </button>
+                                  ))}
+                                  <span style={{ width: 1, height: 14, background: colors.line, margin: '0 3px' }} />
+                                  {/* Pastille "couleur par défaut" — remet explicitement la couleur
+                                      d'encre normale (execCommand 'foreColor' a besoin d'une valeur
+                                      concrète, il n'existe pas de "retirer la couleur" natif) plutôt
+                                      qu'une des couleurs de PALETTE_COULEURS, ci-dessous. */}
+                                  <button type="button" title="Couleur par défaut"
+                                    onMouseDown={e => e.preventDefault()}
+                                    onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], 'foreColor', colors.ink)}
+                                    style={{ width: 14, height: 14, borderRadius: '50%', padding: 0, cursor: 'pointer', border: '1px solid ' + colors.line,
+                                      background: `linear-gradient(135deg, transparent calc(50% - 1px), ${colors.inkMuted} 50%, transparent calc(50% + 1px))` }} />
+                                  {PALETTE_COULEURS.map(([nom, hex]) => (
+                                    <button key={nom} type="button" title={nom.charAt(0).toUpperCase() + nom.slice(1)}
+                                      onMouseDown={e => e.preventDefault()}
+                                      onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], 'foreColor', hex)}
+                                      style={{ width: 14, height: 14, borderRadius: '50%', padding: 0, cursor: 'pointer', border: '1px solid rgba(0,0,0,0.15)', background: hex }} />
                                   ))}
                                 </div>
                               )}

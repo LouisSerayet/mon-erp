@@ -16,24 +16,31 @@
 // si la sélection déborde légèrement) : réimplémenter nous-mêmes cette
 // détection serait refaire ce que le navigateur fait déjà correctement.
 //
-// La donnée stockée en base reste TOUJOURS la syntaxe **/_/~ (aucune
-// migration nécessaire, les lignes déjà saisies continuent de s'afficher
-// correctement) — seule la zone d'édition change. markupVersHtml convertit
-// cette syntaxe vers du HTML pour l'affichage initial ; domVersMarkup fait
-// le chemin inverse après une frappe ou un clic G/I/S, en relisant le style
-// CALCULÉ de chaque fragment de texte plutôt que les balises exactes posées
-// par execCommand (b/strong, i/em, u ou style inline selon le navigateur) —
-// ça reste donc correct quel que soit le HTML précis que le navigateur
-// choisit de produire.
-import { analyserMiseEnForme } from './pdfRichText'
+// La donnée stockée en base reste TOUJOURS la syntaxe **/_/~/{couleur:...}
+// (aucune migration nécessaire, les lignes déjà saisies continuent de
+// s'afficher correctement) — seule la zone d'édition change. markupVersHtml
+// convertit cette syntaxe vers du HTML pour l'affichage initial ;
+// domVersMarkup fait le chemin inverse après une frappe ou un clic sur un
+// bouton/une pastille, en relisant le style CALCULÉ de chaque fragment de
+// texte plutôt que les balises exactes posées par execCommand (b/strong,
+// i/em, u ou style inline selon le navigateur) — ça reste donc correct quel
+// que soit le HTML précis que le navigateur choisit de produire.
+import { analyserMiseEnForme, PALETTE_COULEURS, hexVersRgb } from './pdfRichText'
+
+const PALETTE_PAR_NOM = Object.fromEntries(PALETTE_COULEURS)
+// Triplets [r,g,b] de chaque couleur de la palette, calculés une fois, pour
+// reconnaître la couleur CALCULÉE (getComputedStyle renvoie "rgb(r, g, b)")
+// d'un fragment de texte sans dépendre de la syntaxe exacte ("#d32f2f" vs
+// "rgb(211, 47, 47)") que le navigateur choisit de renvoyer.
+const RGB_PAR_NOM = PALETTE_COULEURS.map(([nom, hex]) => [nom, hexVersRgb(hex)])
 
 function echapperHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-// '**gras** et _italique_' -> '<strong>gras</strong> et <em>italique</em>'
-// — utilisé pour initialiser l'affichage du contentEditable avec le
-// contenu déjà enregistré en base.
+// '**gras** et {rouge:important}' -> '<strong>gras</strong> et <span
+// style="color:#d32f2f">important</span>' — utilisé pour initialiser
+// l'affichage du contentEditable avec le contenu déjà enregistré en base.
 export function markupVersHtml(raw) {
   const { segments } = analyserMiseEnForme(raw)
   if (!segments.length) return ''
@@ -42,27 +49,41 @@ export function markupVersHtml(raw) {
     if (s.underline) html = `<u>${html}</u>`
     if (s.italic) html = `<em>${html}</em>`
     if (s.bold) html = `<strong>${html}</strong>`
+    if (s.couleur && PALETTE_PAR_NOM[s.couleur]) html = `<span style="color:${PALETTE_PAR_NOM[s.couleur]}">${html}</span>`
     return html
   }).join('')
 }
 
 // Enveloppe un fragment de texte brut avec les marqueurs de son style —
-// ordre fixe (gras à l'extérieur, italique puis souligné à l'intérieur)
-// pour toujours produire une forme qu'analyserMiseEnForme (parsing
-// récursif, voir pdfRichText.js) relit telle quelle.
-function envelopperMarqueurs(text, bold, italic, underline) {
+// ordre fixe (couleur à l'extérieur, puis gras, puis italique, puis
+// souligné) pour toujours produire une forme qu'analyserMiseEnForme
+// (parsing récursif, voir pdfRichText.js) relit telle quelle.
+function envelopperMarqueurs(text, bold, italic, underline, couleur) {
   let t = text
   if (underline) t = `~${t}~`
   if (italic) t = `_${t}_`
   if (bold) t = `**${t}**`
+  if (couleur) t = `{${couleur}:${t}}`
   return t
 }
 
+// 'rgb(211, 47, 47)' -> 'rouge' (ou null si ça ne correspond à aucune
+// couleur de la palette — ex. la couleur par défaut, ou une couleur
+// récupérée autrement que par nos propres pastilles).
+function nomCouleurDepuisStyle(couleurCss) {
+  const m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(couleurCss || '')
+  if (!m) return null
+  const [r, g, b] = [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)]
+  const trouve = RGB_PAR_NOM.find(([, rgb]) => rgb[0] === r && rgb[1] === g && rgb[2] === b)
+  return trouve ? trouve[0] : null
+}
+
 // Relit le contenu actuel du contentEditable (après une frappe ou un clic
-// G/I/S) et le re-sérialise en syntaxe **/_/~ — seule forme stockée en
-// base et lue par generateDevisPDF. Le style de chaque fragment de texte
-// est lu via getComputedStyle (gras = graisse ≥ 600, pas une liste de noms
-// de balises), donc indépendant de ce qu'écrit exactement execCommand.
+// sur un bouton/une pastille) et le re-sérialise en syntaxe **/_/~/
+// {couleur:...} — seule forme stockée en base et lue par generateDevisPDF.
+// Le style de chaque fragment de texte est lu via getComputedStyle (gras =
+// graisse ≥ 600, pas une liste de noms de balises), donc indépendant de ce
+// qu'écrit exactement execCommand.
 export function domVersMarkup(el) {
   if (!el) return ''
   let out = ''
@@ -79,7 +100,8 @@ export function domVersMarkup(el) {
     const bold = !!style && parseInt(style.fontWeight, 10) >= 600
     const italic = !!style && style.fontStyle === 'italic'
     const underline = !!style && !!style.textDecorationLine && style.textDecorationLine.includes('underline')
-    out += envelopperMarqueurs(text, bold, italic, underline)
+    const couleur = style ? nomCouleurDepuisStyle(style.color) : null
+    out += envelopperMarqueurs(text, bold, italic, underline, couleur)
   }
   return out
 }
