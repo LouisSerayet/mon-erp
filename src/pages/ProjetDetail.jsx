@@ -4118,7 +4118,20 @@ export default function ProjetDetail() {
                 <button onClick={verifierQontoFrs} disabled={rapprochementBusy === 'frs'} style={btnGhost}>
                   {rapprochementBusy === 'frs' ? 'Vérification...' : 'Vérifier sur Qonto'}
                 </button>
-                <button onClick={() => { setShowForm(true); setError(''); setEcheanceFfrsVerrouillee(true) }} style={btnPrimary}>+ Nouvelle facture</button>
+                <button onClick={() => {
+                  setShowForm(true); setError(''); setEcheanceFfrsVerrouillee(true)
+                  // Pré-remplit la date de facture avec aujourd'hui (même
+                  // réflexe que "+ Nouvelle commande" ci-dessus) : sans ça,
+                  // le champ reste vide tant qu'on n'y touche pas, alors que
+                  // le PDF/l'aperçu affiche malgré tout la date du jour en
+                  // valeur par défaut — l'écart entre "visuellement daté" et
+                  // "vraiment enregistré en base" fait sortir la facture du
+                  // Compte de résultat (voir Resultat.jsx, sansDate) sans
+                  // que ce soit visible. Reste modifiable/effaçable si la
+                  // date réelle de la facture fournisseur est différente.
+                  const dateFacture = new Date().toISOString().split('T')[0]
+                  setFormFfrs(p => ({ ...p, date_facture: dateFacture, date_echeance: echeanceFfrsAuto(dateFacture, p.fournisseur_id) }))
+                }} style={btnPrimary}>+ Nouvelle facture</button>
               </div>
             </div>
             {rapprochementError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{rapprochementError}</div>}
@@ -4297,7 +4310,16 @@ export default function ProjetDetail() {
                 <button onClick={verifierQontoCli} disabled={rapprochementBusy === 'cli'} style={btnGhost}>
                   {rapprochementBusy === 'cli' ? 'Vérification...' : 'Vérifier sur Qonto'}
                 </button>
-                <button onClick={() => { setShowForm(true); setError(''); setEcheanceFcliVerrouillee(true) }} style={btnPrimary}>+ Nouvelle facture</button>
+                <button onClick={() => {
+                  setShowForm(true); setError(''); setEcheanceFcliVerrouillee(true)
+                  // Même pré-remplissage que côté factures fournisseurs
+                  // ci-dessus (voir le commentaire associé) — ici c'est
+                  // encore plus net puisque c'est Louis lui-même qui émet
+                  // la facture : la date du jour est la bonne valeur par
+                  // défaut dans l'immense majorité des cas.
+                  const dateFacture = new Date().toISOString().split('T')[0]
+                  setFormFcli(p => ({ ...p, date_facture: dateFacture, date_echeance: echeanceFcliAuto(dateFacture, p.type_facture === 'acompte' && p.paiement_comptant) }))
+                }} style={btnPrimary}>+ Nouvelle facture</button>
               </div>
             </div>
             {rapprochementError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{rapprochementError}</div>}
