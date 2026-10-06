@@ -87,6 +87,18 @@ const cellInput = isEdited => ({
   fontSize: 12, background: 'transparent', boxSizing: 'border-box', width: '100%', fontFamily: fonts.display, color: colors.ink,
 })
 
+// Fait grandir un <textarea> pour montrer tout son contenu sans barre de
+// défilement — utilisé à la fois comme `ref` (hauteur correcte dès l'affichage
+// initial, utile pour les descriptifs déjà longs importés/saisis avant ce
+// correctif) et comme handler `onInput` (réajuste à chaque frappe). On repasse
+// par 'auto' avant de mesurer scrollHeight, sinon la hauteur ne peut que
+// grandir et ne redescend jamais si l'utilisateur supprime du texte.
+function autoGrowTextarea(el) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = el.scrollHeight + 'px'
+}
+
 export default function ProjetDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -3355,8 +3367,15 @@ export default function ProjetDetail() {
                               </div>
                             </td>
                             <td style={{ padding: '4px 6px', color: colors.ink }}>
-                              <input value={getLigneVal(l, 'descriptif')} title={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
-                                style={{ ...inputStyle, textAlign: 'left' }} />
+                              {/* Textarea auto-extensible plutôt qu'un input une ligne : avant,
+                                  un descriptif long défilait horizontalement dans la case sans
+                                  jamais tout montrer à la fois (pas de troncature réelle côté
+                                  données — juste la case qui ne grandissait pas), ce qui le
+                                  rendait impossible à relire/modifier directement. Voir
+                                  autoGrowTextarea ci-dessus pour le calcul de hauteur. */}
+                              <textarea rows={1} value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
+                                ref={autoGrowTextarea} onInput={e => autoGrowTextarea(e.target)}
+                                style={{ ...inputStyle, textAlign: 'left', display: 'block', resize: 'none', overflow: 'hidden', lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} />
                             </td>
                             <td style={{ padding: '4px 4px', textAlign: 'center' }}>
                               <input value={getLigneVal(l, 'unite')} onChange={e => editLigne(l.id, 'unite', e.target.value, l)}
@@ -3543,8 +3562,9 @@ export default function ProjetDetail() {
                               </div>
                             </td>
                             <td style={{ padding: '4px 6px', color: colors.ink }}>
-                              <input value={getLigneVal(l, 'descriptif')} title={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
-                                style={{ ...inputStyle, textAlign: 'left' }} />
+                              <textarea rows={1} value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
+                                ref={autoGrowTextarea} onInput={e => autoGrowTextarea(e.target)}
+                                style={{ ...inputStyle, textAlign: 'left', display: 'block', resize: 'none', overflow: 'hidden', lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} />
                             </td>
                             <td style={{ padding: '4px 4px', textAlign: 'center' }}>
                               <input value={getLigneVal(l, 'unite')} onChange={e => editLigne(l.id, 'unite', e.target.value, l)}
