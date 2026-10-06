@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import PdfPreviewModal from '../components/PdfPreviewModal'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
@@ -17,6 +17,7 @@ import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer, IconGlisser, IconDupliquer } from '../components/Icons'
+import { aDeLaMiseEnForme, mettreEnPage, dessiner, hauteurLigne } from '../lib/pdfRichText'
 
 const TABS = [
   { id: 'infos', label: 'Infos' },
@@ -99,6 +100,62 @@ function autoGrowTextarea(el) {
   el.style.height = el.scrollHeight + 'px'
 }
 
+// Boutons G/I/S de la mini-toolbar au-dessus du textarea de descriptif —
+// voir formaterSelectionLigne (entoure/retire le marqueur autour de la
+// sélection) et lib/pdfRichText.js (le même marqueur, interprété au rendu
+// PDF du devis).
+const BOUTONS_FORMAT = [
+  { marqueur: '**', label: 'G', titre: 'Gras', style: { fontWeight: 700 } },
+  { marqueur: '_', label: 'I', titre: 'Italique', style: { fontStyle: 'italic' } },
+  { marqueur: '~', label: 'S', titre: 'Souligné', style: { textDecoration: 'underline' } },
+]
+
+// Largeur (mm) de la colonne "Désignation" dans les 3 tableaux de lignes du
+// devis (détail par lot, lignes sans lot, options) — identique partout, ces
+// trois tableaux partageant exactement les mêmes largeurs de colonnes fixes
+// (voir columnStyles de chaque autoTable ci-dessous : 14+14+12+28+28=96mm).
+// Calculée une fois ici plutôt que lue sur data.cell.width dans les hooks :
+// au moment où didParseCell s'exécute, les largeurs de colonnes "auto" ne
+// sont pas encore résolues par autoTable (data.cell.width y vaut 0),
+// seulement au tracé — recalculer la largeur nous-mêmes évite de dépendre
+// de cet ordre d'exécution interne à la librairie.
+// 210 (largeur A4) - 14 - 14 (marges) - (14+14+12+28+28) (autres colonnes)
+const LARGEUR_COL_DESIGNATION_MM = 210 - 14 - 14 - (14 + 14 + 12 + 28 + 28)
+
+// didParseCell/didDrawCell pour la colonne "Désignation" (index 1) des
+// tableaux de lignes du devis PDF — gère le gras/italique/souligné saisis
+// via **texte**/_texte_/~texte~ (voir lib/pdfRichText.js et les boutons
+// G/I/S du textarea de ligne). jspdf-autotable ne sachant dessiner qu'un
+// seul style par cellule, on reprend nous-mêmes entièrement la mise en page
+// et le tracé de cette colonne quand une ligne contient un marqueur — les
+// autres colonnes et les lignes sans marqueur restent gérées normalement
+// par autoTable (aucun changement de rendu pour elles).
+function hooksColonneDesignation(fontSize, cellPadding) {
+  return {
+    didParseCell: data => {
+      if (data.section !== 'body' || data.column.index !== 1) return
+      const raw = String(data.cell.raw ?? '')
+      if (!aDeLaMiseEnForme(raw)) return
+      const maxWidth = LARGEUR_COL_DESIGNATION_MM - cellPadding * 2
+      const { lineCount } = mettreEnPage(data.doc, raw, { fontSize, maxWidth })
+      data.cell.text = []
+      data.cell.styles.minCellHeight = lineCount * hauteurLigne(fontSize) + cellPadding * 2
+    },
+    didDrawCell: data => {
+      if (data.section !== 'body' || data.column.index !== 1) return
+      const raw = String(data.cell.raw ?? '')
+      if (!aDeLaMiseEnForme(raw)) return
+      const maxWidth = LARGEUR_COL_DESIGNATION_MM - cellPadding * 2
+      const { lines } = mettreEnPage(data.doc, raw, { fontSize, maxWidth })
+      dessiner(data.doc, lines, {
+        x: data.cell.x + cellPadding,
+        y: data.cell.y + cellPadding + fontSize * 0.3528 * 0.8,
+        fontSize, color: INK,
+      })
+    },
+  }
+}
+
 export default function ProjetDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -160,6 +217,14 @@ export default function ProjetDetail() {
   const [facFrsEditees, setFacFrsEditees] = useState({}) // édition inline factures fournisseurs
   const [lignesEditees, setLignesEditees] = useState({}) // { [id]: {champ: valeur} }
   const [savingLignes, setSavingLignes] = useState(false)
+  // Mini-toolbar G/I/S au-dessus du textarea de descriptif — affichée
+  // seulement pour la ligne actuellement en cours d'édition (voir onFocus/
+  // onBlur du textarea). ligneTextareaRefs garde le nœud DOM de chaque
+  // textarea (un seul à la fois a vraiment une sélection active) pour que
+  // formaterSelectionLigne puisse lire/poser selectionStart/End au clic
+  // d'un bouton, sans avoir à créer un ref React par ligne dans la boucle.
+  const [ligneFocusDescriptif, setLigneFocusDescriptif] = useState(null)
+  const ligneTextareaRefs = useRef({})
   const [dupliquerBusy, setDupliquerBusy] = useState(false) // duplication du projet (devis + lignes) en cours
   // Fenêtre de confirmation "maison" plutôt que window.confirm() : sur
   // Safari, si l'utilisateur a un jour coché « Empêcher cette page de
@@ -549,6 +614,7 @@ export default function ProjetDetail() {
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14, top: 20 },
         didDrawPage: () => bandeauHaut(doc),
+        ...hooksColonneDesignation(7.5, 2),
       })
       yLot = doc.lastAutoTable.finalY + 10
     }
@@ -609,6 +675,7 @@ export default function ProjetDetail() {
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14, top: 20 },
         didDrawPage: () => bandeauHaut(doc),
+        ...hooksColonneDesignation(7.5, 2),
       })
     }
 
@@ -671,6 +738,7 @@ export default function ProjetDetail() {
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: 14, right: 14, top: 20 },
         didDrawPage: () => bandeauHaut(doc),
+        ...hooksColonneDesignation(7.5, 2),
       })
     }
 
@@ -776,6 +844,53 @@ export default function ProjetDetail() {
       return val === 0 ? '' : val
     }
     return val
+  }
+
+  // Entoure (ou retire, si déjà entourée) la sélection du textarea de
+  // descriptif avec le marqueur de mise en forme correspondant — voir les
+  // boutons G/I/S et lib/pdfRichText.js pour le format (**gras**,
+  // _italique_, ~souligné~) et son rendu réel sur le PDF du devis. Appelée
+  // au clic d'un bouton du mini-toolbar (voir onMouseDown preventDefault à
+  // côté : sans ça, cliquer le bouton fait d'abord perdre le focus — et
+  // donc la sélection — au textarea avant même que ce handler ne s'exécute).
+  function formaterSelectionLigne(ligneId, ligne, textareaEl, marqueur) {
+    if (!textareaEl) return
+    const start = textareaEl.selectionStart
+    const end = textareaEl.selectionEnd
+    const valeur = getLigneVal(ligne, 'descriptif') || ''
+    const avant = valeur.slice(0, start)
+    const selection = valeur.slice(start, end)
+    const apres = valeur.slice(end)
+    const m = marqueur.length
+
+    let nouvelleValeur, nouveauStart, nouveauEnd
+    if (selection.length >= m * 2 && selection.startsWith(marqueur) && selection.endsWith(marqueur)) {
+      // La sélection inclut déjà les marqueurs (ex: l'utilisateur a
+      // sélectionné "**mot**" en entier) : on les retire.
+      const interieur = selection.slice(m, selection.length - m)
+      nouvelleValeur = avant + interieur + apres
+      nouveauStart = start
+      nouveauEnd = start + interieur.length
+    } else if (avant.endsWith(marqueur) && apres.startsWith(marqueur)) {
+      // Les marqueurs encadrent la sélection sans en faire partie (ex:
+      // sélection = "mot" dans "**mot**") : même résultat, retrait.
+      nouvelleValeur = avant.slice(0, avant.length - m) + selection + apres.slice(m)
+      nouveauStart = start - m
+      nouveauEnd = end - m
+    } else {
+      nouvelleValeur = avant + marqueur + selection + marqueur + apres
+      nouveauStart = start + m
+      nouveauEnd = end + m
+    }
+
+    editLigne(ligneId, 'descriptif', nouvelleValeur, ligne)
+    // La valeur contrôlée du textarea ne change qu'au prochain rendu React
+    // — on remet le focus/la sélection et on réajuste sa hauteur juste après.
+    requestAnimationFrame(() => {
+      textareaEl.focus()
+      textareaEl.setSelectionRange(nouveauStart, nouveauEnd)
+      autoGrowTextarea(textareaEl)
+    })
   }
 
   // Recalcule le CA du projet (montant_ht) à partir des lots ET des lignes
@@ -3372,9 +3487,24 @@ export default function ProjetDetail() {
                                   jamais tout montrer à la fois (pas de troncature réelle côté
                                   données — juste la case qui ne grandissait pas), ce qui le
                                   rendait impossible à relire/modifier directement. Voir
-                                  autoGrowTextarea ci-dessus pour le calcul de hauteur. */}
+                                  autoGrowTextarea ci-dessus pour le calcul de hauteur. Mini-toolbar
+                                  G/I/S affichée seulement pendant l'édition de cette ligne — voir
+                                  formaterSelectionLigne et lib/pdfRichText.js pour le format. */}
+                              {ligneFocusDescriptif === l.id && (
+                                <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
+                                  {BOUTONS_FORMAT.map(b => (
+                                    <button key={b.marqueur} type="button" title={b.titre}
+                                      onMouseDown={e => e.preventDefault()}
+                                      onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], b.marqueur)}
+                                      style={{ ...b.style, width: 20, height: 18, lineHeight: '18px', padding: 0, fontSize: 11, background: colors.neutralChip, color: colors.ink, border: 'none', cursor: 'pointer' }}>
+                                      {b.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                               <textarea rows={1} value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
-                                ref={autoGrowTextarea} onInput={e => autoGrowTextarea(e.target)}
+                                ref={el => { ligneTextareaRefs.current[l.id] = el; autoGrowTextarea(el) }} onInput={e => autoGrowTextarea(e.target)}
+                                onFocus={() => setLigneFocusDescriptif(l.id)} onBlur={() => setLigneFocusDescriptif(prev => prev === l.id ? null : prev)}
                                 style={{ ...inputStyle, textAlign: 'left', display: 'block', resize: 'none', overflow: 'hidden', lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} />
                             </td>
                             <td style={{ padding: '4px 4px', textAlign: 'center' }}>
@@ -3562,8 +3692,21 @@ export default function ProjetDetail() {
                               </div>
                             </td>
                             <td style={{ padding: '4px 6px', color: colors.ink }}>
+                              {ligneFocusDescriptif === l.id && (
+                                <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
+                                  {BOUTONS_FORMAT.map(b => (
+                                    <button key={b.marqueur} type="button" title={b.titre}
+                                      onMouseDown={e => e.preventDefault()}
+                                      onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], b.marqueur)}
+                                      style={{ ...b.style, width: 20, height: 18, lineHeight: '18px', padding: 0, fontSize: 11, background: colors.neutralChip, color: colors.ink, border: 'none', cursor: 'pointer' }}>
+                                      {b.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                               <textarea rows={1} value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
-                                ref={autoGrowTextarea} onInput={e => autoGrowTextarea(e.target)}
+                                ref={el => { ligneTextareaRefs.current[l.id] = el; autoGrowTextarea(el) }} onInput={e => autoGrowTextarea(e.target)}
+                                onFocus={() => setLigneFocusDescriptif(l.id)} onBlur={() => setLigneFocusDescriptif(prev => prev === l.id ? null : prev)}
                                 style={{ ...inputStyle, textAlign: 'left', display: 'block', resize: 'none', overflow: 'hidden', lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} />
                             </td>
                             <td style={{ padding: '4px 4px', textAlign: 'center' }}>
