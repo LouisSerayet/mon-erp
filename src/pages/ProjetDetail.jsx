@@ -18,6 +18,7 @@ import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer, IconGlisser, IconDupliquer } from '../components/Icons'
 import { aDeLaMiseEnForme, mettreEnPage, dessiner, hauteurLigne } from '../lib/pdfRichText'
+import { markupVersHtml, domVersMarkup, interceptionEntree, interceptionCollage } from '../lib/richTextEditeur'
 
 const TABS = [
   { id: 'infos', label: 'Infos' },
@@ -88,26 +89,14 @@ const cellInput = isEdited => ({
   fontSize: 12, background: 'transparent', boxSizing: 'border-box', width: '100%', fontFamily: fonts.display, color: colors.ink,
 })
 
-// Fait grandir un <textarea> pour montrer tout son contenu sans barre de
-// défilement — utilisé à la fois comme `ref` (hauteur correcte dès l'affichage
-// initial, utile pour les descriptifs déjà longs importés/saisis avant ce
-// correctif) et comme handler `onInput` (réajuste à chaque frappe). On repasse
-// par 'auto' avant de mesurer scrollHeight, sinon la hauteur ne peut que
-// grandir et ne redescend jamais si l'utilisateur supprime du texte.
-function autoGrowTextarea(el) {
-  if (!el) return
-  el.style.height = 'auto'
-  el.style.height = el.scrollHeight + 'px'
-}
-
-// Boutons G/I/S de la mini-toolbar au-dessus du textarea de descriptif —
-// voir formaterSelectionLigne (entoure/retire le marqueur autour de la
-// sélection) et lib/pdfRichText.js (le même marqueur, interprété au rendu
-// PDF du devis).
+// Boutons G/I/S de la mini-toolbar au-dessus de la zone de descriptif —
+// voir formaterSelectionLigne (document.execCommand sur le contentEditable)
+// et lib/richTextEditeur.js/lib/pdfRichText.js pour le format stocké en
+// base (**gras**, _italique_, ~souligné~, interprété au rendu PDF du devis).
 const BOUTONS_FORMAT = [
-  { marqueur: '**', label: 'G', titre: 'Gras', style: { fontWeight: 700 } },
-  { marqueur: '_', label: 'I', titre: 'Italique', style: { fontStyle: 'italic' } },
-  { marqueur: '~', label: 'S', titre: 'Souligné', style: { textDecoration: 'underline' } },
+  { commande: 'bold', label: 'G', titre: 'Gras', style: { fontWeight: 700 } },
+  { commande: 'italic', label: 'I', titre: 'Italique', style: { fontStyle: 'italic' } },
+  { commande: 'underline', label: 'S', titre: 'Souligné', style: { textDecoration: 'underline' } },
 ]
 
 // Largeur (mm) de la colonne "Désignation" dans les 3 tableaux de lignes du
@@ -217,14 +206,23 @@ export default function ProjetDetail() {
   const [facFrsEditees, setFacFrsEditees] = useState({}) // édition inline factures fournisseurs
   const [lignesEditees, setLignesEditees] = useState({}) // { [id]: {champ: valeur} }
   const [savingLignes, setSavingLignes] = useState(false)
-  // Mini-toolbar G/I/S au-dessus du textarea de descriptif — affichée
+  // Mini-toolbar G/I/S au-dessus de la zone de descriptif — affichée
   // seulement pour la ligne actuellement en cours d'édition (voir onFocus/
-  // onBlur du textarea). ligneTextareaRefs garde le nœud DOM de chaque
-  // textarea (un seul à la fois a vraiment une sélection active) pour que
-  // formaterSelectionLigne puisse lire/poser selectionStart/End au clic
-  // d'un bouton, sans avoir à créer un ref React par ligne dans la boucle.
+  // onBlur ci-dessous). ligneTextareaRefs garde le nœud DOM contentEditable
+  // de chaque ligne pour que formaterSelectionLigne puisse y appliquer
+  // document.execCommand, sans avoir à créer un ref React par ligne dans la
+  // boucle.
   const [ligneFocusDescriptif, setLigneFocusDescriptif] = useState(null)
   const ligneTextareaRefs = useRef({})
+  // Incrémenté par le bouton "Annuler" (abandon des modifications non
+  // enregistrées) — inclus dans la `key` du contentEditable de chaque
+  // descriptif pour forcer son remontage (donc sa réinitialisation depuis
+  // la valeur d'origine) à ce moment précis, seul cas où le contenu affiché
+  // doit revenir en arrière sans que la ligne elle-même ait changé — voir
+  // le ref du contentEditable plus bas pour le reste de la logique
+  // d'initialisation (qui ne touche sinon jamais le DOM après le premier
+  // affichage, pour ne pas perdre la frappe ou le curseur de l'utilisateur).
+  const [resetDescriptifsToken, setResetDescriptifsToken] = useState(0)
   const [dupliquerBusy, setDupliquerBusy] = useState(false) // duplication du projet (devis + lignes) en cours
   // Fenêtre de confirmation "maison" plutôt que window.confirm() : sur
   // Safari, si l'utilisateur a un jour coché « Empêcher cette page de
@@ -846,51 +844,20 @@ export default function ProjetDetail() {
     return val
   }
 
-  // Entoure (ou retire, si déjà entourée) la sélection du textarea de
-  // descriptif avec le marqueur de mise en forme correspondant — voir les
-  // boutons G/I/S et lib/pdfRichText.js pour le format (**gras**,
-  // _italique_, ~souligné~) et son rendu réel sur le PDF du devis. Appelée
-  // au clic d'un bouton du mini-toolbar (voir onMouseDown preventDefault à
-  // côté : sans ça, cliquer le bouton fait d'abord perdre le focus — et
-  // donc la sélection — au textarea avant même que ce handler ne s'exécute).
-  function formaterSelectionLigne(ligneId, ligne, textareaEl, marqueur) {
-    if (!textareaEl) return
-    const start = textareaEl.selectionStart
-    const end = textareaEl.selectionEnd
-    const valeur = getLigneVal(ligne, 'descriptif') || ''
-    const avant = valeur.slice(0, start)
-    const selection = valeur.slice(start, end)
-    const apres = valeur.slice(end)
-    const m = marqueur.length
-
-    let nouvelleValeur, nouveauStart, nouveauEnd
-    if (selection.length >= m * 2 && selection.startsWith(marqueur) && selection.endsWith(marqueur)) {
-      // La sélection inclut déjà les marqueurs (ex: l'utilisateur a
-      // sélectionné "**mot**" en entier) : on les retire.
-      const interieur = selection.slice(m, selection.length - m)
-      nouvelleValeur = avant + interieur + apres
-      nouveauStart = start
-      nouveauEnd = start + interieur.length
-    } else if (avant.endsWith(marqueur) && apres.startsWith(marqueur)) {
-      // Les marqueurs encadrent la sélection sans en faire partie (ex:
-      // sélection = "mot" dans "**mot**") : même résultat, retrait.
-      nouvelleValeur = avant.slice(0, avant.length - m) + selection + apres.slice(m)
-      nouveauStart = start - m
-      nouveauEnd = end - m
-    } else {
-      nouvelleValeur = avant + marqueur + selection + marqueur + apres
-      nouveauStart = start + m
-      nouveauEnd = end + m
-    }
-
-    editLigne(ligneId, 'descriptif', nouvelleValeur, ligne)
-    // La valeur contrôlée du textarea ne change qu'au prochain rendu React
-    // — on remet le focus/la sélection et on réajuste sa hauteur juste après.
-    requestAnimationFrame(() => {
-      textareaEl.focus()
-      textareaEl.setSelectionRange(nouveauStart, nouveauEnd)
-      autoGrowTextarea(textareaEl)
-    })
+  // Applique (ou retire, si déjà appliqué) le gras/italique/souligné sur la
+  // sélection actuelle dans la zone de descriptif (contentEditable) d'une
+  // ligne — voir lib/richTextEditeur.js pour pourquoi document.execCommand
+  // plutôt qu'une manipulation manuelle de marqueurs texte (**gras** était
+  // peu pratique à retirer une fois posé, retour de Louis). La sélection
+  // n'est jamais perdue avant l'appel grâce à onMouseDown={preventDefault}
+  // sur le bouton (sans ça, cliquer le bouton ferait d'abord perdre le
+  // focus — et la sélection — au contentEditable avant même ce handler).
+  // La syntaxe **/_/~ stockée en base (lue par generateDevisPDF) est
+  // reconstruite depuis le DOM juste après, voir domVersMarkup.
+  function formaterSelectionLigne(ligneId, ligne, editableEl, commande) {
+    if (!editableEl) return
+    document.execCommand(commande)
+    editLigne(ligneId, 'descriptif', domVersMarkup(editableEl), ligne)
   }
 
   // Recalcule le CA du projet (montant_ht) à partir des lots ET des lignes
@@ -3291,7 +3258,7 @@ export default function ProjetDetail() {
               <div style={{ borderLeft: '2px solid ' + colors.warning, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
                 <span style={{ fontSize: 13, color: colors.ink, fontWeight: 500 }}>{Object.keys(lignesEditees).length} ligne(s) modifiée(s) non sauvegardée(s)</span>
                 <div style={{ display: 'flex', gap: 18 }}>
-                  <button onClick={() => setLignesEditees({})} style={quietLink}>Annuler</button>
+                  <button onClick={() => { setLignesEditees({}); setResetDescriptifsToken(t => t + 1) }} style={quietLink}>Annuler</button>
                   <button onClick={saveLignes} disabled={savingLignes} style={quietLink}>
                     {savingLignes ? 'Sauvegarde...' : 'Sauvegarder'}
                   </button>
@@ -3482,30 +3449,45 @@ export default function ProjetDetail() {
                               </div>
                             </td>
                             <td style={{ padding: '4px 6px', color: colors.ink }}>
-                              {/* Textarea auto-extensible plutôt qu'un input une ligne : avant,
-                                  un descriptif long défilait horizontalement dans la case sans
-                                  jamais tout montrer à la fois (pas de troncature réelle côté
-                                  données — juste la case qui ne grandissait pas), ce qui le
-                                  rendait impossible à relire/modifier directement. Voir
-                                  autoGrowTextarea ci-dessus pour le calcul de hauteur. Mini-toolbar
-                                  G/I/S affichée seulement pendant l'édition de cette ligne — voir
-                                  formaterSelectionLigne et lib/pdfRichText.js pour le format. */}
+                              {/* Zone de descriptif auto-extensible (contentEditable, voir
+                                  plus bas) plutôt qu'un input une ligne : avant, un descriptif
+                                  long défilait horizontalement dans la case sans jamais tout
+                                  montrer à la fois, ce qui le rendait impossible à relire/
+                                  modifier directement. Mini-toolbar G/I/S affichée seulement
+                                  pendant l'édition de cette ligne. */}
                               {ligneFocusDescriptif === l.id && (
                                 <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
                                   {BOUTONS_FORMAT.map(b => (
-                                    <button key={b.marqueur} type="button" title={b.titre}
+                                    <button key={b.commande} type="button" title={b.titre}
                                       onMouseDown={e => e.preventDefault()}
-                                      onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], b.marqueur)}
+                                      onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], b.commande)}
                                       style={{ ...b.style, width: 20, height: 18, lineHeight: '18px', padding: 0, fontSize: 11, background: colors.neutralChip, color: colors.ink, border: 'none', cursor: 'pointer' }}>
                                       {b.label}
                                     </button>
                                   ))}
                                 </div>
                               )}
-                              <textarea rows={1} value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
-                                ref={el => { ligneTextareaRefs.current[l.id] = el; autoGrowTextarea(el) }} onInput={e => autoGrowTextarea(e.target)}
+                              {/* contentEditable plutôt qu'un textarea : affiche vraiment le
+                                  gras/italique/souligné (voir lib/richTextEditeur.js) au lieu des
+                                  marqueurs **texte** littéraux — Louis trouvait ça peu pratique à
+                                  enlever une fois posé. Le ref est rappelé à chaque rendu (identité
+                                  de fonction inline différente à chaque fois) mais ne réinitialise
+                                  le contenu affiché QUE si la ligne (l.id) ou resetDescriptifsToken
+                                  (bouton "Annuler") a changé depuis — sinon la frappe/sélection en
+                                  cours de l'utilisateur ne serait jamais laissée tranquille. */}
+                              <div contentEditable suppressContentEditableWarning
+                                ref={el => {
+                                  ligneTextareaRefs.current[l.id] = el
+                                  const cle = l.id + ':' + resetDescriptifsToken
+                                  if (el && el.dataset.cle !== cle) {
+                                    el.innerHTML = markupVersHtml(getLigneVal(l, 'descriptif'))
+                                    el.dataset.cle = cle
+                                  }
+                                }}
+                                onInput={e => editLigne(l.id, 'descriptif', domVersMarkup(e.currentTarget), l)}
+                                onKeyDown={interceptionEntree} onPaste={interceptionCollage}
                                 onFocus={() => setLigneFocusDescriptif(l.id)} onBlur={() => setLigneFocusDescriptif(prev => prev === l.id ? null : prev)}
-                                style={{ ...inputStyle, textAlign: 'left', display: 'block', resize: 'none', overflow: 'hidden', lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} />
+                                style={{ ...inputStyle, textAlign: 'left', display: 'block', minHeight: 20, lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word', outline: 'none' }} />
                             </td>
                             <td style={{ padding: '4px 4px', textAlign: 'center' }}>
                               <input value={getLigneVal(l, 'unite')} onChange={e => editLigne(l.id, 'unite', e.target.value, l)}
@@ -3695,19 +3677,36 @@ export default function ProjetDetail() {
                               {ligneFocusDescriptif === l.id && (
                                 <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
                                   {BOUTONS_FORMAT.map(b => (
-                                    <button key={b.marqueur} type="button" title={b.titre}
+                                    <button key={b.commande} type="button" title={b.titre}
                                       onMouseDown={e => e.preventDefault()}
-                                      onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], b.marqueur)}
+                                      onClick={() => formaterSelectionLigne(l.id, l, ligneTextareaRefs.current[l.id], b.commande)}
                                       style={{ ...b.style, width: 20, height: 18, lineHeight: '18px', padding: 0, fontSize: 11, background: colors.neutralChip, color: colors.ink, border: 'none', cursor: 'pointer' }}>
                                       {b.label}
                                     </button>
                                   ))}
                                 </div>
                               )}
-                              <textarea rows={1} value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
-                                ref={el => { ligneTextareaRefs.current[l.id] = el; autoGrowTextarea(el) }} onInput={e => autoGrowTextarea(e.target)}
+                              {/* contentEditable plutôt qu'un textarea : affiche vraiment le
+                                  gras/italique/souligné (voir lib/richTextEditeur.js) au lieu des
+                                  marqueurs **texte** littéraux — Louis trouvait ça peu pratique à
+                                  enlever une fois posé. Le ref est rappelé à chaque rendu (identité
+                                  de fonction inline différente à chaque fois) mais ne réinitialise
+                                  le contenu affiché QUE si la ligne (l.id) ou resetDescriptifsToken
+                                  (bouton "Annuler") a changé depuis — sinon la frappe/sélection en
+                                  cours de l'utilisateur ne serait jamais laissée tranquille. */}
+                              <div contentEditable suppressContentEditableWarning
+                                ref={el => {
+                                  ligneTextareaRefs.current[l.id] = el
+                                  const cle = l.id + ':' + resetDescriptifsToken
+                                  if (el && el.dataset.cle !== cle) {
+                                    el.innerHTML = markupVersHtml(getLigneVal(l, 'descriptif'))
+                                    el.dataset.cle = cle
+                                  }
+                                }}
+                                onInput={e => editLigne(l.id, 'descriptif', domVersMarkup(e.currentTarget), l)}
+                                onKeyDown={interceptionEntree} onPaste={interceptionCollage}
                                 onFocus={() => setLigneFocusDescriptif(l.id)} onBlur={() => setLigneFocusDescriptif(prev => prev === l.id ? null : prev)}
-                                style={{ ...inputStyle, textAlign: 'left', display: 'block', resize: 'none', overflow: 'hidden', lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} />
+                                style={{ ...inputStyle, textAlign: 'left', display: 'block', minHeight: 20, lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word', outline: 'none' }} />
                             </td>
                             <td style={{ padding: '4px 4px', textAlign: 'center' }}>
                               <input value={getLigneVal(l, 'unite')} onChange={e => editLigne(l.id, 'unite', e.target.value, l)}
