@@ -1830,6 +1830,26 @@ export default function ProjetDetail() {
     if (error) console.error('Déverrouillage non tracé (' + table + ')', error.message)
   }
 
+  // Demande le motif et déverrouille un document (commande/facture) — deux
+  // points d'entrée possibles : implicitement à la première modification
+  // d'un champ verrouillé (cas historique, voir editCmd/editFacCli/
+  // editFacFrs ci-dessous), ou explicitement en cliquant sur le cadenas 🔒
+  // lui-même (voir les <td> correspondants plus bas) — plus direct quand on
+  // sait déjà qu'on va modifier plusieurs champs (fournisseur, commande,
+  // dates...) : on lève le verrou une fois pour toutes avant de commencer à
+  // éditer, plutôt que de tomber sur l'invite au milieu d'un <select> dont
+  // l'annulation est moins évidente à rattraper que sur un champ texte.
+  // Renvoie true si le document est déverrouillé (l'était déjà ou motif
+  // confirmé à l'instant), false si l'utilisateur a annulé l'invite.
+  function demanderDeverrouillage(messageVerrou, deverrouillees, setDeverrouillees, table, docId) {
+    if (deverrouillees.has(docId)) return true
+    const motif = window.prompt(messageVerrou)
+    if (!motif || !motif.trim()) return false
+    setDeverrouillees(prev => new Set(prev).add(docId))
+    tracerDeverrouillage(table, docId, motif.trim())
+    return true
+  }
+
   function editCmd(cmdId, champ, valeur) {
     // Une commande Validée est censée être figée — avant d'accepter la
     // toute première modification de cette commande dans cette session, on
@@ -1838,11 +1858,8 @@ export default function ProjetDetail() {
     // (ex. plusieurs frappes dans un champ texte) passent sans re-demander,
     // jusqu'à l'enregistrement (voir saveCmd) qui reverrouille.
     const cmd = commandes.find(c => c.id === cmdId)
-    if (cmd && cmd.statut === 'Validée' && !cmdDeverrouillees.has(cmdId)) {
-      const motif = window.prompt('Cette commande est validée — elle est normalement figée. Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)')
-      if (!motif || !motif.trim()) return
-      setCmdDeverrouillees(prev => new Set(prev).add(cmdId))
-      tracerDeverrouillage('commandes', cmdId, motif.trim())
+    if (cmd && cmd.statut === 'Validée') {
+      if (!demanderDeverrouillage('Cette commande est validée — elle est normalement figée. Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)', cmdDeverrouillees, setCmdDeverrouillees, 'commandes', cmdId)) return
     }
     setCmdEditees(prev => ({ ...prev, [cmdId]: { ...(prev[cmdId] || {}), [champ]: valeur } }))
   }
@@ -2380,11 +2397,8 @@ export default function ProjetDetail() {
     // principe que editCmd/cmdDeverrouillees : motif obligatoire à la
     // première modification de la session, tracé dans l'Historique.
     const f = facturesCli.find(x => x.id === fId)
-    if (f && f.statut !== 'À envoyer' && !facCliDeverrouillees.has(fId)) {
-      const motif = window.prompt('Cette facture est ' + f.statut.toLowerCase() + ' — elle est normalement figée. Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)')
-      if (!motif || !motif.trim()) return
-      setFacCliDeverrouillees(prev => new Set(prev).add(fId))
-      tracerDeverrouillage('factures_cli', fId, motif.trim())
+    if (f && f.statut !== 'À envoyer') {
+      if (!demanderDeverrouillage('Cette facture est ' + f.statut.toLowerCase() + ' — elle est normalement figée. Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)', facCliDeverrouillees, setFacCliDeverrouillees, 'factures_cli', fId)) return
     }
     setFacCliEditees(prev => {
       const courant = { ...(prev[fId] || {}), [champ]: valeur }
@@ -2469,12 +2483,7 @@ export default function ProjetDetail() {
     // justificatif comptable) — même principe que editCmd/cmdDeverrouillees :
     // motif obligatoire à la première modification de la session, tracé
     // dans l'Historique.
-    if (!facFrsDeverrouillees.has(fId)) {
-      const motif = window.prompt('Cette facture fournisseur est verrouillée (justificatif comptable). Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)')
-      if (!motif || !motif.trim()) return
-      setFacFrsDeverrouillees(prev => new Set(prev).add(fId))
-      tracerDeverrouillage('factures_frs', fId, motif.trim())
-    }
+    if (!demanderDeverrouillage('Cette facture fournisseur est verrouillée (justificatif comptable). Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)', facFrsDeverrouillees, setFacFrsDeverrouillees, 'factures_frs', fId)) return
     setFacFrsEditees(prev => {
       const courant = { ...(prev[fId] || {}), [champ]: valeur }
       if (champ === 'date_facture' && !echeanceFrsDeverrouillees.has(fId)) {
@@ -3969,7 +3978,9 @@ export default function ProjetDetail() {
                           <td style={{ padding: '8px 14px', fontWeight: 600, color: colors.ink, fontSize: 12, whiteSpace: 'nowrap' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                               {c.statut === 'Validée' && !cmdDeverrouillees.has(c.id) && (
-                                <span title="Commande validée — figée, modification tracée si besoin" style={{ fontSize: 11 }}>🔒</span>
+                                <button type="button" onClick={() => demanderDeverrouillage('Cette commande est validée — elle est normalement figée. Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)', cmdDeverrouillees, setCmdDeverrouillees, 'commandes', c.id)}
+                                  title="Commande validée — figée, cliquer pour déverrouiller (modification tracée)"
+                                  style={{ fontSize: 11, background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 1 }}>🔒</button>
                               )}
                               <input value={getCmdVal(c, 'numero')} onChange={e => editCmd(c.id, 'numero', e.target.value)}
                                 style={{ ...inStyle, width: 140, fontWeight: 600, color: colors.ink }} />
@@ -4224,13 +4235,27 @@ export default function ProjetDetail() {
                       <td style={{ padding: '8px 14px', fontWeight: 500 }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                           {!facFrsDeverrouillees.has(f.id) && (
-                            <span title="Facture fournisseur — figée dès la création, modification tracée si besoin" style={{ fontSize: 11 }}>🔒</span>
+                            <button type="button" onClick={() => demanderDeverrouillage('Cette facture fournisseur est verrouillée (justificatif comptable). Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)', facFrsDeverrouillees, setFacFrsDeverrouillees, 'factures_frs', f.id)}
+                              title="Facture fournisseur — figée dès la création, cliquer pour déverrouiller (modification tracée)"
+                              style={{ fontSize: 11, background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 1 }}>🔒</button>
                           )}
                           <input value={getFacFrsVal(f, 'numero')} onChange={e => editFacFrs(f.id, 'numero', e.target.value)} style={{ ...inStyle, width: 110, fontWeight: 600 }} />
                         </span>
                       </td>
-                      <td style={{ padding: '10px 14px' }}>{f.fournisseurs?.nom || '—'}</td>
-                      <td style={{ padding: '10px 14px', color: colors.inkFaint, fontSize: 12 }}>{f.commandes?.numero || '—'}</td>
+                      <td style={{ padding: '8px 14px' }}>
+                        <select value={getFacFrsVal(f, 'fournisseur_id') || ''} onChange={e => editFacFrs(f.id, 'fournisseur_id', e.target.value)}
+                          style={{ ...inStyle, width: 140, cursor: 'pointer' }}>
+                          <option value=''>— Aucun —</option>
+                          {fournisseurs.map(fr => <option key={fr.id} value={fr.id}>{fr.nom}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: '8px 14px' }}>
+                        <select value={getFacFrsVal(f, 'commande_id') || ''} onChange={e => editFacFrs(f.id, 'commande_id', e.target.value)}
+                          style={{ ...inStyle, width: 140, cursor: 'pointer', fontSize: 12 }}>
+                          <option value=''>— Aucune —</option>
+                          {commandes.map(c => <option key={c.id} value={c.id}>{c.numero || c.description}</option>)}
+                        </select>
+                      </td>
                       <td style={{ padding: '8px 14px', color: colors.inkFaint }}>
                         <input type="date" value={getFacFrsVal(f, 'date_facture')} onChange={e => editFacFrs(f.id, 'date_facture', e.target.value)} style={{ ...inStyle, width: 130 }} />
                       </td>
@@ -4501,7 +4526,9 @@ export default function ProjetDetail() {
                       <td style={{ padding: '8px 14px', fontWeight: 600, color: colors.ink }} title="Numéro non modifiable (obligation légale de numérotation séquentielle)">
                         {f.numero}
                         {f.statut !== 'À envoyer' && !facCliDeverrouillees.has(f.id) && (
-                          <span title="Facture envoyée — figée, modification tracée si besoin" style={{ fontSize: 11, marginLeft: 6 }}>🔒</span>
+                          <button type="button" onClick={() => demanderDeverrouillage('Cette facture est ' + f.statut.toLowerCase() + ' — elle est normalement figée. Pourquoi la modifier ? (motif obligatoire, conservé dans l\'Historique)', facCliDeverrouillees, setFacCliDeverrouillees, 'factures_cli', f.id)}
+                            title="Facture envoyée — figée, cliquer pour déverrouiller (modification tracée)"
+                            style={{ fontSize: 11, marginLeft: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 1 }}>🔒</button>
                         )}
                         {f.type_facture === 'acompte' && (
                           <div style={{ marginTop: 3, fontSize: 10, fontWeight: 500, color: ACCENT_MARGE }}>
