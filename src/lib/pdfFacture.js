@@ -12,7 +12,7 @@ import autoTable from 'jspdf-autotable'
 import {
   fmt as fmtEUR, enTeteDocument, bandeauHaut, blocMetaEtDestinataire, blocTotaux,
   blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse,
-  TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_ALT_ROW_STYLE,
+  TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_ALT_ROW_STYLE, MUTED,
 } from './pdfStyle'
 import { L, fmtDate as fmtDatePdf } from './pdfI18n'
 
@@ -43,6 +43,16 @@ export function genererFactureCliPDF(facture, projet, lang = 'fr', contact) {
   const titreDoc = estAvoir ? t.titreAvoir : facture.type_facture === 'acompte' ? t.titreFactureAcompte : t.titreFacture
   const bullets = estAvoir ? t.bulletsAvoir(tauxTva) : facture.paiement_comptant ? t.bulletsFactureComptant(tauxTva) : t.bulletsFacture(tauxTva)
 
+  // Libellé de facturation — texte libre sur la fiche client (voir
+  // sql/libelle_facturation_migration.sql), pour les clients "grand
+  // compte" qui imposent une entité/adresse de facturation précise (et
+  // parfois un code de routage e-facturation) différente de leur fiche
+  // standard. Quand rempli, remplace ENTIÈREMENT le nom + l'adresse
+  // habituels — ligne par ligne, tel que saisi sur la fiche client.
+  const lignesDestinataire = projet?.clients?.libelle_facturation
+    ? projet.clients.libelle_facturation.split('\n').map(l => l.trim()).filter(Boolean)
+    : [projet?.clients?.nom, ...lignesAdresse(projet?.clients, lang)]
+
   let y = enTeteDocument(doc, { titre: titreDoc, lang, contact })
   y = blocMetaEtDestinataire(doc, y, {
     metaGauche: [
@@ -53,8 +63,17 @@ export function genererFactureCliPDF(facture, projet, lang = 'fr', contact) {
       // onglet Infos), repris automatiquement quand il est renseigné.
       ...(projet?.numero_bon_commande_client ? [[t.referenceBonCommandeClient, projet.numero_bon_commande_client]] : []),
     ],
-    destinataire: { titre: t.client, lignes: [projet?.clients?.nom, ...lignesAdresse(projet?.clients, lang)] },
+    destinataire: { titre: t.client, lignes: lignesDestinataire },
   })
+
+  // Adresse d'intervention — même champ et même présentation discrète que
+  // sur le devis/bon de commande (voir generateDevisPDF dans
+  // ProjetDetail.jsx), absente jusqu'ici de la facture.
+  if (projet?.adresse_chantier) {
+    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED)
+    const adresseLignes = doc.splitTextToSize(t.adresseChantier + projet.adresse_chantier, 182)
+    doc.text(adresseLignes, 14, y); y += adresseLignes.length * 4.5 + 1.5
+  }
 
   autoTable(doc, {
     startY: y,

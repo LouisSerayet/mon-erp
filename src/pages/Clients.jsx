@@ -196,7 +196,7 @@ export default function Clients() {
             {clientOuvert.adresse && <div style={{ fontSize: 12, color: colors.inkMuted, marginTop: 6 }}>{clientOuvert.adresse}</div>}
           </div>
           <div style={{ display: 'flex', gap: 18 }}>
-            <button onClick={() => { setEditMode(true); setFormEdit({ nom: clientOuvert.nom, contact: clientOuvert.contact || '', email: clientOuvert.email || '', telephone: clientOuvert.telephone || '', adresse: clientOuvert.adresse || '', rue: clientOuvert.rue || '', code_postal: clientOuvert.code_postal || '', ville: clientOuvert.ville || '', pays: clientOuvert.pays || 'FR', delai_paiement_jours: clientOuvert.delai_paiement_jours ?? 30, delai_paiement_fin_mois: clientOuvert.delai_paiement_fin_mois ?? false }) }}
+            <button onClick={() => { setEditMode(true); setFormEdit({ nom: clientOuvert.nom, contact: clientOuvert.contact || '', email: clientOuvert.email || '', telephone: clientOuvert.telephone || '', adresse: clientOuvert.adresse || '', rue: clientOuvert.rue || '', code_postal: clientOuvert.code_postal || '', ville: clientOuvert.ville || '', pays: clientOuvert.pays || 'FR', delai_paiement_jours: clientOuvert.delai_paiement_jours ?? 30, delai_paiement_fin_mois: clientOuvert.delai_paiement_fin_mois ?? false, libelle_facturation: clientOuvert.libelle_facturation || '' }) }}
               style={quietLink}>Modifier</button>
             <button onClick={() => supprimerClient(clientOuvert.id)} style={quietLink}>Supprimer</button>
           </div>
@@ -221,6 +221,16 @@ export default function Clients() {
                     ))}
                     <ConditionsPaiement jours={formEdit.delai_paiement_jours} finMois={formEdit.delai_paiement_fin_mois}
                       onChange={(j, f) => setFormEdit(p => ({ ...p, delai_paiement_jours: j, delai_paiement_fin_mois: f }))} />
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={fieldLabel}>Libellé de facturation (optionnel)</label>
+                      <div style={{ fontSize: 11.5, color: colors.inkFaint, marginBottom: 6 }}>
+                        Si un client impose une entité/adresse de facturation précise (ex: "C/O...", code de routage e-facturation),
+                        colle-la ici ligne par ligne — elle remplacera le nom et l'adresse habituels sur toutes ses factures.
+                      </div>
+                      <textarea rows={4} value={formEdit.libelle_facturation || ''} onChange={e => setFormEdit(p => ({ ...p, libelle_facturation: e.target.value }))}
+                        placeholder={'SL MAP THREE\nC/O SWISS LIFE ASSET MANAGERS FRANCE\n122 RUE LA BOETIE\n75008 PARIS'}
+                        style={{ ...inputUnderline, resize: 'vertical', fontFamily: fonts.mono, fontSize: 12, lineHeight: 1.5 }} />
+                    </div>
                     <div style={{ display: 'flex', gap: 10 }}>
                       <button onClick={() => setEditMode(false)} style={btnGhostSmall}>Annuler</button>
                       <button onClick={sauvegarderClient} style={btnPrimarySmall}>Sauvegarder</button>
@@ -251,6 +261,14 @@ export default function Clients() {
                         {(clientOuvert.delai_paiement_jours ?? 30) === 0 ? 'Comptant' : (clientOuvert.delai_paiement_jours ?? 30) + ' jours' + (clientOuvert.delai_paiement_fin_mois ? ' fin de mois' : '')}
                       </div>
                     </div>
+                    {clientOuvert.libelle_facturation && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={fieldLabel}>Libellé de facturation</div>
+                        <div style={{ fontSize: 13, color: colors.ink, fontWeight: 500, whiteSpace: 'pre-wrap', fontFamily: fonts.mono, lineHeight: 1.5 }}>
+                          {clientOuvert.libelle_facturation}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

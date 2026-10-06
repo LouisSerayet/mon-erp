@@ -1464,7 +1464,7 @@ export default function ProjetDetail() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: p }, { data: f }, { data: cl }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }, profils] = await Promise.all([
-      supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois)').eq('id', id).single(),
+      supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois, libelle_facturation)').eq('id', id).single(),
       supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id, delai_paiement_jours, delai_paiement_fin_mois, autoliquidation').is('deleted_at', null).order('nom'),
       supabase.from('clients').select('id, nom').is('deleted_at', null).order('nom'),
       supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
@@ -1662,7 +1662,7 @@ export default function ProjetDetail() {
     // ne renvoie que les colonnes de "projets" (client_id en brut, pas
     // l'objet clients() joint) — sans ce rechargement, le nom du client
     // affiché resterait celui d'avant après un changement de client_id.
-    const { data: refresh } = await supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois)').eq('id', id).single()
+    const { data: refresh } = await supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois, libelle_facturation)').eq('id', id).single()
     if (refresh) setProjet(refresh)
     setEditInfos(false)
   }

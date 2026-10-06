@@ -195,7 +195,7 @@ export default function Exports() {
 
     if (typesLot.has('clients')) {
       let q = supabase.from('factures_cli')
-        .select('id, numero, date_facture, date_echeance, montant_ht, statut, type_facture, paiement_comptant, projet_id, pennylane_synced_at, projets(nom, taux_tva, numero_bon_commande_client, created_by_email, clients(nom, email, telephone, adresse, rue, code_postal, ville))')
+        .select('id, numero, date_facture, date_echeance, montant_ht, statut, type_facture, paiement_comptant, projet_id, pennylane_synced_at, projets(nom, taux_tva, numero_bon_commande_client, created_by_email, adresse_chantier, clients(nom, email, telephone, adresse, rue, code_postal, ville, libelle_facturation))')
         .is('deleted_at', null)
         .order('date_facture', { ascending: true })
       q = appliquerPeriode(q, 'date_facture')
