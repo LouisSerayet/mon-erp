@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, calculerEcheance, fmtEUR, fmtDateFr, termeNettoye, montantSaisi } from './calculs'
+import { calculerLigne, calculerMarge, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, calculerEcheance, resteADepenserParCoeff, fmtEUR, fmtDateFr, termeNettoye, montantSaisi } from './calculs'
 
 describe('calculerLigne', () => {
   const ligneBase = { qte: 2, prix_achat_ht: 100, prix_unit_ht: 130, coeff: 1.3 }
@@ -275,5 +275,28 @@ describe('montantSaisi (recherche avancée)', () => {
     expect(montantSaisi('Dupont')).toBe(null)
     expect(montantSaisi('FC-2026-014')).toBe(null)
     expect(montantSaisi('')).toBe(null)
+  })
+})
+
+describe('resteADepenserParCoeff', () => {
+  it('renvoie les 5 coefficients de 1.21 à 1.61 avec le reste à commander (CA / coeff - achat engagé)', () => {
+    // CA 12 100 € HT, déjà commandé 5 000 € -> coeff 1.21 autorise
+    // 12100/1.21 = 10000 € d'achat, donc il reste 10000 - 5000 = 5000 €.
+    const r = resteADepenserParCoeff(12100, 5000)
+    expect(r.map(x => x.coeff)).toEqual([1.21, 1.31, 1.41, 1.51, 1.61])
+    expect(r[0].reste).toBeCloseTo(5000, 5) // 12100/1.21 - 5000
+    expect(r[1].reste).toBeCloseTo(12100 / 1.31 - 5000, 5)
+  })
+
+  it('renvoie un reste négatif quand ce qui est déjà commandé dépasse ce que le coefficient autoriserait', () => {
+    // CA 1000 €, déjà commandé 900 € -> à coeff 1.21 le budget achat
+    // autorisé est 1000/1.21 ≈ 826,45 €, déjà dépassé de ~73,55 €.
+    const r = resteADepenserParCoeff(1000, 900)
+    expect(r[0].reste).toBeLessThan(0)
+  })
+
+  it('traite un CA ou un achat engagé absent (null/undefined) comme 0, sans planter', () => {
+    expect(resteADepenserParCoeff(null, null)[0].reste).toBe(0)
+    expect(resteADepenserParCoeff(1210, undefined)[0].reste).toBeCloseTo(1210 / 1.21, 5)
   })
 })

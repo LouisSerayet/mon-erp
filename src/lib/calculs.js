@@ -137,6 +137,25 @@ export function calculerMarge(ca, cout) {
   return { marge, taux, coeff }
 }
 
+// ── Budget par coefficient (onglet Rentabilité, "Budget par coefficient") ──
+// Pour une série de coefficients cibles (Vente ÷ Achat, voir calculerMarge),
+// combien reste-t-il encore à commander côté achat avant de descendre sous
+// ce coefficient : reste = (CA ÷ coeff) − achat déjà engagé. Un résultat
+// négatif veut dire que ce coefficient est déjà dépassé (on a déjà commandé
+// plus que ce qu'il autoriserait) — à afficher en rouge plutôt qu'à cacher,
+// c'est une information utile ("attention, on a déjà mangé cette marge-là").
+// `achatEngage` = commandes fournisseurs déjà passées (voir `achatEnCours`
+// dans l'onglet Rentabilité de ProjetDetail.jsx), pas les factures reçues —
+// décision prise avec Louis : on veut savoir ce qu'on peut encore COMMANDER,
+// pas seulement ce qui a déjà été facturé.
+export const COEFFS_BUDGET = [1.21, 1.31, 1.41, 1.51, 1.61]
+
+export function resteADepenserParCoeff(ca, achatEngage) {
+  const c = ca || 0
+  const a = achatEngage || 0
+  return COEFFS_BUDGET.map(coeff => ({ coeff, reste: c / coeff - a }))
+}
+
 // ── Échéance de facture (conditions de paiement client/fournisseur) ────
 // Calcule la date d'échéance d'une facture à partir de sa date d'émission
 // et des conditions de paiement du tiers (client ou fournisseur) : un délai

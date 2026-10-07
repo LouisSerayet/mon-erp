@@ -6,7 +6,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane, envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
-import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, resteADepenserParCoeff, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, bandeauHaut, titreSection, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { genererFactureCliPDF } from '../lib/pdfFacture'
@@ -4813,23 +4813,44 @@ export default function ProjetDetail() {
                 </div>
               )}
 
-              {/* Cartes résumé */}
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 20, marginBottom: 20, paddingTop: 16, borderTop: '1px solid ' + colors.line }}>
-                <div>
-                  <div style={eyebrow}>Marge prévisionnelle</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: margePrevu >= 0 ? colors.ink : colors.danger, marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(margePrevu)}</div>
-                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargePrevu, coeffPrevu)}</div>
+              {/* Cartes résumé + budget par coefficient (voir resteADepenserParCoeff,
+                  lib/calculs.js) — ce dernier répond à "jusqu'où je peux encore
+                  commander sans descendre sous tel coefficient ?", à partir de
+                  ce qui est déjà commandé (achatEnCours), pas de ce qui est
+                  déjà facturé : décision prise avec Louis. */}
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, marginBottom: 20, paddingTop: 16, borderTop: '1px solid ' + colors.line }}>
+                <div style={{ flex: 1, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 20 }}>
+                  <div>
+                    <div style={eyebrow}>Marge prévisionnelle</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: margePrevu >= 0 ? colors.ink : colors.danger, marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(margePrevu)}</div>
+                    <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargePrevu, coeffPrevu)}</div>
+                  </div>
+                  <div>
+                    <div style={eyebrow}>Marge en cours (commandes)</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: margeEnCours === null ? colors.inkFaint : (margeEnCours >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeEnCours === null ? 'Aucune commande' : fmt(margeEnCours)}</div>
+                    <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargeEnCours, coeffEnCours)}</div>
+                  </div>
+                  <div>
+                    <div style={eyebrow}>Marge réelle (factures)</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: margeReelle === null ? colors.inkFaint : (margeReelle >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeReelle === null ? 'Aucune facture' : fmt(margeReelle)}</div>
+                    <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargeReelle, coeffReel)}</div>
+                  </div>
                 </div>
-                <div>
-                  <div style={eyebrow}>Marge en cours (commandes)</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: margeEnCours === null ? colors.inkFaint : (margeEnCours >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeEnCours === null ? 'Aucune commande' : fmt(margeEnCours)}</div>
-                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargeEnCours, coeffEnCours)}</div>
-                </div>
-                <div>
-                  <div style={eyebrow}>Marge réelle (factures)</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: margeReelle === null ? colors.inkFaint : (margeReelle >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeReelle === null ? 'Aucune facture' : fmt(margeReelle)}</div>
-                  <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargeReelle, coeffReel)}</div>
-                </div>
+
+                {ca > 0 && (
+                  <div style={{ width: isMobile ? '100%' : 220, flexShrink: 0 }}>
+                    <div style={eyebrow}>Budget par coefficient</div>
+                    <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 2, marginBottom: 8 }}>
+                      Reste à commander avant de descendre sous ce coeff. (CA ÷ coeff − déjà commandé)
+                    </div>
+                    {resteADepenserParCoeff(ca, achatEnCours ?? 0).map(({ coeff, reste }) => (
+                      <div key={coeff} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0', borderBottom: '1px solid ' + colors.line, fontSize: 12 }}>
+                        <span style={{ color: colors.inkMuted, fontFamily: fonts.mono }}>{coeff.toFixed(2)}</span>
+                        <span style={{ fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: reste >= 0 ? colors.ink : colors.danger }}>{fmt(reste)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Écart global — seulement quand il y a un vrai réel (au moins
