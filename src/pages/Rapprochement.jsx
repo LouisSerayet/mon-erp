@@ -143,11 +143,15 @@ export default function Rapprochement() {
         supabase.from('factures_cli')
           .select('id, numero, montant_ht, statut, date_facture, projet_id, projets(nom, clients(nom))')
           .neq('statut', 'Payée').is('deleted_at', null),
+        // taux_tva : nécessaire pour que rapprocherFactures() teste le vrai
+        // montant TTC de la facture (voir lib/rapprochement.js) au lieu de
+        // supposer 20% pour toutes — sinon une facture à un taux réel
+        // différent ne matchait jamais automatiquement sa transaction.
         supabase.from('factures_frs')
-          .select('id, numero, montant_ht, statut, date_facture, projet_id, fournisseur_id, projets(nom), fournisseurs(nom)')
+          .select('id, numero, montant_ht, taux_tva, statut, date_facture, projet_id, fournisseur_id, projets(nom), fournisseurs(nom)')
           .neq('statut', 'Payée').is('deleted_at', null),
         supabase.from('depenses_generales')
-          .select('id, libelle, categorie, numero, montant_ht, statut, date_facture, fournisseurs(nom)')
+          .select('id, libelle, categorie, numero, montant_ht, taux_tva, statut, date_facture, fournisseurs(nom)')
           .neq('statut', 'Payée').is('deleted_at', null),
       ])
       if (fcliErr) throw fcliErr
@@ -177,7 +181,11 @@ export default function Rapprochement() {
       // fournisseurs et dépenses générales (paiements sortants, side "debit")
       const resultatsCli = rapprocherFactures(fcli || [], transactions, 'credit', exclues)
       const resultatsFrs = rapprocherFactures(ffrs || [], transactions, 'debit', exclues)
-      const resultatsDep = rapprocherFactures(dep || [], transactions, 'debit', exclues)
+      // Dépenses sans taux_tva renseigné (créées avant ce champ) : même
+      // repli par catégorie que calculerTva() dans lib/tva.js, au lieu du
+      // 20% générique utilisé par défaut pour les autres tables.
+      const depAvecTaux = (dep || []).map(d => ({ ...d, taux_tva: d.taux_tva ?? tauxTvaDepense(d.categorie) }))
+      const resultatsDep = rapprocherFactures(depAvecTaux, transactions, 'debit', exclues)
 
       // 5. Application automatique des correspondances exactes
       const exactesCli = resultatsCli.filter(r => r.confiance === 'exact')

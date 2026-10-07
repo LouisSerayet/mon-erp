@@ -7,8 +7,9 @@
 //
 //  - "exact"   : le numéro de facture apparaît dans le libellé ou la
 //                référence de la transaction ET le montant correspond
-//                (HT ou TTC à 20 %) -> appliqué automatiquement (le statut
-//                passe à "Payée").
+//                (HT ou TTC, au taux de TVA réel de la facture quand il est
+//                connu) -> appliqué automatiquement (le statut passe à
+//                "Payée").
 //  - "montant" : seul le montant correspond, sans numéro de facture trouvé
 //                dans le libellé -> proposé comme suggestion, à valider
 //                manuellement (trop de factures peuvent partager un même
@@ -29,16 +30,23 @@ function normaliser(s) {
 }
 
 // Une facture peut être réglée HT (rare, ex. client basé hors UE) ou TTC (le
-// cas normal — TVA à 20 % en sus). On teste les deux hypothèses pour ne pas
-// rater un rapprochement à cause d'une hypothèse de TVA incorrecte.
-export function montantsCandidats(montantHt) {
+// cas normal). On teste les deux hypothèses pour ne pas rater un
+// rapprochement à cause d'une hypothèse de TVA incorrecte. `taux` est le
+// taux_tva RÉEL de la facture (voir sql/taux_tva_achats_migration.sql et
+// lib/tva.js) — avant ce correctif, un 20% était supposé pour TOUTES les
+// factures sans distinction, ce qui ratait le rapprochement automatique de
+// toute facture à un taux réel différent (0/5,5/10%) : son vrai montant TTC
+// ne correspondait à aucun des deux candidats testés (HT, ou HT+20%
+// inventé). `?? 20` ci-dessous ne sert que pour les factures clients, qui
+// n'ont pas encore de taux_tva par ligne (TVA gérée au niveau du projet).
+export function montantsCandidats(montantHt, taux) {
   const ht = Math.round((montantHt || 0) * 100)
-  const ttc = Math.round((montantHt || 0) * 120)
-  return ht === ttc ? [{ base: 'HT', cents: ht }] : [{ base: 'HT', cents: ht }, { base: 'TTC (20 %)', cents: ttc }]
+  const ttc = Math.round((montantHt || 0) * (1 + Number(taux ?? 20) / 100) * 100)
+  return ht === ttc ? [{ base: 'HT', cents: ht }] : [{ base: 'HT', cents: ht }, { base: 'TTC (' + Number(taux ?? 20) + ' %)', cents: ttc }]
 }
 
-function montantCorrespondant(txCents, montantHt) {
-  return montantsCandidats(montantHt).find(c => Math.abs(c.cents - Math.abs(txCents)) <= TOLERANCE_CENTIMES) || null
+function montantCorrespondant(txCents, montantHt, taux) {
+  return montantsCandidats(montantHt, taux).find(c => Math.abs(c.cents - Math.abs(txCents)) <= TOLERANCE_CENTIMES) || null
 }
 
 function numeroDansTransaction(numero, tx) {
@@ -68,11 +76,11 @@ export function rapprocherFactures(factures, transactions, side, exclureTransact
     const tx = pool.find(t =>
       !utiliseesParExact.has(t.transaction_id) &&
       numeroDansTransaction(f.numero, t) &&
-      montantCorrespondant(t.amount_cents, f.montant_ht)
+      montantCorrespondant(t.amount_cents, f.montant_ht, f.taux_tva)
     )
     if (tx) {
       utiliseesParExact.add(tx.transaction_id)
-      resultats.push({ facture: f, transaction: tx, confiance: 'exact', base: montantCorrespondant(tx.amount_cents, f.montant_ht)?.base })
+      resultats.push({ facture: f, transaction: tx, confiance: 'exact', base: montantCorrespondant(tx.amount_cents, f.montant_ht, f.taux_tva)?.base })
     }
   }
 
@@ -85,7 +93,7 @@ export function rapprocherFactures(factures, transactions, side, exclureTransact
     if (facturesMatchees.has(f.id)) continue
     for (const t of pool) {
       if (utiliseesParExact.has(t.transaction_id)) continue
-      const base = montantCorrespondant(t.amount_cents, f.montant_ht)
+      const base = montantCorrespondant(t.amount_cents, f.montant_ht, f.taux_tva)
       if (base) resultats.push({ facture: f, transaction: t, confiance: 'montant', base: base.base })
     }
   }
