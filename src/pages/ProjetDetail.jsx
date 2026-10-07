@@ -1773,7 +1773,10 @@ export default function ProjetDetail() {
       numero: numeroAuto,
       projet_id: id,
       montant_ht: parseFloat(formCmd.montant_ht) || 0,
-      taux_tva: Number(formCmd.taux_tva) || 20,
+      // ?? et pas || : 0% est un taux valide, pas une absence de valeur
+      // (|| 20 écraserait silencieusement un 0% choisi exprès, 0 étant
+      // "faux" en JS au même titre que vide ou absent).
+      taux_tva: Number(formCmd.taux_tva ?? 20),
       fournisseur_id: formCmd.fournisseur_id || null,
       date_commande: formCmd.date_commande || new Date().toISOString().split('T')[0]
     }]).select().single()
@@ -1801,7 +1804,9 @@ export default function ProjetDetail() {
     // champ (chaîne vide) est ignoré silencieusement au lieu d'être remis à 0,
     // et l'ancienne valeur brute ('' ) part telle quelle vers une colonne numérique.
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
-    if (changes.taux_tva !== undefined) payload.taux_tva = Number(changes.taux_tva) || 20
+    // ?? et pas || : 0% est un taux valide (voir même remarque sur l'insert
+    // ci-dessus) ; changes.taux_tva est garanti défini ici (if ci-dessus).
+    if (changes.taux_tva !== undefined) payload.taux_tva = Number(changes.taux_tva ?? 20)
     // Même logique pour la date (colonne "date", pas texte) : vider le champ
     // envoie '' telle quelle sinon — Postgres la refuse ("invalid input
     // syntax for type date"), alors qu'il accepte null.
@@ -2193,7 +2198,9 @@ export default function ProjetDetail() {
     // n'a pas de date_facture) — même garde-fou date que saveFacFrs, pour
     // rester cohérent avec l'insertion de factures_cli (ajouterFactureCli)
     // qui le fait déjà.
-    const { data: inserted, error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, taux_tva: Number(formFfrs.taux_tva) || 20, fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null, date_facture: formFfrs.date_facture || null, date_echeance: formFfrs.date_echeance || null }]).select().single()
+    // taux_tva: ?? et pas || — 0% est un taux valide, pas une absence de
+    // valeur (même remarque que sur commandes/saveCmd).
+    const { data: inserted, error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, taux_tva: Number(formFfrs.taux_tva ?? 20), fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null, date_facture: formFfrs.date_facture || null, date_echeance: formFfrs.date_echeance || null }]).select().single()
     if (error) { setError(error.message); setSavingFactureFrs(false); return }
 
     // Si un PDF a été joint, on l'archive dans le stockage du projet — ce
@@ -2512,7 +2519,8 @@ export default function ProjetDetail() {
     if (!changes) return
     const payload = { ...changes }
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
-    if (changes.taux_tva !== undefined) payload.taux_tva = Number(changes.taux_tva) || 20
+    // ?? et pas || : 0% est un taux valide (même remarque que saveCmd ci-dessus).
+    if (changes.taux_tva !== undefined) payload.taux_tva = Number(changes.taux_tva ?? 20)
     // Même garde-fou que saveFacCli/saveCmd pour les colonnes date.
     if (changes.date_facture !== undefined) payload.date_facture = changes.date_facture || null
     if (changes.date_echeance !== undefined) payload.date_echeance = changes.date_echeance || null
@@ -4031,7 +4039,12 @@ export default function ProjetDetail() {
                               style={{ ...inStyle, minWidth: 200, ...styleVerrouille }} />
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                            <SaisieMontantTva montantHt={getCmdVal(c, 'montant_ht')} tauxTva={getCmdVal(c, 'taux_tva') || 20}
+                            {/* 0% est une valeur valide (pas "non renseigné") : on chaîne les
+                                ?? à la main plutôt que d'utiliser getCmdVal (qui réduit un
+                                champ absent à '' puis, avec || 20, aurait aussi écrasé un vrai
+                                0% choisi exprès — || traite 0 comme "faux" au même titre que
+                                vide ou absent). */}
+                            <SaisieMontantTva montantHt={getCmdVal(c, 'montant_ht')} tauxTva={cmdEditees[c.id]?.taux_tva ?? c.taux_tva ?? 20}
                               onChangeMontant={v => editCmd(c.id, 'montant_ht', v)} onChangeTaux={v => editCmd(c.id, 'taux_tva', v)}
                               disabled={verrouille} compact />
                           </td>
@@ -4282,7 +4295,9 @@ export default function ProjetDetail() {
                           style={{ ...inStyle, width: 130, color: enRetard ? colors.danger : colors.ink, ...styleVerrouille }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <SaisieMontantTva montantHt={getFacFrsVal(f, 'montant_ht')} tauxTva={getFacFrsVal(f, 'taux_tva') || 20}
+                        {/* 0% est une valeur valide, pas "non renseigné" — voir le même
+                            commentaire côté commandes ci-dessus (|| 20 écraserait un vrai 0%). */}
+                        <SaisieMontantTva montantHt={getFacFrsVal(f, 'montant_ht')} tauxTva={facFrsEditees[f.id]?.taux_tva ?? f.taux_tva ?? 20}
                           onChangeMontant={v => editFacFrs(f.id, 'montant_ht', v)} onChangeTaux={v => editFacFrs(f.id, 'taux_tva', v)}
                           disabled={verrouille} compact />
                       </td>

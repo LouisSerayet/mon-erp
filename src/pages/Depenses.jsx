@@ -443,7 +443,10 @@ export default function Depenses() {
                           style={{ ...cellInput(isEdited), width: 130, color: d.statut === 'À payer' && d.date_echeance && new Date(d.date_echeance) < new Date() ? colors.danger : colors.ink }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <SaisieMontantTva montantHt={getVal(d, 'montant_ht')} tauxTva={getVal(d, 'taux_tva') || tauxTvaDepense(getVal(d, 'categorie'))}
+                        {/* ?? et pas || : 0% est un taux valide, pas une absence de valeur
+                            (|| aurait aussi écrasé un vrai 0% choisi exprès par l'estimation
+                            de catégorie — voir le même correctif dans ProjetDetail.jsx). */}
+                        <SaisieMontantTva montantHt={getVal(d, 'montant_ht')} tauxTva={editees[d.id]?.taux_tva ?? d.taux_tva ?? tauxTvaDepense(getVal(d, 'categorie'))}
                           onChangeMontant={v => editer(d.id, 'montant_ht', v)} onChangeTaux={v => editer(d.id, 'taux_tva', v)} compact />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
