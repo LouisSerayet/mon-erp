@@ -26,7 +26,7 @@ import { TAUX_TVA_COURANTS, ttcDepuisHt, htDepuisTtc } from '../lib/tva'
 // rejette silencieusement la virgule décimale française à la frappe (elle
 // n'est pas insérée, les chiffres suivants s'enchaînent sans elle — "61,67"
 // devient "6167"). On normalise virgule -> point nous-mêmes à la saisie.
-export function SaisieMontantTva({ montantHt, tauxTva, onChangeMontant, onChangeTaux, compact = false, disabled = false, style }) {
+export function SaisieMontantTva({ montantHt, tauxTva, onChangeMontant, onChangeTaux, compact = false, disabled = false, tauxSansEffet = false, style }) {
   const [affichage, setAffichage] = useState('ht') // 'ht' | 'ttc'
   const taux = Number(tauxTva ?? 20)
   const valeurCalculee = affichage === 'ht'
@@ -94,7 +94,8 @@ export function SaisieMontantTva({ montantHt, tauxTva, onChangeMontant, onChange
   }
   const selectStyle = {
     border: 'none', background: 'transparent', fontSize: compact ? 11 : 12, color: colors.inkMuted,
-    fontFamily: fonts.display, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1, width: 54,
+    fontFamily: fonts.display, cursor: (disabled || tauxSansEffet) ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.55 : tauxSansEffet ? 0.35 : 1, width: 54,
   }
   const toggleStyle = {
     background: 'none', border: '1px solid ' + colors.line, borderRadius: 3, padding: '2px 5px',
@@ -106,8 +107,14 @@ export function SaisieMontantTva({ montantHt, tauxTva, onChangeMontant, onChange
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...style }}>
       <input ref={inputRef} type="text" inputMode="decimal" value={valeurAffichee} disabled={disabled}
         onChange={e => surSaisieMontant(e.target.value)} onFocus={surFocus} onBlur={surBlur} style={inputStyle} />
-      <select value={taux} disabled={disabled} onChange={e => onChangeTaux(Number(e.target.value))} style={selectStyle}
-        title="Taux de TVA">
+      {/* tauxSansEffet (ex. ligne en autoliquidation) : le sélecteur reste
+          visible mais grisé et désactivé — en autoliquidation, calculerTva()
+          ignore ce taux quel qu'il soit (TVA déclarée et déduite en même
+          temps, impact net nul), donc l'afficher actif à côté du badge
+          "Autoliq." donnait l'impression contradictoire d'un vrai taux de
+          20% appliqué malgré l'autoliquidation. */}
+      <select value={taux} disabled={disabled || tauxSansEffet} onChange={e => onChangeTaux(Number(e.target.value))} style={selectStyle}
+        title={tauxSansEffet ? 'Autoliquidation : la TVA est auto-liquidée (déclarée et déduite en même temps), ce taux n\'a aucun effet ici.' : 'Taux de TVA'}>
         {(TAUX_TVA_COURANTS.includes(taux) ? TAUX_TVA_COURANTS : [...TAUX_TVA_COURANTS, taux].sort((a, b) => a - b))
           .map(t => <option key={t} value={t}>{t}%</option>)}
       </select>

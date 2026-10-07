@@ -3931,7 +3931,8 @@ export default function ProjetDetail() {
                     <label style={fieldLabel}>Montant</label>
                     <SaisieMontantTva montantHt={formCmd.montant_ht} tauxTva={formCmd.taux_tva}
                       onChangeMontant={v => setFormCmd(p => ({ ...p, montant_ht: v }))}
-                      onChangeTaux={v => setFormCmd(p => ({ ...p, taux_tva: v }))} style={{ paddingTop: 7 }} />
+                      onChangeTaux={v => setFormCmd(p => ({ ...p, taux_tva: v }))}
+                      tauxSansEffet={formCmd.regime_tva === 'autoliquidation'} style={{ paddingTop: 7 }} />
                   </div>
                   <div>
                     <label style={fieldLabel}>Date commande</label>
@@ -4046,6 +4047,7 @@ export default function ProjetDetail() {
                                 vide ou absent). */}
                             <SaisieMontantTva montantHt={getCmdVal(c, 'montant_ht')} tauxTva={cmdEditees[c.id]?.taux_tva ?? c.taux_tva ?? 20}
                               onChangeMontant={v => editCmd(c.id, 'montant_ht', v)} onChangeTaux={v => editCmd(c.id, 'taux_tva', v)}
+                              tauxSansEffet={getCmdVal(c, 'regime_tva') === 'autoliquidation'}
                               disabled={verrouille} compact />
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
