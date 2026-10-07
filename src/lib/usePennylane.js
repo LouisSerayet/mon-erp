@@ -89,7 +89,11 @@ export async function updateFactureFrsPennylane(facture) {
   if (!facture.pennylane_invoice_id) throw new Error("Cette facture n'a pas encore été envoyée à Pennylane.")
 
   const montantHt = Number(facture.montant_ht) || 0
-  const tva = Math.round(montantHt * 0.2 * 100) / 100
+  // Taux réel de la facture (voir sql/taux_tva_achats_migration.sql) —
+  // 20% par défaut pour les factures créées avant ce champ, au lieu d'un
+  // taux fixe pour toutes les factures quel que soit leur contenu réel.
+  const taux = Number(facture.taux_tva ?? 20)
+  const tva = Math.round(montantHt * (taux / 100) * 100) / 100
   const montantTtc = Math.round((montantHt + tva) * 100) / 100
 
   const updated = await pennylaneCall(`supplier_invoices/${facture.pennylane_invoice_id}`, {

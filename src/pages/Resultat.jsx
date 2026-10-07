@@ -88,8 +88,8 @@ export default function Resultat() {
         // commandes(regime_tva) / fournisseurs(autoliquidation) : une facture
         // fournisseur en autoliquidation (sous-traitance BTP, article 283 du
         // CGI) n'a pas de TVA à déduire — voir le calcul de TVA plus bas.
-        supabase.from('factures_frs').select('id, numero, montant_ht, date_facture, commandes(numero, regime_tva), fournisseurs(nom, autoliquidation)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
-        supabase.from('depenses_generales').select('id, libelle, montant_ht, date_facture, categorie, fournisseurs(nom)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+        supabase.from('factures_frs').select('id, numero, montant_ht, taux_tva, date_facture, commandes(numero, regime_tva), fournisseurs(nom, autoliquidation)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+        supabase.from('depenses_generales').select('id, libelle, montant_ht, taux_tva, date_facture, categorie, fournisseurs(nom)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
         // Une ligne sans date de facture ne peut matcher aucun filtre
         // gte/lte ci-dessus (comparaison avec null) : elle est donc invisible
         // dans le compte de résultat quelle que soit la période choisie, sans

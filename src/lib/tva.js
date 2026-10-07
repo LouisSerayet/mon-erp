@@ -30,6 +30,23 @@ export function tauxTvaDepense(categorie) {
   return 20
 }
 
+// Taux de TVA proposés par défaut dans les sélecteurs (voir
+// components/SaisieMontantTva.jsx) — les quatre taux français courants.
+// Un taux saisi manuellement en dehors de cette liste reste accepté (champ
+// numeric libre en base), juste absent du menu déroulant.
+export const TAUX_TVA_COURANTS = [0, 5.5, 10, 20]
+
+// Conversions HT ↔ TTC pures — utilisées par SaisieMontantTva pour le
+// bouton "basculer HT/TTC" (voir ce composant). Arrondies au centime,
+// comme n'importe quel montant en euros affiché/stocké ailleurs dans
+// l'app.
+export function ttcDepuisHt(ht, taux) {
+  return Math.round((ht || 0) * (1 + (Number(taux) || 0) / 100) * 100) / 100
+}
+export function htDepuisTtc(ttc, taux) {
+  return Math.round((ttc || 0) / (1 + (Number(taux) || 0) / 100) * 100) / 100
+}
+
 // Calcul pur à partir de lignes déjà chargées — voir fetchTva ci-dessous
 // pour le select Supabase exact (les jointures nécessaires : projets sur
 // factures_cli, commandes/fournisseurs sur factures_frs).
@@ -40,14 +57,17 @@ export function calculerTva({ fcli, ffrs, depData }) {
     const taux = Number(f.projets?.taux_tva ?? 20)
     return s + (f.montant_ht || 0) * (taux / 100)
   }, 0)
-  // TVA déductible sur achats projets : taux fixe de 20 % (les commandes
-  // fournisseurs ne sont pas concernées par taux_tva, voir
-  // sql/tva_taux_migration.sql), sauf régime autoliquidation — le
-  // fournisseur ne facture pas de TVA, Partenaires Particuliers
-  // l'autoliquide (la déclare ET la déduit en même temps) : effet net
-  // nul, donc on l'exclut plutôt que de fausser les deux totaux. Régime
-  // lu sur la commande liée quand il y en a une, sinon sur le réglage
-  // par défaut du fournisseur (voir sql/fournisseur_autoliquidation_migration.sql).
+  // TVA déductible sur achats projets : taux réel de CHAQUE facture
+  // (taux_tva, voir sql/taux_tva_achats_migration.sql — 20% par défaut
+  // si non renseigné, pour les factures créées avant ce champ), sauf
+  // régime autoliquidation — le fournisseur ne facture pas de TVA,
+  // Partenaires Particuliers l'autoliquide (la déclare ET la déduit en
+  // même temps) : effet net nul, donc on l'exclut plutôt que de fausser
+  // les deux totaux, indépendamment du taux_tva renseigné sur la facture
+  // (les deux sont des axes séparés, voir le champ "Autoliquidation" vs
+  // le sélecteur de taux dans SaisieMontantTva.jsx). Régime lu sur la
+  // commande liée quand il y en a une, sinon sur le réglage par défaut
+  // du fournisseur (voir sql/fournisseur_autoliquidation_migration.sql).
   let nbAutoliquidation = 0
   let montantAutoliquidation = 0
   const tvaDeductibleAchats = (ffrs || []).reduce((s, f) => {
@@ -59,10 +79,14 @@ export function calculerTva({ fcli, ffrs, depData }) {
       montantAutoliquidation += (f.montant_ht || 0)
       return s
     }
-    return s + (f.montant_ht || 0) * 0.20
+    const taux = Number(f.taux_tva ?? 20)
+    return s + (f.montant_ht || 0) * (taux / 100)
   }, 0)
   const depArr = depData || []
-  const tvaDeductibleDepenses = depArr.reduce((s, d) => s + (d.montant_ht || 0) * (tauxTvaDepense(d.categorie) / 100), 0)
+  // Même principe pour les dépenses générales : le taux réellement
+  // renseigné (taux_tva) prime, et on ne retombe sur la catégorie
+  // "devinée" (tauxTvaDepense) que pour les lignes créées avant ce champ.
+  const tvaDeductibleDepenses = depArr.reduce((s, d) => s + (d.montant_ht || 0) * (Number(d.taux_tva ?? tauxTvaDepense(d.categorie)) / 100), 0)
   const tvaDeductible = tvaDeductibleAchats + tvaDeductibleDepenses
   const tvaNette = tvaCollectee - tvaDeductible
 
@@ -81,7 +105,7 @@ export function calculerTva({ fcli, ffrs, depData }) {
       const autoliquidation = f.commandes?.regime_tva
         ? f.commandes.regime_tva === 'autoliquidation'
         : !!f.fournisseurs?.autoliquidation
-      const taux = autoliquidation ? 0 : 20
+      const taux = autoliquidation ? 0 : Number(f.taux_tva ?? 20)
       return {
         id: 'ffrs-' + f.id, ref: f.numero || 'Sans numéro',
         secondaire: (f.fournisseurs?.nom || '—') + (f.commandes?.numero ? ' · cmd ' + f.commandes.numero : ''),
@@ -89,11 +113,14 @@ export function calculerTva({ fcli, ffrs, depData }) {
         date: f.date_facture, montantHt: f.montant_ht || 0, taux, tva: (f.montant_ht || 0) * (taux / 100),
       }
     }),
-    ...depArr.map(d => ({
-      id: 'dep-' + d.id, ref: d.libelle || 'Sans libellé', secondaire: (d.categorie || 'Autre') + (d.fournisseurs?.nom ? ' · ' + d.fournisseurs.nom : ''),
-      source: 'Dépense générale', date: d.date_facture, montantHt: d.montant_ht || 0,
-      taux: tauxTvaDepense(d.categorie), tva: (d.montant_ht || 0) * (tauxTvaDepense(d.categorie) / 100),
-    })),
+    ...depArr.map(d => {
+      const taux = Number(d.taux_tva ?? tauxTvaDepense(d.categorie))
+      return {
+        id: 'dep-' + d.id, ref: d.libelle || 'Sans libellé', secondaire: (d.categorie || 'Autre') + (d.fournisseurs?.nom ? ' · ' + d.fournisseurs.nom : ''),
+        source: 'Dépense générale', date: d.date_facture, montantHt: d.montant_ht || 0,
+        taux, tva: (d.montant_ht || 0) * (taux / 100),
+      }
+    }),
   ].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
 
   return {
@@ -112,8 +139,8 @@ export function calculerTva({ fcli, ffrs, depData }) {
 export async function fetchTva(supabase, { debut, fin }) {
   const [{ data: fcli, error: fcliErr }, { data: ffrs, error: ffrsErr }, { data: dep, error: depErr }] = await Promise.all([
     supabase.from('factures_cli').select('id, numero, montant_ht, date_facture, projets(nom, taux_tva)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
-    supabase.from('factures_frs').select('id, numero, montant_ht, date_facture, commandes(numero, regime_tva), fournisseurs(nom, autoliquidation)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
-    supabase.from('depenses_generales').select('id, libelle, montant_ht, date_facture, categorie, fournisseurs(nom)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+    supabase.from('factures_frs').select('id, numero, montant_ht, taux_tva, date_facture, commandes(numero, regime_tva), fournisseurs(nom, autoliquidation)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
+    supabase.from('depenses_generales').select('id, libelle, montant_ht, taux_tva, date_facture, categorie, fournisseurs(nom)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
   ])
   if (fcliErr) throw fcliErr
   if (ffrsErr) throw ffrsErr

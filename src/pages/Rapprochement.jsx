@@ -6,6 +6,8 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { CATEGORIES } from '../lib/depenses'
 import { CATEGORIES_ECRITURES } from '../lib/ecrituresDiverses'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { tauxTvaDepense, htDepuisTtc } from '../lib/tva'
+import { SaisieMontantTva } from '../components/SaisieMontantTva'
 import { colors, fonts, eyebrow, quietLink, marker } from '../lib/theme'
 
 // Nombre max de transactions non rapprochées affichées (les plus récentes
@@ -267,6 +269,7 @@ export default function Rapprochement() {
       libelle: tx.label || tx.reference || 'Dépense',
       categorie: CATEGORIES[0],
       montant_ht: montantHtSuggere(tx),
+      taux_tva: tauxTvaDepense(CATEGORIES[0]),
       date_facture: dateTransaction(tx),
     })
   }
@@ -306,6 +309,7 @@ export default function Rapprochement() {
       libelle: modalDepense.libelle.trim() || 'Dépense',
       categorie: modalDepense.categorie,
       montant_ht: parseFloat(modalDepense.montant_ht) || 0,
+      taux_tva: Number(modalDepense.taux_tva ?? tauxTvaDepense(modalDepense.categorie)),
       statut: 'Payée',
       date_facture: modalDepense.date_facture || null,
       qonto_transaction_id: modalDepense.transaction.transaction_id,
@@ -466,16 +470,22 @@ export default function Rapprochement() {
               style={{ ...inputUnderline, marginBottom: 16 }} />
 
             <label style={fieldLabel}>Catégorie</label>
-            <select value={modalDepense.categorie} onChange={e => setModalDepense(p => ({ ...p, categorie: e.target.value }))}
+            <select value={modalDepense.categorie} onChange={e => { const categorie = e.target.value; setModalDepense(p => ({ ...p, categorie, taux_tva: tauxTvaDepense(categorie) })) }}
               style={{ ...inputUnderline, marginBottom: 16, cursor: 'pointer' }}>
               {CATEGORIES.map(c => <option key={c}>{c}</option>)}
             </select>
 
-            <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 8, alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
-                <label style={fieldLabel}>Montant HT (€)</label>
-                <input type="number" step="0.01" value={modalDepense.montant_ht} onChange={e => setModalDepense(p => ({ ...p, montant_ht: e.target.value }))}
-                  style={inputUnderline} />
+                <label style={fieldLabel}>Montant</label>
+                <SaisieMontantTva montantHt={modalDepense.montant_ht} tauxTva={modalDepense.taux_tva}
+                  onChangeMontant={v => setModalDepense(p => ({ ...p, montant_ht: v }))}
+                  // Changer le taux ici recalcule le HT à partir du VRAI TTC
+                  // (le montant de la transaction bancaire, connu avec
+                  // certitude) plutôt que de l'ancien HT deviné à 20% —
+                  // plus utile que le comportement générique du composant,
+                  // puisqu'on connaît déjà le TTC exact ici.
+                  onChangeTaux={v => setModalDepense(p => ({ ...p, taux_tva: v, montant_ht: String(htDepuisTtc(Math.abs(p.transaction.amount_cents || 0) / 100, v)) }))} />
               </div>
               <div style={{ flex: 1 }}>
                 <label style={fieldLabel}>Date</label>
@@ -484,7 +494,7 @@ export default function Rapprochement() {
               </div>
             </div>
             <div style={{ fontSize: 11, color: colors.inkFaint, margin: '10px 0 22px' }}>
-              Montant HT prérempli à partir du montant de la transaction (TVA 20 % déduite) — à corriger si besoin.
+              Montant HT prérempli à partir du montant de la transaction (taux de TVA ci-dessus) — à corriger si besoin.
             </div>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

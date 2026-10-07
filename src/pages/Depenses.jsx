@@ -8,6 +8,8 @@ import { CATEGORIES } from '../lib/depenses'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { useTri, appliquerTri } from '../lib/useTri'
 import { ThTri } from '../components/ThTri'
+import { SaisieMontantTva } from '../components/SaisieMontantTva'
+import { tauxTvaDepense } from '../lib/tva'
 import { colors, fonts, eyebrow, quietLink } from '../lib/theme'
 
 // Dépenses générales de la société : loyer, comptabilité, assurance,
@@ -37,7 +39,7 @@ const fmtTx = cents => cents !== undefined && cents !== null
   ? (Number(cents) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
   : '—'
 
-const FORM_VIDE = { libelle: '', categorie: CATEGORIES[0], numero: '', fournisseur_id: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' }
+const FORM_VIDE = { libelle: '', categorie: CATEGORIES[0], numero: '', fournisseur_id: '', montant_ht: '', taux_tva: tauxTvaDepense(CATEGORIES[0]), statut: 'À payer', date_facture: '', date_echeance: '' }
 
 const inputUnderline = {
   width: '100%', padding: '8px 2px', background: 'transparent', border: 'none',
@@ -103,6 +105,7 @@ export default function Depenses() {
     const { data: inserted, error: err } = await supabase.from('depenses_generales').insert([{
       ...form,
       montant_ht: parseFloat(form.montant_ht) || 0,
+      taux_tva: Number(form.taux_tva ?? tauxTvaDepense(form.categorie)),
       fournisseur_id: form.fournisseur_id || null,
       date_facture: form.date_facture || null,
       date_echeance: form.date_echeance || null,
@@ -133,6 +136,7 @@ export default function Depenses() {
     if (!changes) return
     const payload = { ...changes }
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
+    if (changes.taux_tva !== undefined) payload.taux_tva = Number(changes.taux_tva)
     if (changes.fournisseur_id !== undefined) payload.fournisseur_id = changes.fournisseur_id || null
     // Vider une des deux dates en édition inline envoie '' sinon — refusé
     // par Postgres ("invalid input syntax for type date"), voir le même
@@ -327,7 +331,10 @@ export default function Depenses() {
               style={{ ...inputUnderline, marginBottom: 16 }} />
 
             <label style={fieldLabel}>Catégorie</label>
-            <select value={form.categorie} onChange={e => setForm(p => ({ ...p, categorie: e.target.value }))}
+            {/* Changer de catégorie réinitialise le taux de TVA proposé sur
+                la catégorie "devinée" (voir tauxTvaDepense) — modifiable
+                ensuite via le sélecteur à côté du montant ci-dessous. */}
+            <select value={form.categorie} onChange={e => { const categorie = e.target.value; setForm(p => ({ ...p, categorie, taux_tva: tauxTvaDepense(categorie) })) }}
               style={{ ...inputUnderline, marginBottom: 16, cursor: 'pointer' }}>
               {CATEGORIES.map(c => <option key={c}>{c}</option>)}
             </select>
@@ -343,9 +350,12 @@ export default function Depenses() {
             <input value={form.numero} onChange={e => setForm(p => ({ ...p, numero: e.target.value }))}
               style={{ ...inputUnderline, marginBottom: 16 }} />
 
-            <label style={fieldLabel}>Montant HT</label>
-            <input type="number" min="0" value={form.montant_ht} onChange={e => setForm(p => ({ ...p, montant_ht: e.target.value }))}
-              style={{ ...inputUnderline, marginBottom: 16 }} />
+            <label style={fieldLabel}>Montant</label>
+            <div style={{ marginBottom: 16 }}>
+              <SaisieMontantTva montantHt={form.montant_ht} tauxTva={form.taux_tva}
+                onChangeMontant={v => setForm(p => ({ ...p, montant_ht: v }))}
+                onChangeTaux={v => setForm(p => ({ ...p, taux_tva: v }))} />
+            </div>
 
             <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
               <div style={{ flex: 1 }}>
@@ -433,8 +443,8 @@ export default function Depenses() {
                           style={{ ...cellInput(isEdited), width: 130, color: d.statut === 'À payer' && d.date_echeance && new Date(d.date_echeance) < new Date() ? colors.danger : colors.ink }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" min="0" value={getVal(d, 'montant_ht')} onChange={e => editer(d.id, 'montant_ht', e.target.value)}
-                          style={{ ...cellInput(isEdited), width: 90, textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }} />
+                        <SaisieMontantTva montantHt={getVal(d, 'montant_ht')} tauxTva={getVal(d, 'taux_tva') || tauxTvaDepense(getVal(d, 'categorie'))}
+                          onChangeMontant={v => editer(d.id, 'montant_ht', v)} onChangeTaux={v => editer(d.id, 'taux_tva', v)} compact />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <select value={getVal(d, 'statut')} onChange={e => editer(d.id, 'statut', e.target.value)}

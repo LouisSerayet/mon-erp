@@ -17,6 +17,7 @@ import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer, IconGlisser, IconDupliquer } from '../components/Icons'
+import { SaisieMontantTva } from '../components/SaisieMontantTva'
 import { aDeLaMiseEnForme, mettreEnPage, dessiner, hauteurLigne, PALETTE_COULEURS } from '../lib/pdfRichText'
 import { markupVersHtml, domVersMarkup, interceptionEntree, interceptionCollage } from '../lib/richTextEditeur'
 
@@ -180,8 +181,8 @@ export default function ProjetDetail() {
   const [editInfos, setEditInfos] = useState(false)
   const [formInfos, setFormInfos] = useState({})
   const [infosError, setInfosError] = useState('')
-  const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
-  const [formFfrs, setFormFfrs] = useState({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' })
+  const [formCmd, setFormCmd] = useState({ fournisseur_id: '', numero: '', description: '', montant_ht: '', taux_tva: 20, statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
+  const [formFfrs, setFormFfrs] = useState({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', taux_tva: 20, statut: 'À payer', date_facture: '', date_echeance: '' })
   // type_facture / paiement_comptant : voir sql/facture_cli_type_migration.sql
   // — choisis une seule fois à la création, non modifiables ensuite (comme
   // le numéro). paiement_comptant n'a de sens que pour une facture d'acompte.
@@ -1772,6 +1773,7 @@ export default function ProjetDetail() {
       numero: numeroAuto,
       projet_id: id,
       montant_ht: parseFloat(formCmd.montant_ht) || 0,
+      taux_tva: Number(formCmd.taux_tva) || 20,
       fournisseur_id: formCmd.fournisseur_id || null,
       date_commande: formCmd.date_commande || new Date().toISOString().split('T')[0]
     }]).select().single()
@@ -1784,7 +1786,7 @@ export default function ProjetDetail() {
     await uploadDoc(fileCmd, 'commandes/' + inserted.id, () => fetchCmdDocs(inserted.id))
 
     setShowForm(false)
-    setFormCmd({ fournisseur_id: '', numero: '', description: '', montant_ht: '', statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
+    setFormCmd({ fournisseur_id: '', numero: '', description: '', montant_ht: '', taux_tva: 20, statut: 'Brouillon', date_commande: '', regime_tva: 'normale' })
     setFileCmd(null)
     const { data } = await supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setCommandes(data || [])
@@ -1799,6 +1801,7 @@ export default function ProjetDetail() {
     // champ (chaîne vide) est ignoré silencieusement au lieu d'être remis à 0,
     // et l'ancienne valeur brute ('' ) part telle quelle vers une colonne numérique.
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
+    if (changes.taux_tva !== undefined) payload.taux_tva = Number(changes.taux_tva) || 20
     // Même logique pour la date (colonne "date", pas texte) : vider le champ
     // envoie '' telle quelle sinon — Postgres la refuse ("invalid input
     // syntax for type date"), alors qu'il accepte null.
@@ -2190,7 +2193,7 @@ export default function ProjetDetail() {
     // n'a pas de date_facture) — même garde-fou date que saveFacFrs, pour
     // rester cohérent avec l'insertion de factures_cli (ajouterFactureCli)
     // qui le fait déjà.
-    const { data: inserted, error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null, date_facture: formFfrs.date_facture || null, date_echeance: formFfrs.date_echeance || null }]).select().single()
+    const { data: inserted, error } = await supabase.from('factures_frs').insert([{ ...formFfrs, projet_id: id, montant_ht: parseFloat(formFfrs.montant_ht) || 0, taux_tva: Number(formFfrs.taux_tva) || 20, fournisseur_id: formFfrs.fournisseur_id || null, commande_id: formFfrs.commande_id || null, date_facture: formFfrs.date_facture || null, date_echeance: formFfrs.date_echeance || null }]).select().single()
     if (error) { setError(error.message); setSavingFactureFrs(false); return }
 
     // Si un PDF a été joint, on l'archive dans le stockage du projet — ce
@@ -2210,7 +2213,7 @@ export default function ProjetDetail() {
       }
     }
 
-    setShowForm(false); setFormFfrs({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', statut: 'À payer', date_facture: '', date_echeance: '' }); setFileFfrs(null); setEcheanceFfrsVerrouillee(true)
+    setShowForm(false); setFormFfrs({ fournisseur_id: '', commande_id: '', numero: '', montant_ht: '', taux_tva: 20, statut: 'À payer', date_facture: '', date_echeance: '' }); setFileFfrs(null); setEcheanceFfrsVerrouillee(true)
     const { data } = await supabase.from('factures_frs').select('*, fournisseurs(id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id), commandes(numero)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false })
     setFacturesFrs(data || [])
     setSavingFactureFrs(false)
@@ -2509,6 +2512,7 @@ export default function ProjetDetail() {
     if (!changes) return
     const payload = { ...changes }
     if (changes.montant_ht !== undefined) payload.montant_ht = parseFloat(changes.montant_ht) || 0
+    if (changes.taux_tva !== undefined) payload.taux_tva = Number(changes.taux_tva) || 20
     // Même garde-fou que saveFacCli/saveCmd pour les colonnes date.
     if (changes.date_facture !== undefined) payload.date_facture = changes.date_facture || null
     if (changes.date_echeance !== undefined) payload.date_echeance = changes.date_echeance || null
@@ -3820,7 +3824,7 @@ export default function ProjetDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Commandes fournisseurs · <span style={{ color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalCommandes)}</span></div>
               <button onClick={() => { setShowForm(true); setError(''); setFileCmd(null);
-                setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', statut: 'Brouillon', date_commande: new Date().toISOString().split('T')[0], regime_tva: 'normale' }) }}
+                setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', taux_tva: 20, statut: 'Brouillon', date_commande: new Date().toISOString().split('T')[0], regime_tva: 'normale' }) }}
                 style={btnPrimary}>
                 + Nouvelle commande
               </button>
@@ -3916,9 +3920,10 @@ export default function ProjetDetail() {
                       style={inputUnderline} />
                   </div>
                   <div>
-                    <label style={fieldLabel}>Montant HT (€)</label>
-                    <input type="number" min="0" value={formCmd.montant_ht} onChange={e => setFormCmd(p => ({ ...p, montant_ht: e.target.value }))}
-                      style={inputUnderline} />
+                    <label style={fieldLabel}>Montant</label>
+                    <SaisieMontantTva montantHt={formCmd.montant_ht} tauxTva={formCmd.taux_tva}
+                      onChangeMontant={v => setFormCmd(p => ({ ...p, montant_ht: v }))}
+                      onChangeTaux={v => setFormCmd(p => ({ ...p, taux_tva: v }))} style={{ paddingTop: 7 }} />
                   </div>
                   <div>
                     <label style={fieldLabel}>Date commande</label>
@@ -4026,8 +4031,9 @@ export default function ProjetDetail() {
                               style={{ ...inStyle, minWidth: 200, ...styleVerrouille }} />
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                            <input type="number" min="0" value={getCmdVal(c, 'montant_ht')} onChange={e => editCmd(c.id, 'montant_ht', e.target.value)} disabled={verrouille}
-                              style={{ ...inStyle, width: 100, textAlign: 'right', fontWeight: 600, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', ...styleVerrouille }} />
+                            <SaisieMontantTva montantHt={getCmdVal(c, 'montant_ht')} tauxTva={getCmdVal(c, 'taux_tva') || 20}
+                              onChangeMontant={v => editCmd(c.id, 'montant_ht', v)} onChangeTaux={v => editCmd(c.id, 'taux_tva', v)}
+                              disabled={verrouille} compact />
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                             {(() => {
@@ -4184,9 +4190,10 @@ export default function ProjetDetail() {
                     <select value={formFfrs.commande_id} onChange={e => setFormFfrs(p => ({ ...p, commande_id: e.target.value }))}
                       style={{ ...inputUnderline, cursor: 'pointer' }}>
                       <option value=''>— Aucune —</option>{commandes.map(c => <option key={c.id} value={c.id}>{c.numero || c.description}</option>)}</select></div>
-                  <div><label style={fieldLabel}>Montant HT (€)</label>
-                    <input type="number" min="0" value={formFfrs.montant_ht} onChange={e => setFormFfrs(p => ({ ...p, montant_ht: e.target.value }))}
-                      style={inputUnderline} /></div>
+                  <div><label style={fieldLabel}>Montant</label>
+                    <SaisieMontantTva montantHt={formFfrs.montant_ht} tauxTva={formFfrs.taux_tva}
+                      onChangeMontant={v => setFormFfrs(p => ({ ...p, montant_ht: v }))}
+                      onChangeTaux={v => setFormFfrs(p => ({ ...p, taux_tva: v }))} style={{ paddingTop: 7 }} /></div>
                   <div><label style={fieldLabel}>Date facture</label>
                     <input type="date" value={formFfrs.date_facture} onChange={e => { const date_facture = e.target.value; setFormFfrs(p => ({ ...p, date_facture, date_echeance: echeanceFfrsVerrouillee ? echeanceFfrsAuto(date_facture, p.fournisseur_id) : p.date_echeance })) }}
                       style={inputUnderline} /></div>
@@ -4275,7 +4282,9 @@ export default function ProjetDetail() {
                           style={{ ...inStyle, width: 130, color: enRetard ? colors.danger : colors.ink, ...styleVerrouille }} />
                       </td>
                       <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                        <input type="number" min="0" value={getFacFrsVal(f, 'montant_ht')} onChange={e => editFacFrs(f.id, 'montant_ht', e.target.value)} disabled={verrouille} style={{ ...inStyle, width: 90, textAlign: 'right', fontWeight: 600, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', ...styleVerrouille }} />
+                        <SaisieMontantTva montantHt={getFacFrsVal(f, 'montant_ht')} tauxTva={getFacFrsVal(f, 'taux_tva') || 20}
+                          onChangeMontant={v => editFacFrs(f.id, 'montant_ht', v)} onChangeTaux={v => editFacFrs(f.id, 'taux_tva', v)}
+                          disabled={verrouille} compact />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
