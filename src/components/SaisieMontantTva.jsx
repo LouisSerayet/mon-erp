@@ -21,33 +21,69 @@ import { TAUX_TVA_COURANTS, ttcDepuisHt, htDepuisTtc } from '../lib/tva'
 // principe que les autres champs d'édition inline de l'app (une valeur à
 // la fois, l'appelant décide quoi en faire — voir editCmd/editFacFrs/
 // editer dans ProjetDetail.jsx et Depenses.jsx).
+//
+// Champ en type="text" (pas type="number") : un <input type="number">
+// rejette silencieusement la virgule décimale française à la frappe (elle
+// n'est pas insérée, les chiffres suivants s'enchaînent sans elle — "61,67"
+// devient "6167"). On normalise virgule -> point nous-mêmes à la saisie.
 export function SaisieMontantTva({ montantHt, tauxTva, onChangeMontant, onChangeTaux, compact = false, disabled = false, style }) {
   const [affichage, setAffichage] = useState('ht') // 'ht' | 'ttc'
   const taux = Number(tauxTva ?? 20)
-  const valeurAffichee = affichage === 'ht'
+  const valeurCalculee = affichage === 'ht'
     ? montantHt
     : String(ttcDepuisHt(parseFloat(montantHt) || 0, taux))
 
-  // Basculer HT<->TTC change seulement l'AFFICHAGE, pas la valeur stockée
-  // (voir note plus haut) — pour qu'on ne s'y trompe pas (ex. basculer en
-  // TTC sur une ligne déjà remplie, voir le nombre recalculé, et cliquer
-  // Enregistrer sans l'avoir retapé : ça ne corrige rien puisque rien n'a
-  // changé), on amène le focus dans le champ et on sélectionne tout son
-  // contenu juste après un basculement, pour inviter à retaper directement
-  // le montant qu'on a sous les yeux. Le premier rendu (valeur par défaut
-  // 'ht') est explicitement exclu pour ne pas voler le focus au chargement
-  // de chaque ligne de la liste.
+  // Pendant la frappe, on affiche le texte TEL QUE TAPÉ (`texteSaisi`), pas
+  // la valeur recalculée à chaque caractère. Avant ce correctif, en mode
+  // TTC, chaque frappe déclenchait TTC->HT->TTC et réécrasait le champ
+  // avec le résultat arrondi : taper "61.67" character par caractère se
+  // faisait donc interrompre par ce ré-affichage dès le "." (le champ
+  // retombait sur "61", sans décimales, un nombre déjà arrondi) — on
+  // perdait la fin de la saisie en cours de frappe. `enEdition` bascule à
+  // la prise de focus (texteSaisi initialisé avec la valeur affichée et
+  // sélectionnée en entier, pour une saisie directe par-dessus) et
+  // s'éteint au blur, moment où l'affichage revient à la valeur HT/TTC
+  // canonique recalculée.
+  const [enEdition, setEnEdition] = useState(false)
+  const [texteSaisi, setTexteSaisi] = useState('')
+  const valeurAffichee = enEdition ? texteSaisi : (valeurCalculee ?? '')
+
   const inputRef = useRef(null)
-  const affichagePrecedent = useRef(affichage)
+  const declencherFocusSelect = useRef(false)
   useEffect(() => {
-    const aBascule = affichagePrecedent.current !== affichage
-    affichagePrecedent.current = affichage
-    if (aBascule && !disabled) { inputRef.current?.focus(); inputRef.current?.select() }
+    if (declencherFocusSelect.current) {
+      declencherFocusSelect.current = false
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
   })
 
+  function surFocus(e) {
+    setEnEdition(true)
+    setTexteSaisi(String(valeurCalculee ?? ''))
+    e.target.select()
+  }
   function surSaisieMontant(texte) {
-    if (affichage === 'ht') { onChangeMontant(texte); return }
-    onChangeMontant(String(htDepuisTtc(parseFloat(texte) || 0, taux)))
+    // Le champ est en type="text" (pas type="number") précisément pour
+    // accepter la virgule française comme séparateur décimal : un
+    // <input type="number"> rejette silencieusement la virgule à la
+    // frappe (elle n'est juste pas insérée) et les chiffres tapés après
+    // s'enchaînent sans elle — "61,67" devient "6167" sans que rien ne
+    // le signale, un montant 100x trop grand. On normalise donc virgule
+    // -> point avant tout calcul ou renvoi au parent (qui fait lui aussi
+    // un parseFloat, lequel tronque silencieusement à la virgule).
+    const texteNormalise = texte.replace(',', '.')
+    setTexteSaisi(texteNormalise)
+    if (affichage === 'ht') { onChangeMontant(texteNormalise); return }
+    onChangeMontant(String(htDepuisTtc(parseFloat(texteNormalise) || 0, taux)))
+  }
+  function surBlur() {
+    setEnEdition(false)
+  }
+  function basculerAffichage() {
+    if (disabled) return
+    setAffichage(a => a === 'ht' ? 'ttc' : 'ht')
+    declencherFocusSelect.current = true
   }
 
   const inputStyle = {
@@ -68,14 +104,14 @@ export function SaisieMontantTva({ montantHt, tauxTva, onChangeMontant, onChange
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...style }}>
-      <input ref={inputRef} type="number" min="0" value={valeurAffichee} disabled={disabled}
-        onChange={e => surSaisieMontant(e.target.value)} onFocus={e => e.target.select()} style={inputStyle} />
+      <input ref={inputRef} type="text" inputMode="decimal" value={valeurAffichee} disabled={disabled}
+        onChange={e => surSaisieMontant(e.target.value)} onFocus={surFocus} onBlur={surBlur} style={inputStyle} />
       <select value={taux} disabled={disabled} onChange={e => onChangeTaux(Number(e.target.value))} style={selectStyle}
         title="Taux de TVA">
         {(TAUX_TVA_COURANTS.includes(taux) ? TAUX_TVA_COURANTS : [...TAUX_TVA_COURANTS, taux].sort((a, b) => a - b))
           .map(t => <option key={t} value={t}>{t}%</option>)}
       </select>
-      <button type="button" disabled={disabled} onClick={() => setAffichage(a => a === 'ht' ? 'ttc' : 'ht')}
+      <button type="button" disabled={disabled} onClick={basculerAffichage}
         title={affichage === 'ht' ? 'Saisie en HT — cliquer pour basculer en TTC' : 'Saisie en TTC — cliquer pour revenir en HT'}
         style={toggleStyle}>
         {affichage === 'ht' ? 'HT' : 'TTC'}
