@@ -59,10 +59,17 @@ export default function Projets() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filtreStatut, setFiltreStatut] = useState('Tous')
+  // Filtre par "gérant" du dossier — on réutilise created_by_email (voir
+  // sql/projet_createur_migration.sql), déjà utilisé comme contact du
+  // projet sur les documents (lib/contacts.js) : c'est la seule notion de
+  // "personne responsable" qui existe dans le modèle, pas de champ dédié
+  // séparé du créateur à ce jour.
+  const [filtreCreateur, setFiltreCreateur] = useState('Tous')
   // 'date' garde l'ordre naturel de fetchAll (created_at décroissant) ;
   // 'statut' regroupe les projets par étape du cycle de vie (voir STATUTS
   // plus haut, qui donne déjà l'ordre du workflow) — pratique pour voir
   // d'un coup d'œil tous les devis envoyés, tous les chantiers en cours...
+  // 'createur' regroupe par gérant du dossier (created_by_email).
   const [tri, setTri] = useState('statut')
   // Les projets clôturés ne sont quasiment jamais consultés une fois le
   // chantier terminé — masqués par défaut à chaque ouverture de la page
@@ -186,12 +193,20 @@ export default function Projets() {
     fetchAll()
   }
 
+  // Liste des gérants distincts présents dans les projets chargés, pour
+  // peupler le filtre — triée alphabétiquement sur la partie affichée
+  // (avant @), pas sur l'email complet, pour un ordre cohérent avec ce qui
+  // est affiché dans le menu.
+  const createurs = Array.from(new Set(projets.map(p => p.created_by_email).filter(Boolean)))
+    .sort((a, b) => a.split('@')[0].localeCompare(b.split('@')[0]))
+
   const filtered = projets.filter(p => {
     const matchSearch = p.nom?.toLowerCase().includes(search.toLowerCase()) || p.clients?.nom?.toLowerCase().includes(search.toLowerCase())
     const matchStatut = filtreStatut === 'Tous'
       ? (!masquerClotures || p.statut !== 'Clôturé')
       : p.statut === filtreStatut
-    return matchSearch && matchStatut
+    const matchCreateur = filtreCreateur === 'Tous' || p.created_by_email === filtreCreateur
+    return matchSearch && matchStatut && matchCreateur
   })
   // .filter() renvoie déjà un nouveau tableau — .sort() en place ici ne
   // touche pas `projets` (l'ordre par date reste intact au prochain fetch).
@@ -202,6 +217,10 @@ export default function Projets() {
       const ia = STATUTS.indexOf(a.statut), ib = STATUTS.indexOf(b.statut)
       return (ia === -1 ? STATUTS.length : ia) - (ib === -1 ? STATUTS.length : ib)
     })
+  } else if (tri === 'createur') {
+    // Les projets sans créateur connu (créés avant projet_createur_migration.sql,
+    // voir ProjetDetail.jsx) partent en fin de liste plutôt qu'en tête.
+    filtered.sort((a, b) => (a.created_by_email || '￿').localeCompare(b.created_by_email || '￿'))
   }
 
   return (
@@ -224,10 +243,18 @@ export default function Projets() {
           <option>Tous</option>
           {STATUTS.map(s => <option key={s}>{s}</option>)}
         </select>
+        {createurs.length > 1 && (
+          <select value={filtreCreateur} onChange={e => setFiltreCreateur(e.target.value)}
+            style={{ ...inputUnderline, flex: 1, cursor: 'pointer' }}>
+            <option value="Tous">Tous les gérants</option>
+            {createurs.map(c => <option key={c} value={c}>{c.split('@')[0]}</option>)}
+          </select>
+        )}
         <select value={tri} onChange={e => setTri(e.target.value)}
           style={{ ...inputUnderline, flex: 1, cursor: 'pointer' }}>
           <option value="date">Trier par date</option>
           <option value="statut">Trier par statut</option>
+          <option value="createur">Trier par gérant</option>
         </select>
         {filtreStatut === 'Tous' && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: colors.inkMuted, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
@@ -319,11 +346,13 @@ export default function Projets() {
         ) : (
           <div>
             {filtered.map((p, i) => {
-              // En tri par statut, un petit intitulé au-dessus du premier
-              // projet de chaque groupe — sinon le regroupement n'est
-              // visible qu'au marqueur de statut de chaque ligne, facile à
-              // manquer en survolant vite la liste.
-              const nouveauGroupe = tri === 'statut' && (i === 0 || filtered[i - 1].statut !== p.statut)
+              // En tri par statut ou par gérant, un petit intitulé au-dessus
+              // du premier projet de chaque groupe — sinon le regroupement
+              // n'est visible qu'au marqueur de statut de chaque ligne (ou pas
+              // du tout pour le gérant), facile à manquer en survolant vite
+              // la liste.
+              const nouveauGroupe = (tri === 'statut' && (i === 0 || filtered[i - 1].statut !== p.statut))
+                || (tri === 'createur' && (i === 0 || filtered[i - 1].created_by_email !== p.created_by_email))
 
               // Barres "% facturé" — voir BarreFacturation plus haut. Même
               // garde-fou que l'onglet Rentabilité : avant "En cours", un
@@ -343,7 +372,9 @@ export default function Projets() {
                 <div key={p.id}>
                   {nouveauGroupe && (
                     <div style={{ ...eyebrow, display: 'flex', alignItems: 'center', gap: 8, margin: i === 0 ? '0 0 8px' : '28px 0 8px' }}>
-                      <span style={marker(statutProjetMarker[p.statut])} />{p.statut}
+                      {tri === 'createur'
+                        ? (p.created_by_email || 'Gérant inconnu')
+                        : <><span style={marker(statutProjetMarker[p.statut])} />{p.statut}</>}
                     </div>
                   )}
                   <div onClick={() => navigate('/projets/' + p.id)}
