@@ -18,6 +18,7 @@ import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 import { IconApercu, IconEnvoyer, IconPieces, IconSupprimer, IconGlisser, IconDupliquer } from '../components/Icons'
 import { SaisieMontantTva } from '../components/SaisieMontantTva'
+import { SelecteurFournisseur } from '../components/SelecteurFournisseur'
 import { aDeLaMiseEnForme, mettreEnPage, dessiner, hauteurLigne, PALETTE_COULEURS } from '../lib/pdfRichText'
 import { markupVersHtml, domVersMarkup, interceptionEntree, interceptionCollage } from '../lib/richTextEditeur'
 
@@ -3886,18 +3887,15 @@ export default function ProjetDetail() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                   <div>
                     <label style={fieldLabel}>Fournisseur</label>
-                    <select value={formCmd.fournisseur_id} onChange={e => {
-                        const fournisseur_id = e.target.value
+                    <SelecteurFournisseur fournisseurs={fournisseurs} value={formCmd.fournisseur_id}
+                      onChange={fournisseur_id => {
                         // Pré-sélectionne le régime de TVA de la commande d'après le
                         // réglage "Autoliquidation par défaut" du fournisseur choisi
                         // (voir Fournisseurs.jsx) — reste modifiable juste en dessous.
                         const f = fournisseurs.find(fr => fr.id === fournisseur_id)
                         setFormCmd(p => ({ ...p, fournisseur_id, regime_tva: f?.autoliquidation ? 'autoliquidation' : 'normale' }))
                       }}
-                      style={{ ...inputUnderline, cursor: 'pointer' }}>
-                      <option value=''>— Aucun —</option>
-                      {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
-                    </select>
+                      style={inputUnderline} />
                   </div>
                   <div>
                     <label style={fieldLabel}>N° commande (auto)</label>
@@ -4022,18 +4020,15 @@ export default function ProjetDetail() {
                               style={{ ...inStyle, width: 120, color: colors.inkMuted, ...styleVerrouille }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
-                            <select value={getCmdVal(c, 'fournisseur_id') || ''} disabled={verrouille} onChange={e => {
-                                const fournisseur_id = e.target.value
+                            <SelecteurFournisseur fournisseurs={fournisseurs} value={getCmdVal(c, 'fournisseur_id') || ''} disabled={verrouille}
+                              onChange={fournisseur_id => {
                                 editCmd(c.id, 'fournisseur_id', fournisseur_id)
                                 // Même pré-sélection automatique du régime de TVA qu'à la
                                 // création — voir formCmd.fournisseur_id ci-dessus.
                                 const f = fournisseurs.find(fr => fr.id === fournisseur_id)
                                 editCmd(c.id, 'regime_tva', f?.autoliquidation ? 'autoliquidation' : 'normale')
                               }}
-                              style={{ ...inStyle, width: 160, cursor: 'pointer', ...styleVerrouille }}>
-                              <option value=''>— Aucun —</option>
-                              {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
-                            </select>
+                              style={{ ...inStyle, width: 160, ...styleVerrouille }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
                             <input value={getCmdVal(c, 'description')} onChange={e => editCmd(c.id, 'description', e.target.value)} disabled={verrouille}
@@ -4198,9 +4193,9 @@ export default function ProjetDetail() {
                     <input value={formFfrs.numero} onChange={e => setFormFfrs(p => ({ ...p, numero: e.target.value }))} placeholder="FAC-2026-001"
                       style={inputUnderline} /></div>
                   <div><label style={fieldLabel}>Fournisseur</label>
-                    <select value={formFfrs.fournisseur_id} onChange={e => { const fournisseur_id = e.target.value; setFormFfrs(p => ({ ...p, fournisseur_id, date_echeance: echeanceFfrsVerrouillee ? echeanceFfrsAuto(p.date_facture, fournisseur_id) : p.date_echeance })) }}
-                      style={{ ...inputUnderline, cursor: 'pointer' }}>
-                      <option value=''>— Aucun —</option>{fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}</select></div>
+                    <SelecteurFournisseur fournisseurs={fournisseurs} value={formFfrs.fournisseur_id}
+                      onChange={fournisseur_id => setFormFfrs(p => ({ ...p, fournisseur_id, date_echeance: echeanceFfrsVerrouillee ? echeanceFfrsAuto(p.date_facture, fournisseur_id) : p.date_echeance }))}
+                      style={inputUnderline} /></div>
                   <div><label style={fieldLabel}>Commande liée</label>
                     <select value={formFfrs.commande_id} onChange={e => setFormFfrs(p => ({ ...p, commande_id: e.target.value }))}
                       style={{ ...inputUnderline, cursor: 'pointer' }}>
@@ -4276,11 +4271,9 @@ export default function ProjetDetail() {
                         </span>
                       </td>
                       <td style={{ padding: '8px 14px' }}>
-                        <select value={getFacFrsVal(f, 'fournisseur_id') || ''} onChange={e => editFacFrs(f.id, 'fournisseur_id', e.target.value)} disabled={verrouille}
-                          style={{ ...inStyle, width: 140, cursor: 'pointer', ...styleVerrouille }}>
-                          <option value=''>— Aucun —</option>
-                          {fournisseurs.map(fr => <option key={fr.id} value={fr.id}>{fr.nom}</option>)}
-                        </select>
+                        <SelecteurFournisseur fournisseurs={fournisseurs} value={getFacFrsVal(f, 'fournisseur_id') || ''} disabled={verrouille}
+                          onChange={fournisseur_id => editFacFrs(f.id, 'fournisseur_id', fournisseur_id)}
+                          style={{ ...inStyle, width: 140, ...styleVerrouille }} />
                       </td>
                       <td style={{ padding: '8px 14px' }}>
                         <select value={getFacFrsVal(f, 'commande_id') || ''} onChange={e => editFacFrs(f.id, 'commande_id', e.target.value)} disabled={verrouille}
