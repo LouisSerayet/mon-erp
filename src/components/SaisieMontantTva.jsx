@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { colors, fonts } from '../lib/theme'
 import { TAUX_TVA_COURANTS, ttcDepuisHt, htDepuisTtc } from '../lib/tva'
 
@@ -28,6 +28,23 @@ export function SaisieMontantTva({ montantHt, tauxTva, onChangeMontant, onChange
     ? montantHt
     : String(ttcDepuisHt(parseFloat(montantHt) || 0, taux))
 
+  // Basculer HT<->TTC change seulement l'AFFICHAGE, pas la valeur stockée
+  // (voir note plus haut) — pour qu'on ne s'y trompe pas (ex. basculer en
+  // TTC sur une ligne déjà remplie, voir le nombre recalculé, et cliquer
+  // Enregistrer sans l'avoir retapé : ça ne corrige rien puisque rien n'a
+  // changé), on amène le focus dans le champ et on sélectionne tout son
+  // contenu juste après un basculement, pour inviter à retaper directement
+  // le montant qu'on a sous les yeux. Le premier rendu (valeur par défaut
+  // 'ht') est explicitement exclu pour ne pas voler le focus au chargement
+  // de chaque ligne de la liste.
+  const inputRef = useRef(null)
+  const affichagePrecedent = useRef(affichage)
+  useEffect(() => {
+    const aBascule = affichagePrecedent.current !== affichage
+    affichagePrecedent.current = affichage
+    if (aBascule && !disabled) { inputRef.current?.focus(); inputRef.current?.select() }
+  })
+
   function surSaisieMontant(texte) {
     if (affichage === 'ht') { onChangeMontant(texte); return }
     onChangeMontant(String(htDepuisTtc(parseFloat(texte) || 0, taux)))
@@ -51,8 +68,8 @@ export function SaisieMontantTva({ montantHt, tauxTva, onChangeMontant, onChange
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...style }}>
-      <input type="number" min="0" value={valeurAffichee} disabled={disabled}
-        onChange={e => surSaisieMontant(e.target.value)} style={inputStyle} />
+      <input ref={inputRef} type="number" min="0" value={valeurAffichee} disabled={disabled}
+        onChange={e => surSaisieMontant(e.target.value)} onFocus={e => e.target.select()} style={inputStyle} />
       <select value={taux} disabled={disabled} onChange={e => onChangeTaux(Number(e.target.value))} style={selectStyle}
         title="Taux de TVA">
         {(TAUX_TVA_COURANTS.includes(taux) ? TAUX_TVA_COURANTS : [...TAUX_TVA_COURANTS, taux].sort((a, b) => a - b))
