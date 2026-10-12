@@ -6,6 +6,9 @@ import { fmtDateFr as fmtDate } from '../lib/calculs'
 import { colors, fonts, eyebrow, quietLink } from '../lib/theme'
 import { verifierNouvellesFactures } from '../lib/useImportFactures'
 import { envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
+import { CATEGORIES } from '../lib/depenses'
+import { tauxTvaDepense } from '../lib/tva'
+import { SaisieMontantTva } from '../components/SaisieMontantTva'
 
 // Boîte de réception des factures fournisseurs reçues par email — voir
 // sql/factures_frs_a_traiter_migration.sql et api/import-factures-frs.js
@@ -15,6 +18,21 @@ import { envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
 // commande concernés, et n'a plus qu'à être validée pour créer la vraie
 // facture fournisseur (même effet qu'une création manuelle : PDF archivé,
 // envoi automatique à Pennylane inclus).
+//
+// Toutes les factures reçues ne concernent pas un projet client : la note
+// d'honoraires du comptable, un abonnement logiciel... sont des dépenses
+// générales de la société (voir Depenses.jsx). Chaque email peut donc
+// être validé selon deux chemins (bascule "Type" dans le formulaire,
+// voir TYPES_VALIDATION ci-dessous) : soit une facture fournisseur liée à
+// un projet (comportement d'origine), soit une dépense générale — même
+// PDF déjà archivé, pas de re-upload, juste une destination différente
+// (table depenses_generales au lieu de factures_frs). Voir sql/
+// factures_frs_a_traiter_depense_migration.sql pour la colonne
+// depense_generale_id qui trace ce second chemin.
+const TYPES_VALIDATION = [
+  { id: 'facture', label: 'Facture fournisseur (projet)' },
+  { id: 'depense', label: 'Dépense générale' },
+]
 
 const inputUnderline = {
   padding: '7px 2px', background: 'transparent', border: 'none',
@@ -63,6 +81,7 @@ export default function BoiteReceptionFactures() {
       for (const item of (items || [])) {
         if (next[item.id]) continue
         next[item.id] = {
+          type: 'facture', // 'facture' | 'depense' — voir TYPES_VALIDATION
           fournisseur_id: item.fournisseur_id || '',
           commande_id: item.commande_id || '',
           projet_id: item.projet_id || '',
@@ -77,6 +96,13 @@ export default function BoiteReceptionFactures() {
           statut: 'À payer',
           date_facture: '',
           date_echeance: '',
+          // Champs utilisés uniquement si type === 'depense' (voir
+          // Depenses.jsx, même schéma) — libellé pré-rempli à partir du
+          // sujet de l'email (nettoyé d'un éventuel préfixe "Fw:"/"Tr:"),
+          // modifiable avant validation.
+          libelle: (item.sujet || '').replace(/^(fwd?|tr)\s*:\s*/i, ''),
+          categorie: CATEGORIES[0],
+          taux_tva: tauxTvaDepense(CATEGORIES[0]),
         }
       }
       return next
@@ -106,6 +132,10 @@ export default function BoiteReceptionFactures() {
         const c = commandes.find(c => c.id === courant.commande_id)
         if (c && c.fournisseur_id !== valeur) courant.commande_id = ''
       }
+      // Changer de catégorie de dépense met à jour le taux de TVA par
+      // défaut associé (ex. Assurance -> 0%) — même logique que le
+      // formulaire de création dans Depenses.jsx.
+      if (champ === 'categorie') courant.taux_tva = tauxTvaDepense(valeur)
       return { ...prev, [itemId]: courant }
     })
   }
@@ -130,6 +160,8 @@ export default function BoiteReceptionFactures() {
 
   async function valider(item) {
     const f = forms[item.id] || {}
+    if (f.type === 'depense') { await validerCommeDepense(item, f); return }
+
     if (!f.fournisseur_id) { alert('Sélectionne le fournisseur.'); return }
     if (!f.projet_id) { alert('Sélectionne le projet concerné.'); return }
     if (!f.numero?.trim()) { alert('Le numéro de facture est obligatoire.'); return }
@@ -162,6 +194,38 @@ export default function BoiteReceptionFactures() {
     }
 
     await supabase.from('factures_frs_a_traiter').update({ statut: 'traitee', facture_frs_id: inserted.id, traite_at: new Date().toISOString() }).eq('id', item.id)
+    setBoite(prev => prev.filter(x => x.id !== item.id))
+    setBusyId(null)
+  }
+
+  // Chemin "Dépense générale" — même schéma/table que Depenses.jsx, sauf
+  // qu'il n'y a ni projet ni commande (une dépense générale n'est liée à
+  // aucun des deux) et que le PDF est repris tel quel depuis l'archivage
+  // déjà fait à l'import (pas de re-upload). Volontairement pas d'envoi
+  // automatique à Pennylane ici : les dépenses générales partent par lot
+  // depuis la page Exports, comme une dépense créée manuellement (voir
+  // Depenses.jsx, qui ne fait pas non plus d'envoi à la création).
+  async function validerCommeDepense(item, f) {
+    if (!f.libelle?.trim()) { alert('Le libellé est obligatoire.'); return }
+    if (!f.date_facture) { alert('La date de facture est obligatoire (sinon la dépense n\'apparaît pas dans le Compte de résultat).'); return }
+    setBusyId(item.id); setError('')
+
+    const { data: inserted, error: insertErr } = await supabase.from('depenses_generales').insert([{
+      libelle: f.libelle.trim(),
+      categorie: f.categorie || CATEGORIES[0],
+      numero: f.numero?.trim() || null,
+      fournisseur_id: f.fournisseur_id || null,
+      montant_ht: parseFloat(f.montant_ht) || 0,
+      taux_tva: Number(f.taux_tva ?? tauxTvaDepense(f.categorie)),
+      statut: f.statut || 'À payer',
+      date_facture: f.date_facture || null,
+      date_echeance: f.date_echeance || null,
+      fichier_path: item.fichier_path, // déjà archivé lors de l'import, pas besoin de re-uploader
+    }]).select().single()
+
+    if (insertErr) { setError('Erreur lors de la création de la dépense : ' + insertErr.message); setBusyId(null); return }
+
+    await supabase.from('factures_frs_a_traiter').update({ statut: 'traitee', depense_generale_id: inserted.id, traite_at: new Date().toISOString() }).eq('id', item.id)
     setBoite(prev => prev.filter(x => x.id !== item.id))
     setBusyId(null)
   }
@@ -233,58 +297,121 @@ export default function BoiteReceptionFactures() {
                   mobile faute de place pour deux colonnes. */}
               <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, alignItems: 'flex-start' }}>
                 <div style={{ flex: '1 1 420px', minWidth: 0 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(2, 1fr)', gap: 16, marginBottom: 14 }}>
-                    <div>
-                      <label style={fieldLabel}>Fournisseur *</label>
-                      <select value={f.fournisseur_id || ''} onChange={e => editForm(item.id, 'fournisseur_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
-                        <option value=''>—</option>
-                        {fournisseurs.map(fr => <option key={fr.id} value={fr.id}>{fr.nom}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={fieldLabel}>Commande</label>
-                      <select value={f.commande_id || ''} onChange={e => editForm(item.id, 'commande_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
-                        <option value=''>— Aucune —</option>
-                        {commandesDuFournisseur(f.fournisseur_id).map(c => <option key={c.id} value={c.id}>{c.numero || c.description}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={fieldLabel}>Projet *</label>
-                      <select value={f.projet_id || ''} onChange={e => editForm(item.id, 'projet_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
-                        <option value=''>—</option>
-                        {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={fieldLabel}>N° facture *</label>
-                      <input value={f.numero || ''} onChange={e => editForm(item.id, 'numero', e.target.value)} style={inputUnderline} />
-                    </div>
-                    <div>
-                      <label style={fieldLabel}>Montant HT</label>
-                      <input type="number" step="0.01" value={f.montant_ht || ''} onChange={e => editForm(item.id, 'montant_ht', e.target.value)} style={inputUnderline} />
-                    </div>
-                    <div>
-                      <label style={fieldLabel}>Date facture</label>
-                      <input type="date" value={f.date_facture || ''} onChange={e => editForm(item.id, 'date_facture', e.target.value)} style={inputUnderline} />
-                    </div>
-                    <div>
-                      <label style={fieldLabel}>Échéance</label>
-                      <input type="date" value={f.date_echeance || ''} onChange={e => editForm(item.id, 'date_echeance', e.target.value)} style={inputUnderline} />
-                    </div>
-                    <div>
-                      <label style={fieldLabel}>Statut</label>
-                      <select value={f.statut || 'À payer'} onChange={e => editForm(item.id, 'statut', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
-                        <option value='À payer'>À payer</option>
-                        <option value='Payée'>Payée</option>
-                      </select>
-                    </div>
+                  {/* Type de validation — une facture reçue par email ne
+                      concerne pas forcément un projet (comptable,
+                      abonnement...) : voir TYPES_VALIDATION plus haut. */}
+                  <div style={{ display: 'flex', gap: 0, marginBottom: 16, border: '1px solid ' + colors.line, width: 'fit-content' }}>
+                    {TYPES_VALIDATION.map(t => (
+                      <button key={t.id} onClick={() => editForm(item.id, 'type', t.id)}
+                        style={{
+                          padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: fonts.display,
+                          background: (f.type || 'facture') === t.id ? colors.ink : 'transparent',
+                          color: (f.type || 'facture') === t.id ? colors.surface : colors.inkMuted,
+                        }}>
+                        {t.label}
+                      </button>
+                    ))}
                   </div>
+
+                  {f.type === 'depense' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(2, 1fr)', gap: 16, marginBottom: 14 }}>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <label style={fieldLabel}>Libellé *</label>
+                        <input value={f.libelle || ''} onChange={e => editForm(item.id, 'libelle', e.target.value)} style={inputUnderline} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Catégorie</label>
+                        <select value={f.categorie || CATEGORIES[0]} onChange={e => editForm(item.id, 'categorie', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Fournisseur</label>
+                        <select value={f.fournisseur_id || ''} onChange={e => editForm(item.id, 'fournisseur_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                          <option value=''>—</option>
+                          {fournisseurs.map(fr => <option key={fr.id} value={fr.id}>{fr.nom}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>N° facture</label>
+                        <input value={f.numero || ''} onChange={e => editForm(item.id, 'numero', e.target.value)} style={inputUnderline} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Montant HT</label>
+                        <SaisieMontantTva montantHt={f.montant_ht} tauxTva={f.taux_tva}
+                          onChangeMontant={v => editForm(item.id, 'montant_ht', v)}
+                          onChangeTaux={v => editForm(item.id, 'taux_tva', v)} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Date facture *</label>
+                        <input type="date" value={f.date_facture || ''} onChange={e => editForm(item.id, 'date_facture', e.target.value)} style={inputUnderline} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Échéance</label>
+                        <input type="date" value={f.date_echeance || ''} onChange={e => editForm(item.id, 'date_echeance', e.target.value)} style={inputUnderline} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Statut</label>
+                        <select value={f.statut || 'À payer'} onChange={e => editForm(item.id, 'statut', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                          <option value='À payer'>À payer</option>
+                          <option value='Payée'>Payée</option>
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(2, 1fr)', gap: 16, marginBottom: 14 }}>
+                      <div>
+                        <label style={fieldLabel}>Fournisseur *</label>
+                        <select value={f.fournisseur_id || ''} onChange={e => editForm(item.id, 'fournisseur_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                          <option value=''>—</option>
+                          {fournisseurs.map(fr => <option key={fr.id} value={fr.id}>{fr.nom}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Commande</label>
+                        <select value={f.commande_id || ''} onChange={e => editForm(item.id, 'commande_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                          <option value=''>— Aucune —</option>
+                          {commandesDuFournisseur(f.fournisseur_id).map(c => <option key={c.id} value={c.id}>{c.numero || c.description}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Projet *</label>
+                        <select value={f.projet_id || ''} onChange={e => editForm(item.id, 'projet_id', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                          <option value=''>—</option>
+                          {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>N° facture *</label>
+                        <input value={f.numero || ''} onChange={e => editForm(item.id, 'numero', e.target.value)} style={inputUnderline} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Montant HT</label>
+                        <input type="number" step="0.01" value={f.montant_ht || ''} onChange={e => editForm(item.id, 'montant_ht', e.target.value)} style={inputUnderline} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Date facture</label>
+                        <input type="date" value={f.date_facture || ''} onChange={e => editForm(item.id, 'date_facture', e.target.value)} style={inputUnderline} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Échéance</label>
+                        <input type="date" value={f.date_echeance || ''} onChange={e => editForm(item.id, 'date_echeance', e.target.value)} style={inputUnderline} />
+                      </div>
+                      <div>
+                        <label style={fieldLabel}>Statut</label>
+                        <select value={f.statut || 'À payer'} onChange={e => editForm(item.id, 'statut', e.target.value)} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                          <option value='À payer'>À payer</option>
+                          <option value='Payée'>Payée</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
                     <button onClick={() => valider(item)} disabled={busyId === item.id} style={{ ...quietLink, fontSize: 13 }}>
-                      {busyId === item.id ? 'Enregistrement...' : 'Valider → créer la facture fournisseur'}
+                      {busyId === item.id ? 'Enregistrement...' : f.type === 'depense' ? 'Valider → créer la dépense générale' : 'Valider → créer la facture fournisseur'}
                     </button>
-                    {f.projet_id && (
+                    {f.type !== 'depense' && f.projet_id && (
                       <button onClick={() => navigate('/projets/' + f.projet_id)} style={{ ...quietLink, fontSize: 12, color: colors.inkFaint, borderBottomColor: colors.inkFaint }}>
                         Voir le projet
                       </button>
