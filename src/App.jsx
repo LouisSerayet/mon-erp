@@ -20,9 +20,7 @@ const FacturesFournisseurs = lazy(() => import('./pages/FacturesFournisseurs'))
 const CommandesFournisseurs = lazy(() => import('./pages/CommandesFournisseurs'))
 const Recherche = lazy(() => import('./pages/Recherche'))
 const Depenses = lazy(() => import('./pages/Depenses'))
-const Resultat = lazy(() => import('./pages/Resultat'))
 const Tresorerie = lazy(() => import('./pages/Tresorerie'))
-const Rapprochement = lazy(() => import('./pages/Rapprochement'))
 const Corbeille = lazy(() => import('./pages/Corbeille'))
 const Historique = lazy(() => import('./pages/Historique'))
 const Exports = lazy(() => import('./pages/Exports'))
@@ -71,9 +69,16 @@ function Gate() {
             <Route path="boite-reception-factures" element={<BoiteReceptionFactures />} />
             <Route path="recherche" element={<Recherche />} />
             <Route path="depenses" element={<Depenses />} />
-            <Route path="resultat" element={<Resultat />} />
-            <Route path="tresorerie" element={<Tresorerie />} />
-            <Route path="rapprochement" element={<Rapprochement />} />
+            {/* Trésorerie regroupe maintenant Comptes/TVA/Rapprochement/
+                Compte de résultat en onglets (voir Tresorerie.jsx) — les
+                anciennes pages séparées /resultat et /rapprochement
+                redirigent vers l'onglet correspondant pour préserver les
+                favoris/liens existants (même principe que la redirection
+                /devis -> /projets ci-dessus). */}
+            <Route path="tresorerie" element={<Navigate to="/tresorerie/comptes" replace />} />
+            <Route path="tresorerie/:tab" element={<Tresorerie />} />
+            <Route path="resultat" element={<Navigate to="/tresorerie/resultat" replace />} />
+            <Route path="rapprochement" element={<Navigate to="/tresorerie/rapprochement" replace />} />
             <Route path="corbeille" element={<Corbeille />} />
             <Route path="historique" element={<Historique />} />
             <Route path="exports" element={<Exports />} />

@@ -5,14 +5,15 @@ import { useAuth } from '../lib/AuthContext'
 import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, quietLink } from '../lib/theme'
 
-// Dashboard, Compte de résultat, Trésorerie et Rapprochement n'ont plus
-// d'entrée ici : le logo (desktop) / l'onglet Dashboard (mobile) ouvre
-// toujours le Dashboard, et les trois autres pages ne sont plus atteintes
-// que via leurs widgets sur le Dashboard (solde Qonto → Trésorerie +
-// Rapprochement, mini-widget compte de résultat → Compte de résultat).
+// Dashboard n'a pas d'entrée ici : le logo (desktop) / l'onglet Dashboard
+// (mobile) y ramène toujours. Trésorerie regroupe maintenant Comptes/TVA/
+// Rapprochement/Compte de résultat en onglets (voir Tresorerie.jsx) — une
+// seule entrée suffit donc ici, les widgets du Dashboard y mènent aussi
+// (sur l'onglet correspondant).
 const nav = [
   { to: '/projets', label: 'Projets', icon: '📋' },
   { to: '/depenses', label: 'Dépenses', icon: '💸' },
+  { to: '/tresorerie', label: 'Trésorerie', icon: '💰' },
   { section: 'Comptes' },
   { to: '/clients', label: 'Clients', icon: '👤' },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },

@@ -1,10 +1,11 @@
-// TVA (collectée / déductible / nette) — logique partagée entre le
-// Compte de résultat (src/pages/Resultat.jsx, avec sélecteur de période
-// et détail ligne par ligne) et l'onglet Trésorerie (src/pages/Tresorerie.jsx,
-// simple mémo sous le solde bancaire pour le mois en cours). Extrait ici
-// pour que les deux pages appliquent exactement les mêmes règles — les
-// corriger une fois les corrige partout, au lieu de risquer que l'une
-// dérive de l'autre.
+// TVA (collectée / déductible / nette) — logique partagée entre les
+// onglets "TVA" et "Compte de résultat" de Trésorerie (voir
+// src/pages/tresorerie/Tva.jsx et CompteResultat.jsx, chacun avec son
+// propre sélecteur de période et son propre détail ligne par ligne) et
+// l'onglet "Comptes" (simple mémo sous le solde bancaire pour le mois en
+// cours, voir src/pages/tresorerie/Comptes.jsx). Extrait ici pour que les
+// trois appliquent exactement les mêmes règles — les corriger une fois
+// les corrige partout, au lieu de risquer que l'un dérive des autres.
 //
 // Volontairement indicatif, pas une déclaration officielle — la
 // déclaration réelle se fait dans Pennylane / avec le comptable. Voir le

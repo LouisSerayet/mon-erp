@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
-import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
-import { rapprocherFactures, appliquerRapprochement, appliquerRapprochementGroupe } from '../lib/rapprochement'
-import { useIsMobile } from '../lib/useIsMobile'
-import { CATEGORIES } from '../lib/depenses'
-import { CATEGORIES_ECRITURES } from '../lib/ecrituresDiverses'
-import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
-import { tauxTvaDepense, htDepuisTtc } from '../lib/tva'
-import { SaisieMontantTva } from '../components/SaisieMontantTva'
-import { colors, fonts, eyebrow, quietLink, marker } from '../lib/theme'
+import { supabase } from '../../lib/supabase'
+import { getBankAccounts, getTransactionsPourRapprochement } from '../../lib/useQonto'
+import { rapprocherFactures, appliquerRapprochement, appliquerRapprochementGroupe } from '../../lib/rapprochement'
+import { CATEGORIES } from '../../lib/depenses'
+import { CATEGORIES_ECRITURES } from '../../lib/ecrituresDiverses'
+import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../../lib/calculs'
+import { tauxTvaDepense, htDepuisTtc } from '../../lib/tva'
+import { SaisieMontantTva } from '../../components/SaisieMontantTva'
+import { colors, fonts, eyebrow, quietLink, marker } from '../../lib/theme'
 
 // Nombre max de transactions non rapprochées affichées (les plus récentes
 // d'abord) — au-delà, la liste serait juste noyée sous des mouvements
@@ -18,7 +17,7 @@ const MAX_NON_RAPPROCHEES = 25
 // Libellé + couleur (marqueur) du badge "Confiance" dans l'historique,
 // selon qonto_match_confiance ('exact' et 'montant' viennent de
 // rapprocherFactures() dans lib/rapprochement.js, 'creation' et
-// 'manuel_groupe' des actions manuelles de cette page — voir
+// 'manuel_groupe' des actions manuelles de cet onglet — voir
 // creerFactureDepuisTransaction / creerDepenseDepuisTransaction et
 // appliquerRapprochementGroupe).
 const BADGE_CONFIANCE = {
@@ -45,8 +44,13 @@ const fieldLabel = { display: 'block', fontSize: 11, color: colors.inkFaint, tex
 const btnPrimary = { background: colors.ink, color: colors.surface, border: 'none', padding: '10px 20px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
 const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px solid ' + colors.line, padding: '10px 18px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
 
+// Onglet "Rapprochement" de Trésorerie — matching des transactions Qonto
+// avec les factures/dépenses ouvertes, + création directe d'une dépense,
+// d'une facture client ou d'une écriture diverse depuis une transaction
+// sans correspondance. Anciennement la page /rapprochement à part entière
+// (toujours accessible à cette URL, qui redirige maintenant vers cet
+// onglet — voir App.jsx).
 export default function Rapprochement() {
-  const isMobile = useIsMobile()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [dernierRapport, setDernierRapport] = useState(null) // { appliques, echecs }
@@ -455,7 +459,7 @@ export default function Rapprochement() {
   }
 
   return (
-    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
+    <div>
       {/* Modale "Créer une dépense" à partir d'une transaction Qonto (débit)
           sans correspondance — voir ouvrirCreationDepense /
           creerDepenseDepuisTransaction. */}
@@ -694,25 +698,21 @@ export default function Rapprochement() {
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
-        <div>
-          <p style={eyebrow}>Partenaires Particuliers</p>
-          <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Rapprochement</h1>
-          <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Factures ouvertes rapprochées des transactions Qonto</p>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <p style={{ color: colors.inkMuted, fontSize: 13, margin: 0 }}>Factures ouvertes rapprochées des transactions Qonto</p>
         <button onClick={lancerRapprochement} disabled={loading} style={quietLink}>
           {loading ? 'Rapprochement...' : 'Relancer'}
         </button>
       </div>
 
       {error && (
-        <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', margin: '28px 0 0', fontSize: 13 }}>
+        <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', margin: '20px 0 0', fontSize: 13 }}>
           {error}
         </div>
       )}
 
       {dernierRapport && (
-        <div style={{ borderLeft: '2px solid ' + (dernierRapport.appliques > 0 ? colors.success : colors.line), color: colors.ink, padding: '10px 14px', margin: '28px 0 0', fontSize: 13 }}>
+        <div style={{ borderLeft: '2px solid ' + (dernierRapport.appliques > 0 ? colors.success : colors.line), color: colors.ink, padding: '10px 14px', margin: '20px 0 0', fontSize: 13 }}>
           {dernierRapport.appliques > 0
             ? `${dernierRapport.appliques} facture(s) marquée(s) payée(s) automatiquement (numéro de facture retrouvé dans une transaction Qonto correspondante).`
             : 'Aucune correspondance exacte trouvée automatiquement cette fois-ci.'}
@@ -724,7 +724,7 @@ export default function Rapprochement() {
         <div style={{ padding: '60px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13 }}>Chargement des transactions Qonto et des factures ouvertes...</div>
       ) : (
         <>
-          <div style={{ marginTop: 36 }}>
+          <div style={{ marginTop: 28 }}>
             <div style={{ ...eyebrow, marginBottom: 4 }}>
               Factures clients à confirmer ({suggestionsCli.length})
             </div>

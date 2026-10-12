@@ -1,30 +1,24 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
-import { useIsMobile } from '../lib/useIsMobile'
-import { fmtEUR as fmt, fmtDateFr } from '../lib/calculs'
-import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
-import { calculerTva } from '../lib/tva'
-import { BlocTva } from '../components/BlocTva'
+import { supabase } from '../../lib/supabase'
+import { useIsMobile } from '../../lib/useIsMobile'
+import { fmtEUR as fmt, fmtDateFr } from '../../lib/calculs'
+import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../../lib/theme'
 
-// Compte de résultat "en live" — vue d'ensemble de toute la société sur
-// une période donnée (par défaut l'année en cours), en comptabilité
-// d'engagement : une facture compte dès qu'elle est émise/reçue (sa
-// date_facture), pas seulement une fois payée. Recalculé à chaque
-// chargement directement depuis les données de l'ERP (projets, factures
-// clients/fournisseurs, dépenses générales) — rien n'est mis en cache ou
-// figé, contrairement à un vrai bilan comptable.
+// Onglet "Compte de résultat" de Trésorerie — vue d'ensemble "en live" de
+// toute la société sur une période donnée (par défaut l'année en cours),
+// en comptabilité d'engagement : une facture compte dès qu'elle est
+// émise/reçue (sa date_facture), pas seulement une fois payée. Recalculé
+// à chaque chargement directement depuis les données de l'ERP (projets,
+// factures clients/fournisseurs, dépenses générales) — rien n'est mis en
+// cache ou figé, contrairement à un vrai bilan comptable.
 //
 // Volontairement une vue d'ensemble (pas de ventilation facture par
 // facture) : CA, achats liés aux projets, marge brute, dépenses
 // générales par catégorie, résultat net. Pour le détail projet par
 // projet, voir l'onglet "Rentabilité" de chaque projet ; pour le détail
 // facture par facture, voir la page "Dépenses" ou l'onglet "Factures".
-//
-// Section TVA (collectée / déductible / nette) : indicative, pas une
-// déclaration — même logique de période/données que le reste de la page.
-// Règles de calcul (autoliquidation, catégories hors TVA...) partagées
-// avec le mémo TVA de l'onglet Trésorerie via lib/tva.js — voir ce
-// fichier pour le détail.
+// Pour la TVA, voir l'onglet "TVA" d'à côté (anciennement une section ici
+// même, désormais partagée — voir Tva.jsx et lib/tva.js).
 
 const MOIS_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
 const inputUnderline = {
@@ -35,7 +29,7 @@ const inputUnderline = {
 
 function anneeCourante() { return new Date().getFullYear() }
 
-export default function Resultat() {
+export default function CompteResultat() {
   const isMobile = useIsMobile()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -43,11 +37,10 @@ export default function Resultat() {
   const [periodePerso, setPeriodePerso] = useState(false)
   const [debutPerso, setDebutPerso] = useState('')
   const [finPerso, setFinPerso] = useState('')
-  const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois, tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette, nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible, detailCA, detailAchats }
+  const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois, detailCA, detailAchats }
   // Pour les tuiles "Chiffre d'affaires" / "Achats projets" du haut de
   // page — Louis n'avait jusqu'ici que le total, sans savoir quelles
-  // factures (et quels projets) le composaient. (Le détail TVA équivalent
-  // est géré en interne par <BlocTva>, voir components/BlocTva.jsx.)
+  // factures (et quels projets) le composaient.
   const [detailKpiOuvert, setDetailKpiOuvert] = useState(null) // null | 'ca' | 'achats'
   const [sansDate, setSansDate] = useState([]) // lignes sans date_facture, donc invisibles dans le calcul ci-dessus quelle que soit la période
 
@@ -81,14 +74,7 @@ export default function Resultat() {
     try {
       const [{ data: fcli, error: fcliErr }, { data: ffrs, error: ffrsErr }, { data: dep, error: depErr },
         { data: fcliSansDate }, { data: ffrsSansDate }, { data: depSansDate }] = await Promise.all([
-        // projets(taux_tva) : le taux de TVA d'une facture client dépend du
-        // projet auquel elle est rattachée (voir sql/tva_taux_migration.sql).
-        // numero/projets(nom) : uniquement pour le détail TVA ligne par
-        // ligne (voir plus bas), pas utilisés dans les totaux CA/marge.
         supabase.from('factures_cli').select('id, numero, montant_ht, date_facture, projets(nom, taux_tva)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
-        // commandes(regime_tva) / fournisseurs(autoliquidation) : une facture
-        // fournisseur en autoliquidation (sous-traitance BTP, article 283 du
-        // CGI) n'a pas de TVA à déduire — voir le calcul de TVA plus bas.
         supabase.from('factures_frs').select('id, numero, montant_ht, taux_tva, date_facture, commandes(numero, regime_tva), fournisseurs(nom, autoliquidation)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
         supabase.from('depenses_generales').select('id, libelle, montant_ht, taux_tva, date_facture, categorie, fournisseurs(nom)').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
         // Une ligne sans date de facture ne peut matcher aucun filtre
@@ -119,8 +105,7 @@ export default function Resultat() {
       const totalDepenses = depData.reduce((s, d) => s + (d.montant_ht || 0), 0)
 
       // Détail facture par facture des tuiles "Chiffre d'affaires" / "Achats
-      // projets" — même principe que detailCollectee/detailDeductible
-      // (lib/tva.js) : la tuile ne montre qu'une somme, ces listes montrent
+      // projets" — la tuile ne montre qu'une somme, ces listes montrent
       // d'où elle vient (voir "Voir le détail" plus bas dans le rendu).
       const detailCA = (fcli || [])
         .slice()
@@ -132,16 +117,6 @@ export default function Resultat() {
         .map(f => ({ id: f.id, date: f.date_facture, ref: f.numero || '(sans numéro)', secondaire: f.fournisseurs?.nom || (f.commandes?.numero ? 'Commande ' + f.commandes.numero : '—'), montantHt: f.montant_ht || 0 }))
       const margeBrute = totalCA - totalAchats
       const resultatNet = margeBrute - totalDepenses
-
-      // TVA (indicatif) — but : donner un ordre de grandeur de ce qui
-      // resterait à reverser (ou à récupérer) au titre de la TVA sur la
-      // période, pas une déclaration exacte (la déclaration réelle se
-      // fait dans Pennylane). Règles de calcul dans lib/tva.js, partagées
-      // avec le mémo de l'onglet Trésorerie.
-      const {
-        tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette,
-        nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible,
-      } = calculerTva({ fcli, ffrs, depData })
 
       const parCategorieMap = {}
       for (const d of depData) {
@@ -185,8 +160,6 @@ export default function Resultat() {
 
       setData({
         totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois,
-        tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette,
-        nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible,
         detailCA, detailAchats,
       })
     } catch (err) {
@@ -208,45 +181,36 @@ export default function Resultat() {
   const maxMois = data ? Math.max(1, ...data.parMois.flatMap(m => [m.ca, m.charges])) : 1
 
   return (
-    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1280, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
-        <div>
-          <p style={eyebrow}>Partenaires Particuliers</p>
-          <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Compte de résultat</h1>
-          <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0', maxWidth: 480 }}>
-            Vue d'ensemble en direct — CA, achats, dépenses générales, à partir des factures émises/reçues (payées ou non)
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-          {!periodePerso && (
-            <select value={annee} onChange={e => setAnnee(Number(e.target.value))} style={{ ...inputUnderline, cursor: 'pointer' }}>
-              {anneesDispos.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
-          )}
-          {periodePerso && (
-            <>
-              <input type="date" value={debutPerso} onChange={e => setDebutPerso(e.target.value)} style={inputUnderline} />
-              <span style={{ color: colors.inkFaint, fontSize: 13 }}>→</span>
-              <input type="date" value={finPerso} onChange={e => setFinPerso(e.target.value)} style={inputUnderline} />
-            </>
-          )}
-          <button onClick={() => setPeriodePerso(p => !p)} style={quietLink}>
-            {periodePerso ? 'Annuler la période perso' : 'Période perso'}
-          </button>
-          <button onClick={charger} disabled={loading} title="Recalculer avec les dernières données" style={quietLink}>
-            {loading ? '...' : 'Actualiser'}
-          </button>
-        </div>
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+        {!periodePerso && (
+          <select value={annee} onChange={e => setAnnee(Number(e.target.value))} style={{ ...inputUnderline, cursor: 'pointer' }}>
+            {anneesDispos.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        )}
+        {periodePerso && (
+          <>
+            <input type="date" value={debutPerso} onChange={e => setDebutPerso(e.target.value)} style={inputUnderline} />
+            <span style={{ color: colors.inkFaint, fontSize: 13 }}>→</span>
+            <input type="date" value={finPerso} onChange={e => setFinPerso(e.target.value)} style={inputUnderline} />
+          </>
+        )}
+        <button onClick={() => setPeriodePerso(p => !p)} style={quietLink}>
+          {periodePerso ? 'Annuler la période perso' : 'Période perso'}
+        </button>
+        <button onClick={charger} disabled={loading} title="Recalculer avec les dernières données" style={quietLink}>
+          {loading ? '...' : 'Actualiser'}
+        </button>
       </div>
 
       {error && (
-        <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', margin: '28px 0 0', fontSize: 13 }}>
+        <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', margin: '20px 0 0', fontSize: 13 }}>
           {error}
         </div>
       )}
 
       {sansDate.length > 0 && (
-        <div style={{ borderLeft: '2px solid ' + colors.warning, color: colors.ink, padding: '12px 16px', margin: '28px 0 0', fontSize: 13 }}>
+        <div style={{ borderLeft: '2px solid ' + colors.warning, color: colors.ink, padding: '12px 16px', margin: '20px 0 0', fontSize: 13 }}>
           <div style={{ fontWeight: 600, marginBottom: 4, color: colors.warning }}>
             {sansDate.length} ligne{sansDate.length > 1 ? 's' : ''} sans date de facture — exclue{sansDate.length > 1 ? 's' : ''} du calcul ci-dessous, quelle que soit la période choisie
           </div>
@@ -264,7 +228,7 @@ export default function Resultat() {
       ) : (
         <>
           {/* KPIs */}
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', margin: '36px 0 40px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', margin: '28px 0 40px' }}>
             {[
               { label: 'Chiffre d\'affaires', value: fmt(data.totalCA), sub: 'Factures clients émises', detailKey: 'ca' },
               { label: 'Achats projets', value: fmt(data.totalAchats), sub: 'Factures fournisseurs', detailKey: 'achats' },
@@ -286,9 +250,7 @@ export default function Resultat() {
           </div>
 
           {/* Détail facture par facture du CA / des achats — voir detailCA /
-              detailAchats plus haut. Même table que la section TVA (Date,
-              Référence, Projet/Fournisseur, Montant HT), sans les colonnes
-              TVA qui n'ont pas de sens ici. */}
+              detailAchats plus haut. */}
           {(detailKpiOuvert === 'ca' || detailKpiOuvert === 'achats') && (
             <div style={{ margin: '-24px 0 40px', borderTop: '1px solid ' + colors.line, overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: isMobile ? 480 : 'auto' }}>
@@ -317,12 +279,6 @@ export default function Resultat() {
               </table>
             </div>
           )}
-
-          {/* TVA (indicatif) — composant partagé avec l'onglet TVA de
-              Trésorerie, voir components/BlocTva.jsx. */}
-          <div style={{ borderTop: '1px solid ' + colors.line, paddingTop: 28, margin: '0 0 40px' }}>
-            <BlocTva data={data} isMobile={isMobile} />
-          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr', gap: isMobile ? 40 : 48 }}>
 

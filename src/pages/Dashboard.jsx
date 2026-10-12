@@ -334,11 +334,11 @@ export default function Dashboard() {
       </p>
 
       {/* Solde bancaire (Qonto) + Compte de résultat — mini-widgets cliquables
-          vers Trésorerie/Rapprochement et Compte de résultat, seules portes
-          d'entrée vers ces pages maintenant qu'elles n'ont plus d'onglet
-          dans le menu (voir Layout.jsx). */}
+          vers les onglets "Comptes"/"Rapprochement" et "Compte de résultat"
+          de Trésorerie (voir Tresorerie.jsx), aussi atteignable directement
+          depuis le menu désormais (voir Layout.jsx). */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', marginTop: isMobile ? 28 : 44 }}>
-        <div onClick={() => navigate('/tresorerie')} style={{ padding: isMobile ? '0 0 22px' : '26px 32px 26px 0', cursor: 'pointer' }}>
+        <div onClick={() => navigate('/tresorerie/comptes')} style={{ padding: isMobile ? '0 0 22px' : '26px 32px 26px 0', cursor: 'pointer' }}>
           <div style={{ ...eyebrow, marginBottom: 14 }}>Solde bancaire — Qonto</div>
           {loadingSoldeQonto ? (
             <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
@@ -349,11 +349,11 @@ export default function Dashboard() {
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
             <a style={quietLink}>Voir la trésorerie</a>
-            <a onClick={e => { e.stopPropagation(); navigate('/rapprochement') }} style={quietLink}>Rapprocher</a>
+            <a onClick={e => { e.stopPropagation(); navigate('/tresorerie/rapprochement') }} style={quietLink}>Rapprocher</a>
           </div>
         </div>
 
-        <div onClick={() => navigate('/resultat')} style={{ padding: isMobile ? '22px 0 0' : '26px 0 26px 32px', borderTop: isMobile ? '1px solid ' + colors.line : 'none', borderLeft: isMobile ? 'none' : '1px solid ' + colors.line, cursor: 'pointer' }}>
+        <div onClick={() => navigate('/tresorerie/resultat')} style={{ padding: isMobile ? '22px 0 0' : '26px 0 26px 32px', borderTop: isMobile ? '1px solid ' + colors.line : 'none', borderLeft: isMobile ? 'none' : '1px solid ' + colors.line, cursor: 'pointer' }}>
           <div style={{ ...eyebrow, marginBottom: 14 }}>Compte de résultat — {new Date().getFullYear()}</div>
           {loadingResultat ? (
             <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
