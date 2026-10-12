@@ -5,8 +5,26 @@ import { fetchTva } from '../lib/tva'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fmtDateFr as fmtDate, fmtEUR } from '../lib/calculs'
 import { colors, fonts, eyebrow, sectionTitle, quietLink } from '../lib/theme'
+import { BlocTva } from '../components/BlocTva'
+
+function anneeCourante() { return new Date().getFullYear() }
+const inputUnderline = {
+  padding: '7px 2px', background: 'transparent', border: 'none',
+  borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box',
+  fontFamily: fonts.display, color: colors.ink,
+}
+
+const TABS = [
+  { id: 'comptes', label: 'Comptes' },
+  { id: 'tva', label: 'TVA' },
+]
 
 export default function Tresorerie() {
+  // Onglets "Comptes" (contenu existant : soldes Qonto + transactions) et
+  // "TVA" (voir plus bas) — avant cet ajout, la page n'avait qu'une seule
+  // vue ; Louis voulait pouvoir filtrer la TVA par période sans aller sur
+  // le Compte de résultat (qui mélange ça avec CA/marge/dépenses).
+  const [tab, setTab] = useState('comptes')
   const isMobile = useIsMobile()
   const [accounts, setAccounts] = useState([])
   const [transactions, setTransactions] = useState([])
@@ -26,7 +44,26 @@ export default function Tresorerie() {
   // Qonto, une erreur ici n'empêche pas le reste de la page de fonctionner.
   const [tva, setTva] = useState(null)
 
+  // Onglet "TVA" — mêmes filtres de période (année ou période perso) que
+  // le Compte de résultat (voir Resultat.jsx), pour que Louis puisse
+  // calculer une TVA collectée/déductible sur n'importe quelle période
+  // sans passer par une page qui mélange ça avec CA/marge/dépenses.
+  // Calcul partagé via lib/tva.js (fetchTva) — jamais recalculé à la main
+  // ici, pour ne pas risquer de diverger silencieusement du Compte de
+  // résultat.
+  const [annee, setAnnee] = useState(anneeCourante())
+  const [periodePerso, setPeriodePerso] = useState(false)
+  const [debutPerso, setDebutPerso] = useState('')
+  const [finPerso, setFinPerso] = useState('')
+  const { debut: debutTvaPeriode, fin: finTvaPeriode } = periodePerso && debutPerso && finPerso
+    ? { debut: debutPerso, fin: finPerso }
+    : { debut: annee + '-01-01', fin: annee + '-12-31' }
+  const [tvaPeriode, setTvaPeriode] = useState(null)
+  const [loadingTvaPeriode, setLoadingTvaPeriode] = useState(false)
+  const [errorTvaPeriode, setErrorTvaPeriode] = useState('')
+
   useEffect(() => { fetchData(); chargerTva() }, [])
+  useEffect(() => { chargerTvaPeriode() }, [annee, periodePerso, debutPerso, finPerso])
 
   async function chargerTva() {
     try {
@@ -38,6 +75,19 @@ export default function Tresorerie() {
       console.error('TVA error:', err)
       setTva(null)
     }
+  }
+
+  async function chargerTvaPeriode() {
+    setLoadingTvaPeriode(true)
+    setErrorTvaPeriode('')
+    try {
+      setTvaPeriode(await fetchTva(supabase, { debut: debutTvaPeriode, fin: finTvaPeriode }))
+    } catch (err) {
+      console.error('TVA (période) error:', err)
+      setTvaPeriode(null)
+      setErrorTvaPeriode('Impossible de calculer la TVA sur cette période : ' + err.message)
+    }
+    setLoadingTvaPeriode(false)
   }
 
   async function fetchData() {
@@ -96,6 +146,7 @@ export default function Tresorerie() {
   }
 
   const totalSolde = accounts.reduce((s, a) => s + (a.balance_cents || 0), 0)
+  const anneesDispos = Array.from({ length: 6 }, (_, i) => anneeCourante() - 4 + i)
 
   if (loading) return (
     <div style={{ padding: 60, textAlign: 'center', color: colors.inkFaint, fontFamily: fonts.display, fontSize: 13 }}>
@@ -114,11 +165,26 @@ export default function Tresorerie() {
         <button onClick={() => { fetchData(); chargerTva() }} style={quietLink}>Actualiser</button>
       </div>
 
+      {/* Onglets */}
+      <div style={{ display: 'flex', borderBottom: '1px solid ' + colors.line, margin: '28px 0 0' }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ padding: '11px 16px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap', fontFamily: fonts.display,
+              fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? colors.ink : colors.inkFaint,
+              borderBottom: tab === t.id ? '2px solid ' + colors.ink : '2px solid transparent', marginBottom: -1 }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {error && (
         <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', margin: '28px 0 0', fontSize: 13 }}>
           {error}
         </div>
       )}
+
+      {tab === 'comptes' && (
+        <>
 
       {/* Solde total */}
       <div style={{ margin: '36px 0 32px', paddingBottom: 28, borderBottom: '1px solid ' + colors.line }}>
@@ -229,6 +295,46 @@ export default function Tresorerie() {
           </table>
         )}
       </div>
+
+        </>
+      )}
+
+      {tab === 'tva' && (
+        <div style={{ marginTop: 36 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 18, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+            {!periodePerso && (
+              <select value={annee} onChange={e => setAnnee(Number(e.target.value))} style={{ ...inputUnderline, cursor: 'pointer' }}>
+                {anneesDispos.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            )}
+            {periodePerso && (
+              <>
+                <input type="date" value={debutPerso} onChange={e => setDebutPerso(e.target.value)} style={inputUnderline} />
+                <span style={{ color: colors.inkFaint, fontSize: 13 }}>→</span>
+                <input type="date" value={finPerso} onChange={e => setFinPerso(e.target.value)} style={inputUnderline} />
+              </>
+            )}
+            <button onClick={() => setPeriodePerso(p => !p)} style={quietLink}>
+              {periodePerso ? 'Annuler la période perso' : 'Période perso'}
+            </button>
+            <button onClick={chargerTvaPeriode} disabled={loadingTvaPeriode} title="Recalculer avec les dernières données" style={quietLink}>
+              {loadingTvaPeriode ? '...' : 'Actualiser'}
+            </button>
+          </div>
+
+          {errorTvaPeriode && (
+            <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', margin: '0 0 20px', fontSize: 13 }}>
+              {errorTvaPeriode}
+            </div>
+          )}
+
+          {loadingTvaPeriode && !tvaPeriode ? (
+            <div style={{ padding: '30px 0', textAlign: 'center', color: colors.inkFaint, fontSize: 13 }}>Calcul en cours...</div>
+          ) : (
+            <BlocTva data={tvaPeriode} isMobile={isMobile} />
+          )}
+        </div>
+      )}
     </div>
   )
 }

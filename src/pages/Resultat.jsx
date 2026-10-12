@@ -4,6 +4,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt, fmtDateFr } from '../lib/calculs'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 import { calculerTva } from '../lib/tva'
+import { BlocTva } from '../components/BlocTva'
 
 // Compte de résultat "en live" — vue d'ensemble de toute la société sur
 // une période donnée (par défaut l'année en cours), en comptabilité
@@ -43,10 +44,10 @@ export default function Resultat() {
   const [debutPerso, setDebutPerso] = useState('')
   const [finPerso, setFinPerso] = useState('')
   const [data, setData] = useState(null) // { totalCA, totalAchats, totalDepenses, margeBrute, resultatNet, depensesParCategorie, parMois, tvaCollectee, tvaDeductible, tvaDeductibleAchats, tvaDeductibleDepenses, tvaNette, nbAutoliquidation, montantAutoliquidation, detailCollectee, detailDeductible, detailCA, detailAchats }
-  const [detailTvaOuvert, setDetailTvaOuvert] = useState(null) // null | 'collectee' | 'deductible' — quel détail TVA est déplié
-  // Même principe que detailTvaOuvert, pour les tuiles "Chiffre d'affaires" /
-  // "Achats projets" du haut de page — Louis n'avait jusqu'ici que le total,
-  // sans savoir quelles factures (et quels projets) le composaient.
+  // Pour les tuiles "Chiffre d'affaires" / "Achats projets" du haut de
+  // page — Louis n'avait jusqu'ici que le total, sans savoir quelles
+  // factures (et quels projets) le composaient. (Le détail TVA équivalent
+  // est géré en interne par <BlocTva>, voir components/BlocTva.jsx.)
   const [detailKpiOuvert, setDetailKpiOuvert] = useState(null) // null | 'ca' | 'achats'
   const [sansDate, setSansDate] = useState([]) // lignes sans date_facture, donc invisibles dans le calcul ci-dessus quelle que soit la période
 
@@ -317,103 +318,10 @@ export default function Resultat() {
             </div>
           )}
 
-          {/* TVA (indicatif) */}
+          {/* TVA (indicatif) — composant partagé avec l'onglet TVA de
+              Trésorerie, voir components/BlocTva.jsx. */}
           <div style={{ borderTop: '1px solid ' + colors.line, paddingTop: 28, margin: '0 0 40px' }}>
-            <h2 style={sectionTitle}>TVA sur la période</h2>
-            <p style={{ fontSize: 12, color: colors.inkFaint, margin: '10px 0 20px', maxWidth: 620 }}>
-              Ordre de grandeur, pas une déclaration : calculé sur les mêmes factures que ci-dessus (avec date, émises ou reçues sur la période).
-              {data.nbAutoliquidation > 0 && (
-                <> {data.nbAutoliquidation} facture{data.nbAutoliquidation > 1 ? 's' : ''} fournisseur{data.nbAutoliquidation > 1 ? 's' : ''} en autoliquidation ({fmt(data.montantAutoliquidation)}) neutre{data.nbAutoliquidation > 1 ? 's' : ''} pour la TVA, donc exclue{data.nbAutoliquidation > 1 ? 's' : ''} du calcul.</>
-              )}
-              {' '}À confirmer avec Pennylane ou ton comptable avant de reverser quoi que ce soit.
-            </p>
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)' }}>
-              {[
-                { label: 'TVA collectée', value: fmt(data.tvaCollectee), sub: 'Sur les factures clients', detailKey: 'collectee' },
-                { label: 'TVA déductible', value: fmt(data.tvaDeductible), sub: 'Achats ' + fmt(data.tvaDeductibleAchats) + ' + dépenses ' + fmt(data.tvaDeductibleDepenses), detailKey: 'deductible' },
-                {
-                  label: data.tvaNette >= 0 ? 'TVA à reverser' : 'Crédit de TVA',
-                  value: fmt(Math.abs(data.tvaNette)),
-                  sub: data.tvaNette >= 0 ? 'Collectée − déductible' : 'Déductible > collectée',
-                  color: data.tvaNette >= 0 ? colors.warning : colors.success,
-                },
-              ].map((k, i) => (
-                <div key={k.label} style={{ padding: isMobile ? '16px 0' : '0 24px', borderLeft: (!isMobile && i > 0) ? '1px solid ' + colors.line : 'none', borderTop: (isMobile && i > 1) ? '1px solid ' + colors.line : 'none' }}>
-                  <div style={eyebrow}>{k.label}</div>
-                  <div style={{ fontFamily: fonts.mono, fontSize: 20, fontWeight: 500, margin: '8px 0 4px', fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
-                  <div style={{ fontSize: 11, color: colors.inkFaint }}>{k.sub}</div>
-                  {k.detailKey && (
-                    <button onClick={() => setDetailTvaOuvert(p => (p === k.detailKey ? null : k.detailKey))} style={{ ...quietLink, fontSize: 11, marginTop: 8, display: 'inline-block' }}>
-                      {detailTvaOuvert === k.detailKey ? 'Masquer le détail' : 'Voir le détail'}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {detailTvaOuvert === 'collectee' && (
-              <div style={{ marginTop: 24, borderTop: '1px solid ' + colors.line, overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: isMobile ? 560 : 'auto' }}>
-                  <thead>
-                    <tr style={{ color: colors.inkFaint, fontSize: 10.5, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Date</th>
-                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Facture</th>
-                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Projet</th>
-                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>Montant HT</th>
-                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>Taux</th>
-                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>TVA</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.detailCollectee.length === 0 ? (
-                      <tr><td colSpan={6} style={{ padding: '20px 8px', textAlign: 'center', color: colors.inkFaint }}>Aucune facture client sur cette période.</td></tr>
-                    ) : data.detailCollectee.map(l => (
-                      <tr key={l.id} style={{ borderTop: '1px solid ' + colors.line }}>
-                        <td style={{ padding: '9px 8px', color: colors.inkMuted, whiteSpace: 'nowrap' }}>{fmtDateFr(l.date)}</td>
-                        <td style={{ padding: '9px 8px' }}>{l.ref}</td>
-                        <td style={{ padding: '9px 8px', color: colors.inkMuted }}>{l.secondaire}</td>
-                        <td style={{ padding: '9px 8px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(l.montantHt)}</td>
-                        <td style={{ padding: '9px 8px', textAlign: 'right', color: colors.inkMuted }}>{l.taux} %</td>
-                        <td style={{ padding: '9px 8px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(l.tva)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {detailTvaOuvert === 'deductible' && (
-              <div style={{ marginTop: 24, borderTop: '1px solid ' + colors.line, overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: isMobile ? 640 : 'auto' }}>
-                  <thead>
-                    <tr style={{ color: colors.inkFaint, fontSize: 10.5, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Date</th>
-                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Référence</th>
-                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Source</th>
-                      <th style={{ textAlign: 'left', padding: '10px 8px', fontWeight: 500 }}>Détail</th>
-                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>Montant HT</th>
-                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>Taux</th>
-                      <th style={{ textAlign: 'right', padding: '10px 8px', fontWeight: 500 }}>TVA</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.detailDeductible.length === 0 ? (
-                      <tr><td colSpan={7} style={{ padding: '20px 8px', textAlign: 'center', color: colors.inkFaint }}>Aucun achat ou dépense sur cette période.</td></tr>
-                    ) : data.detailDeductible.map(l => (
-                      <tr key={l.id} style={{ borderTop: '1px solid ' + colors.line }}>
-                        <td style={{ padding: '9px 8px', color: colors.inkMuted, whiteSpace: 'nowrap' }}>{fmtDateFr(l.date)}</td>
-                        <td style={{ padding: '9px 8px' }}>{l.ref}</td>
-                        <td style={{ padding: '9px 8px', color: l.source === 'Autoliquidation (neutre)' ? colors.warning : colors.inkMuted, whiteSpace: 'nowrap' }}>{l.source}</td>
-                        <td style={{ padding: '9px 8px', color: colors.inkMuted }}>{l.secondaire}</td>
-                        <td style={{ padding: '9px 8px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(l.montantHt)}</td>
-                        <td style={{ padding: '9px 8px', textAlign: 'right', color: colors.inkMuted }}>{l.taux} %</td>
-                        <td style={{ padding: '9px 8px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(l.tva)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <BlocTva data={data} isMobile={isMobile} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr', gap: isMobile ? 40 : 48 }}>
