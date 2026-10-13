@@ -2,9 +2,23 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../lib/useIsMobile'
-import { fmtEUR as fmt, ligneCompteDansTotal } from '../lib/calculs'
-import { colors, fonts, eyebrow, quietLink, marker, statutProjetMarker } from '../lib/theme'
+import { fmtEUR as fmt, ligneCompteDansTotal, calculerMarge } from '../lib/calculs'
+import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 import { IconClient, IconFournisseur, IconCommande } from '../components/Icons'
+
+// Raccourcis de filtrage courants pour le widget "Vue globale des projets"
+// (voir plus bas) — l'utilisateur peut aussi cocher/décocher chaque statut
+// à la main pour composer sa propre vue. Vivait avant dans Dashboard.jsx ;
+// déplacé ici (bouton "Vue globale") car peu consulté au quotidien — voir
+// la demande de Louis de dégager le tableau de bord de ce qui n'a pas
+// besoin d'y être vu tous les jours.
+const PRESETS_STATUTS = [
+  { label: 'Prévisionnel', statuts: ['Brouillon', 'Devis envoyé'] },
+  { label: 'Signés & actifs', statuts: ['Devis signé', 'En cours'] },
+  { label: 'Clôturés', statuts: ['Finalisation', 'Clôturé'] },
+  { label: 'Tout (hors perdus)', statuts: ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé'] },
+  { label: 'Tout', statuts: ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé', 'Perdu'] },
+]
 
 // Statuts à partir desquels la facturation a un sens à afficher : avant
 // "En cours", le projet n'est encore qu'un devis — une barre à 0% ne
@@ -87,6 +101,14 @@ export default function Projets() {
   const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
   const [error, setError] = useState('')
   const [savingProjet, setSavingProjet] = useState(false) // garde-fou anti double-clic
+  // Widget "Vue globale des projets" — replié par défaut (voir le bouton
+  // dans l'en-tête), avec ses propres filtres : statuts cochés (par défaut,
+  // tout sauf les projets perdus, qui fausseraient les totaux) et base de
+  // coût utilisée pour la marge — prévu (devis, dispo même sans commande)
+  // ou engagé (commandes fournisseurs actives).
+  const [showVueGlobale, setShowVueGlobale] = useState(false)
+  const [filtreStatutsGlobal, setFiltreStatutsGlobal] = useState(() => new Set(['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']))
+  const [baseCoutGlobal, setBaseCoutGlobal] = useState('prevu') // 'prevu' | 'engage'
   const navigate = useNavigate()
   const isMobile = useIsMobile()
 
@@ -193,6 +215,42 @@ export default function Projets() {
     fetchAll()
   }
 
+  // Coche/décoche un statut dans le widget "Vue globale des projets".
+  function toggleStatutGlobal(s) {
+    setFiltreStatutsGlobal(prev => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }
+
+  // Widget "Vue globale des projets" : CA/coût par projet à partir des
+  // agrégats déjà chargés par fetchAll (facturation.venteParProjet =
+  // vente prévue au devis, achatParProjet = coût prévu, commandeParProjet =
+  // coût engagé) — pas de requête supplémentaire, ni la liste `projets`
+  // (tous statuts, non filtrée par la recherche/les filtres du tableau
+  // ci-dessous) ni ces agrégats ne dépendent de `filtered`.
+  const projetsAvecCouts = projets.map(pr => ({
+    ...pr,
+    ca: pr.montant_ht || facturation.venteParProjet[pr.id] || 0,
+    coutPrevu: facturation.achatParProjet[pr.id] || 0,
+    coutEngage: facturation.commandeParProjet[pr.id] || 0,
+  }))
+  // Totaux du périmètre actuellement sélectionné (statuts cochés × base de
+  // coût prévu/engagé), + détail par statut pour situer chaque catégorie
+  // dans l'ensemble.
+  const projetsFiltresGlobal = projetsAvecCouts.filter(p => filtreStatutsGlobal.has(p.statut))
+  const caGlobalFiltre = projetsFiltresGlobal.reduce((s, p) => s + (p.ca || 0), 0)
+  const coutGlobalFiltre = projetsFiltresGlobal.reduce((s, p) => s + (baseCoutGlobal === 'prevu' ? p.coutPrevu : p.coutEngage), 0)
+  const { marge: margeGlobalFiltre, taux: tauxGlobalFiltre, coeff: coeffGlobalFiltre } = calculerMarge(caGlobalFiltre, coutGlobalFiltre)
+  const breakdownStatuts = STATUTS.map(s => {
+    const ps = projetsAvecCouts.filter(p => p.statut === s)
+    const ca = ps.reduce((sum, p) => sum + (p.ca || 0), 0)
+    const cout = ps.reduce((sum, p) => sum + (baseCoutGlobal === 'prevu' ? p.coutPrevu : p.coutEngage), 0)
+    const { marge, taux, coeff } = calculerMarge(ca, cout)
+    return { statut: s, nb: ps.length, ca, cout, marge, taux, coeff, actif: filtreStatutsGlobal.has(s) }
+  }).filter(b => b.nb > 0)
+
   // Liste des gérants distincts présents dans les projets chargés, pour
   // peupler le filtre — triée alphabétiquement sur la partie affichée
   // (avant @), pas sur l'email complet, pour un ordre cohérent avec ce qui
@@ -230,10 +288,109 @@ export default function Projets() {
           <p style={eyebrow}>Partenaires Particuliers</p>
           <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Projets</h1>
         </div>
-        <button onClick={() => { setShowForm(true); setError('') }} style={btnPrimary}>
-          + Nouveau projet
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => setShowVueGlobale(v => !v)} style={{ ...btnGhost, fontWeight: showVueGlobale ? 600 : 400, borderColor: showVueGlobale ? colors.ink : colors.line, color: showVueGlobale ? colors.ink : colors.inkMuted }}>
+            Vue globale
+          </button>
+          <button onClick={() => { setShowForm(true); setError('') }} style={btnPrimary}>
+            + Nouveau projet
+          </button>
+        </div>
       </div>
+
+      {/* Vue globale des projets — repliée par défaut (voir le bouton
+          ci-dessus) : filtres par statut (à cocher/décocher librement) +
+          choix de la base de coût (devis prévu / commandes engagées), pour
+          composer soi-même la vue voulue : prévisionnel, signés & actifs,
+          clôturés, etc. Anciennement sur le tableau de bord — déplacée ici
+          car consultée occasionnellement, pas au quotidien. */}
+      {showVueGlobale && (
+        <div style={{ marginBottom: 40 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
+            <h2 style={sectionTitle}>Vue globale des projets</h2>
+            <div style={{ display: 'flex', gap: 18 }}>
+              {[{ key: 'prevu', label: 'Coût prévu (devis)' }, { key: 'engage', label: 'Coût engagé (commandes)' }].map(b => (
+                <button key={b.key} onClick={() => setBaseCoutGlobal(b.key)}
+                  style={{ background: 'none', border: 'none', padding: '0 0 4px', borderBottom: '2px solid ' + (baseCoutGlobal === b.key ? colors.ink : 'transparent'), color: baseCoutGlobal === b.key ? colors.ink : colors.inkFaint, fontSize: 12, fontWeight: baseCoutGlobal === b.key ? 600 : 400, cursor: 'pointer', fontFamily: fonts.display }}>
+                  {b.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ paddingBottom: 20, borderBottom: '1px solid ' + colors.line }}>
+            <div style={{ fontSize: 11, color: colors.inkFaint, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.06em' }}>Raccourcis</div>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 18 }}>
+              {PRESETS_STATUTS.map(pr => (
+                <a key={pr.label} onClick={() => setFiltreStatutsGlobal(new Set(pr.statuts))} style={{ ...quietLink, fontSize: 12.5 }}>
+                  {pr.label}
+                </a>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: colors.inkFaint, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.06em' }}>Ou cocher/décocher un statut</div>
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+              {STATUTS.map(s => {
+                const actif = filtreStatutsGlobal.has(s)
+                return (
+                  <button key={s} onClick={() => toggleStatutGlobal(s)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'none', border: 'none', padding: '0 0 4px', borderBottom: '2px solid ' + (actif ? statutProjetMarker[s] : 'transparent'), cursor: 'pointer', fontFamily: fonts.display }}>
+                    <span style={marker(statutProjetMarker[s])} />
+                    <span style={{ fontSize: 12.5, color: actif ? colors.ink : colors.inkFaint, fontWeight: actif ? 600 : 400 }}>{s}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', borderBottom: '1px solid ' + colors.line }}>
+            {(() => {
+              const parLigne = isMobile ? 2 : 4
+              return [
+                { label: 'Projets sélectionnés', value: String(projetsFiltresGlobal.length) },
+                { label: 'CA total HT', value: fmt(caGlobalFiltre) },
+                { label: baseCoutGlobal === 'prevu' ? 'Coût prévu HT' : 'Coût engagé HT', value: fmt(coutGlobalFiltre) },
+                { label: 'Marge (' + tauxGlobalFiltre + ' % · coeff. ' + (coeffGlobalFiltre ?? '—') + ')', value: fmt(margeGlobalFiltre), color: margeGlobalFiltre >= 0 ? colors.success : colors.danger },
+              ].map((k, i) => {
+                const debutLigne = i % parLigne === 0
+                return (
+                  <div key={k.label} style={{ padding: isMobile ? '14px 14px 16px' : '18px 20px 20px 0', paddingLeft: debutLigne ? (isMobile ? 0 : 0) : (isMobile ? 14 : 20), borderLeft: debutLigne ? 'none' : '1px solid ' + colors.line, borderTop: isMobile && i >= parLigne ? '1px solid ' + colors.line : 'none' }}>
+                    <div style={{ fontSize: 11, color: colors.inkMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.06em' }}>{k.label}</div>
+                    <div style={{ fontFamily: fonts.mono, fontSize: isMobile ? 17 : 20, fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
+                  </div>
+                )
+              })
+            })()}
+          </div>
+
+          {breakdownStatuts.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', minWidth: 600, borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr>
+                    {['Statut', 'Nb', 'CA HT', 'Coût HT', 'Marge', 'Taux'].map((h, i) => (
+                      <th key={h} style={{ textAlign: i === 0 ? 'left' : 'right', fontWeight: 500, color: colors.inkFaint, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', padding: '12px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {breakdownStatuts.map(b => (
+                    <tr key={b.statut} style={{ opacity: b.actif ? 1 : 0.4, cursor: 'pointer' }} onClick={() => toggleStatutGlobal(b.statut)}>
+                      <td style={{ padding: '10px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={marker(statutProjetMarker[b.statut])} />{b.statut}</span>
+                      </td>
+                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line }}>{b.nb}</td>
+                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.ca)}</td>
+                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.cout)}</td>
+                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', color: b.marge >= 0 ? colors.success : colors.danger }}>{fmt(b.marge)}</td>
+                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{b.taux} % (coeff. {b.coeff ?? '—'})</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, marginBottom: 32, borderBottom: '1px solid ' + colors.line, paddingBottom: 20 }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un projet..."

@@ -1,51 +1,21 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
-import { calculerMarge, ligneCompteDansTotal, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
 import { getBankAccounts } from '../lib/useQonto'
 import { useIsMobile } from '../lib/useIsMobile'
-import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
-
-// Ordre d'affichage des statuts dans le widget "Vue globale des projets"
-// ci-dessous — reprend exactement STATUTS_PROJET de ProjetDetail.jsx/Projets.jsx.
-const STATUTS_ORDRE = ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé', 'Perdu']
-
-// Repère de couleur par statut — utilisé uniquement dans les vues d'analyse
-// (tableau de répartition ci-dessous) pour différencier les statuts d'un
-// coup d'œil ; les listes simples (Projets actifs, Commandes en attente)
-// restent en texte neutre, la couleur étant réservée à ce qui a vraiment
-// besoin d'attirer l'œil (retard, succès) plutôt qu'à la décoration.
-// Raccourcis de filtrage courants pour le widget — l'utilisateur peut aussi
-// cocher/décocher chaque statut à la main pour composer sa propre vue.
-const PRESETS_STATUTS = [
-  { label: 'Prévisionnel', statuts: ['Brouillon', 'Devis envoyé'] },
-  { label: 'Signés & actifs', statuts: ['Devis signé', 'En cours'] },
-  { label: 'Clôturés', statuts: ['Finalisation', 'Clôturé'] },
-  { label: 'Tout (hors perdus)', statuts: ['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé'] },
-  { label: 'Tout', statuts: STATUTS_ORDRE },
-]
+import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 
 export default function Dashboard() {
   const isMobile = useIsMobile()
   const [stats, setStats] = useState(null)
-  const [projets, setProjets] = useState([])
-  // Tous les projets (non tronqués/filtrés comme `projets` ci-dessus), avec
-  // leur CA et deux lectures de coût précalculées — alimente le widget
-  // "Vue globale des projets" (filtres par statut + prévisionnel/engagé).
-  const [projetsGlobal, setProjetsGlobal] = useState([])
   const [cmdEnAttente, setCmdEnAttente] = useState([])
   const [facturesFrsAPayer, setFacturesFrsAPayer] = useState([])
   const [facturesCliAEncaisser, setFacturesCliAEncaisser] = useState([])
   const [depensesAPayer, setDepensesAPayer] = useState([])
   const [relances, setRelances] = useState([])
   const [loading, setLoading] = useState(true)
-  // Widget "Vue globale des projets" : statuts cochés (par défaut, tout sauf
-  // les projets perdus, qui fausseraient les totaux) et base de coût
-  // utilisée pour la marge — prévu (devis, dispo même sans commande) ou
-  // engagé (commandes fournisseurs actives).
-  const [filtreStatutsGlobal, setFiltreStatutsGlobal] = useState(() => new Set(['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']))
-  const [baseCoutGlobal, setBaseCoutGlobal] = useState('prevu') // 'prevu' | 'engage'
   // État d'envoi par facture (id -> 'envoye'), uniquement pour le retour
   // visuel une fois l'envoi confirmé depuis la modale ci-dessous.
   const [envoiRelance, setEnvoiRelance] = useState({})
@@ -66,15 +36,6 @@ export default function Dashboard() {
   const [soldeQonto, setSoldeQonto] = useState(null) // en centimes, ou null tant que pas chargé
   const [soldeQontoError, setSoldeQontoError] = useState('')
   const [loadingSoldeQonto, setLoadingSoldeQonto] = useState(true)
-  // Mini-widget "Compte de résultat" — reprend une version simplifiée du
-  // calcul de Resultat.jsx (CA / marge brute / résultat net), uniquement
-  // pour l'année en cours et sans le détail par mois/catégorie, juste pour
-  // donner un chiffre d'ensemble cliquable vers la page complète. Même
-  // logique de try/catch séparé que le solde Qonto ci-dessus : un souci ici
-  // ne doit pas empêcher le reste du dashboard de s'afficher.
-  const [resultatAnnee, setResultatAnnee] = useState(null) // { totalCA, margeBrute, resultatNet } ou null
-  const [resultatError, setResultatError] = useState('')
-  const [loadingResultat, setLoadingResultat] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => { fetchAll() }, [])
@@ -91,40 +52,10 @@ export default function Dashboard() {
       setLoadingSoldeQonto(false)
     })()
   }, [])
-  useEffect(() => {
-    (async () => {
-      setLoadingResultat(true)
-      setResultatError('')
-      try {
-        const annee = new Date().getFullYear()
-        const debut = annee + '-01-01'
-        const fin = annee + '-12-31'
-        const [{ data: fcli, error: fcliErr }, { data: ffrs, error: ffrsErr }, { data: dep }] = await Promise.all([
-          supabase.from('factures_cli').select('montant_ht').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
-          supabase.from('factures_frs').select('montant_ht').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
-          // depenses_generales peut ne pas encore exister (migration non
-          // exécutée) — ignoré silencieusement, comme dans Resultat.jsx.
-          supabase.from('depenses_generales').select('montant_ht').is('deleted_at', null).gte('date_facture', debut).lte('date_facture', fin),
-        ])
-        if (fcliErr) throw fcliErr
-        if (ffrsErr) throw ffrsErr
-        const totalCA = (fcli || []).reduce((s, f) => s + (f.montant_ht || 0), 0)
-        const totalAchats = (ffrs || []).reduce((s, f) => s + (f.montant_ht || 0), 0)
-        const totalDepenses = (dep || []).reduce((s, d) => s + (d.montant_ht || 0), 0)
-        const margeBrute = totalCA - totalAchats
-        const resultatNet = margeBrute - totalDepenses
-        setResultatAnnee({ totalCA, margeBrute, resultatNet })
-      } catch (err) {
-        setResultatError(err.message)
-      }
-      setLoadingResultat(false)
-    })()
-  }, [])
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: p }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: dep }] = await Promise.all([
-      supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
+    const [{ data: cmd }, { data: ffrs }, { data: fcli }, { data: dep }] = await Promise.all([
       supabase.from('commandes').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'Brouillon').order('created_at', { ascending: false }),
       supabase.from('factures_frs').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
       // Le client vient du projet (projets → clients), pas du client_id
@@ -142,18 +73,12 @@ export default function Dashboard() {
       supabase.from('depenses_generales').select('*, fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
     ])
 
-    const projetsData = p || []
     const cmdData = cmd || []
     const ffrsData = ffrs || []
     const fcliData = fcli || []
     const depData = dep || []
 
     const today = new Date()
-    // CA total / Marge brute : uniquement les projets réellement "En cours"
-    // (pas les devis envoyés/signés, pas les projets finalisés/clôturés) —
-    // choix confirmé par l'utilisateur.
-    const projetsEnCours = projetsData.filter(x => x.statut === 'En cours')
-    const totalCA = projetsEnCours.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const totalFfrs = ffrsData.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const totalFcli = fcliData.reduce((s, x) => s + (x.montant_ht || 0), 0)
     const totalDepenses = depData.reduce((s, x) => s + (x.montant_ht || 0), 0)
@@ -161,64 +86,12 @@ export default function Dashboard() {
     const fcliEnRetard = fcliData.filter(f => f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < today)
     const depEnRetard = depData.filter(d => d.date_echeance && new Date(d.date_echeance) < today)
 
-    // Coût pour la marge : commandes des projets "En cours" uniquement (même
-    // périmètre que le CA ci-dessus), en excluant les commandes annulées —
-    // sinon une commande annulée puis remplacée était comptée deux fois.
-    const idsProjetsEnCours = new Set(projetsEnCours.map(p => p.id))
-    const [{ data: allCmd }, { data: allLignes }] = await Promise.all([
-      supabase.from('commandes').select('montant_ht, statut, projet_id').is('deleted_at', null),
-      // Lignes de tous les projets (lots + lignes hors lot) — sert à calculer
-      // un coût "prévu" (devis) par projet pour le widget "Vue globale des
-      // projets" ci-dessous, disponible même pour un devis pas encore
-      // commandé (contrairement au coût "engagé", basé sur les commandes).
-      supabase.from('projet_lignes').select('projet_id, type, lot, total_ht, total_achat, categorie_ligne, variante_active').is('deleted_at', null),
-    ])
-    const totalCmdEnCours = (allCmd || [])
-      .filter(c => c.statut !== 'Annulée' && idsProjetsEnCours.has(c.projet_id))
-      .reduce((s, c) => s + (c.montant_ht || 0), 0)
-    // Formule centralisée dans lib/calculs.js (calculerMarge) pour rester
-    // identique à celle utilisée dans l'onglet Rentabilité d'un projet.
-    const { marge: margeGlobale, taux: tauxMargeGlobale } = calculerMarge(totalCA, totalCmdEnCours)
-
-    // Coût engagé (commandes actives) par projet, tous statuts confondus —
-    // même exclusion des commandes "Annulée" que ci-dessus.
-    const coutEngageParProjet = new Map()
-    for (const c of (allCmd || [])) {
-      if (c.statut === 'Annulée') continue
-      coutEngageParProjet.set(c.projet_id, (coutEngageParProjet.get(c.projet_id) || 0) + (c.montant_ht || 0))
-    }
-    // Coût prévu (devis) par projet : lots + lignes hors lot, en excluant
-    // Options/variantes non retenues/texte — même méthode que l'onglet
-    // Rentabilité d'un projet (voir ProjetDetail.jsx, tab 'rentabilite').
-    // Les lots stockent déjà des totaux pré-filtrés (voir ligneCompteDansTotal
-    // dans lib/calculs.js), seules les lignes hors lot doivent être filtrées ici.
-    const lignesParProjet = new Map()
-    for (const l of (allLignes || [])) {
-      if (!lignesParProjet.has(l.projet_id)) lignesParProjet.set(l.projet_id, [])
-      lignesParProjet.get(l.projet_id).push(l)
-    }
-    const projetsAvecCouts = projetsData.map(pr => {
-      const ls = lignesParProjet.get(pr.id) || []
-      const lots = ls.filter(l => l.type === 'lot')
-      const lignesSansLot = ls.filter(l => l.type === 'ligne' && !l.lot && ligneCompteDansTotal(l))
-      const coutPrevu = lots.reduce((s, l) => s + (l.total_achat || 0), 0) + lignesSansLot.reduce((s, l) => s + (l.total_achat || 0), 0)
-      const venteLignes = lots.reduce((s, l) => s + (l.total_ht || 0), 0) + lignesSansLot.reduce((s, l) => s + (l.total_ht || 0), 0)
-      const ca = pr.montant_ht || venteLignes || 0
-      return { ...pr, ca, coutPrevu, coutEngage: coutEngageParProjet.get(pr.id) || 0 }
-    })
-    setProjetsGlobal(projetsAvecCouts)
-
     // "Commandes en attente" (carte + total affiché) : même périmètre que la
     // liste réellement montrée juste en dessous (statuts En attente/Envoyée),
     // pas le total de toutes les commandes jamais passées.
     const totalCmdEnAttente = cmdData.reduce((s, x) => s + (x.montant_ht || 0), 0)
 
     setStats({
-      nbProjets: projetsData.length,
-      nbEnCours: projetsData.filter(x => x.statut === 'En cours').length,
-      nbFinalisation: projetsData.filter(x => x.statut === 'Finalisation').length,
-      nbClotures: projetsData.filter(x => x.statut === 'Clôturé').length,
-      totalCA,
       totalCommandes: totalCmdEnAttente,
       totalFfrsAPayer: totalFfrs,
       totalFcliAEncaisser: totalFcli,
@@ -226,10 +99,7 @@ export default function Dashboard() {
       nbFfrsEnRetard: ffrsEnRetard.length,
       nbFcliEnRetard: fcliEnRetard.length,
       nbDepEnRetard: depEnRetard.length,
-      margeGlobale,
-      tauxMarge: tauxMargeGlobale,
     })
-    setProjets(projetsData.filter(p => p.statut !== 'Clôturé' && p.statut !== 'Perdu').slice(0, 6))
     setCmdEnAttente(cmdData.slice(0, 5))
     // Pas de slice(0, 5) sur ces trois listes : au-delà de 5 éléments, la
     // carte devient défilante (voir le style maxHeight/overflowY plus bas)
@@ -298,31 +168,7 @@ export default function Dashboard() {
   }
 
 
-  // Coche/décoche un statut dans le widget "Vue globale des projets".
-  function toggleStatutGlobal(s) {
-    setFiltreStatutsGlobal(prev => {
-      const next = new Set(prev)
-      if (next.has(s)) next.delete(s); else next.add(s)
-      return next
-    })
-  }
-
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: colors.inkFaint, fontFamily: fonts.display }}>Chargement...</div>
-
-  // Widget "Vue globale des projets" : totaux du périmètre actuellement
-  // sélectionné (statuts cochés × base de coût prévu/engagé), + détail par
-  // statut pour situer chaque catégorie dans l'ensemble.
-  const projetsFiltresGlobal = projetsGlobal.filter(p => filtreStatutsGlobal.has(p.statut))
-  const caGlobalFiltre = projetsFiltresGlobal.reduce((s, p) => s + (p.ca || 0), 0)
-  const coutGlobalFiltre = projetsFiltresGlobal.reduce((s, p) => s + (baseCoutGlobal === 'prevu' ? p.coutPrevu : p.coutEngage), 0)
-  const { marge: margeGlobalFiltre, taux: tauxGlobalFiltre, coeff: coeffGlobalFiltre } = calculerMarge(caGlobalFiltre, coutGlobalFiltre)
-  const breakdownStatuts = STATUTS_ORDRE.map(s => {
-    const ps = projetsGlobal.filter(p => p.statut === s)
-    const ca = ps.reduce((sum, p) => sum + (p.ca || 0), 0)
-    const cout = ps.reduce((sum, p) => sum + (baseCoutGlobal === 'prevu' ? p.coutPrevu : p.coutEngage), 0)
-    const { marge, taux, coeff } = calculerMarge(ca, cout)
-    return { statut: s, nb: ps.length, ca, cout, marge, taux, coeff, actif: filtreStatutsGlobal.has(s) }
-  }).filter(b => b.nb > 0)
 
   return (
     <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
@@ -333,51 +179,23 @@ export default function Dashboard() {
         {new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
       </p>
 
-      {/* Solde bancaire (Qonto) + Compte de résultat — mini-widgets cliquables
-          vers les onglets "Comptes"/"Rapprochement" et "Compte de résultat"
-          de Trésorerie (voir Tresorerie.jsx), aussi atteignable directement
-          depuis le menu désormais (voir Layout.jsx). */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', marginTop: isMobile ? 28 : 44 }}>
-        <div onClick={() => navigate('/tresorerie/comptes')} style={{ padding: isMobile ? '0 0 22px' : '26px 32px 26px 0', cursor: 'pointer' }}>
-          <div style={{ ...eyebrow, marginBottom: 14 }}>Solde bancaire — Qonto</div>
-          {loadingSoldeQonto ? (
-            <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
-          ) : soldeQontoError ? (
-            <div style={{ fontSize: 12, color: colors.danger }} title={soldeQontoError}>Indisponible — {soldeQontoError}</div>
-          ) : (
-            <div style={{ fontFamily: fonts.mono, fontSize: isMobile ? 28 : 34, fontWeight: 500, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{fmt(soldeQonto / 100)}</div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-            <a style={quietLink}>Voir la trésorerie</a>
-            <a onClick={e => { e.stopPropagation(); navigate('/tresorerie/rapprochement') }} style={quietLink}>Rapprocher</a>
-          </div>
-        </div>
-
-        <div onClick={() => navigate('/tresorerie/resultat')} style={{ padding: isMobile ? '22px 0 0' : '26px 0 26px 32px', borderTop: isMobile ? '1px solid ' + colors.line : 'none', borderLeft: isMobile ? 'none' : '1px solid ' + colors.line, cursor: 'pointer' }}>
-          <div style={{ ...eyebrow, marginBottom: 14 }}>Compte de résultat — {new Date().getFullYear()}</div>
-          {loadingResultat ? (
-            <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
-          ) : resultatError ? (
-            <div style={{ fontSize: 12, color: colors.danger }} title={resultatError}>Indisponible — {resultatError}</div>
-          ) : (
-            <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ fontFamily: fonts.mono, fontSize: 21, fontVariantNumeric: 'tabular-nums' }}>{fmt(resultatAnnee.totalCA)}</div>
-                <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>CA HT</div>
-              </div>
-              <div>
-                <div style={{ fontFamily: fonts.mono, fontSize: 21, fontVariantNumeric: 'tabular-nums', color: resultatAnnee.margeBrute >= 0 ? colors.success : colors.danger }}>{fmt(resultatAnnee.margeBrute)}</div>
-                <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>Marge brute</div>
-              </div>
-              <div>
-                <div style={{ fontFamily: fonts.mono, fontSize: 21, fontVariantNumeric: 'tabular-nums', color: resultatAnnee.resultatNet >= 0 ? colors.success : colors.danger }}>{fmt(resultatAnnee.resultatNet)}</div>
-                <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 4 }}>Résultat net</div>
-              </div>
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-            <a style={quietLink}>Voir le détail</a>
-          </div>
+      {/* Solde bancaire (Qonto) — mini-widget cliquable vers l'onglet
+          "Comptes" de Trésorerie (voir pages/tresorerie/Comptes.jsx), aussi
+          atteignable directement depuis le menu (voir Layout.jsx). Le détail
+          compte de résultat/TVA/rapprochement vit entièrement dans ce hub
+          désormais, pas de doublon ici. */}
+      <div onClick={() => navigate('/tresorerie/comptes')} style={{ marginTop: isMobile ? 28 : 44, padding: '0 0 22px', cursor: 'pointer', maxWidth: 360 }}>
+        <div style={{ ...eyebrow, marginBottom: 14 }}>Solde bancaire — Qonto</div>
+        {loadingSoldeQonto ? (
+          <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
+        ) : soldeQontoError ? (
+          <div style={{ fontSize: 12, color: colors.danger }} title={soldeQontoError}>Indisponible — {soldeQontoError}</div>
+        ) : (
+          <div style={{ fontFamily: fonts.mono, fontSize: isMobile ? 28 : 34, fontWeight: 500, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{fmt(soldeQonto / 100)}</div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+          <a style={quietLink}>Voir la trésorerie</a>
+          <a onClick={e => { e.stopPropagation(); navigate('/tresorerie/rapprochement') }} style={quietLink}>Rapprocher</a>
         </div>
       </div>
 
@@ -480,122 +298,13 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Vue globale des projets — filtres par statut (à cocher/décocher
-          librement) + choix de la base de coût (devis prévu / commandes
-          engagées), pour composer soi-même la vue voulue : prévisionnel,
-          signés & actifs, clôturés, etc. */}
-      <div style={{ marginTop: 48 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
-          <h2 style={sectionTitle}>Vue globale des projets</h2>
-          <div style={{ display: 'flex', gap: 18 }}>
-            {[{ key: 'prevu', label: 'Coût prévu (devis)' }, { key: 'engage', label: 'Coût engagé (commandes)' }].map(b => (
-              <button key={b.key} onClick={() => setBaseCoutGlobal(b.key)}
-                style={{ background: 'none', border: 'none', padding: '0 0 4px', borderBottom: '2px solid ' + (baseCoutGlobal === b.key ? colors.ink : 'transparent'), color: baseCoutGlobal === b.key ? colors.ink : colors.inkFaint, fontSize: 12, fontWeight: baseCoutGlobal === b.key ? 600 : 400, cursor: 'pointer', fontFamily: fonts.display }}>
-                {b.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ paddingBottom: 20, borderBottom: '1px solid ' + colors.line }}>
-          <div style={{ fontSize: 11, color: colors.inkFaint, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.06em' }}>Raccourcis</div>
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 18 }}>
-            {PRESETS_STATUTS.map(pr => (
-              <a key={pr.label} onClick={() => setFiltreStatutsGlobal(new Set(pr.statuts))} style={{ ...quietLink, fontSize: 12.5 }}>
-                {pr.label}
-              </a>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: colors.inkFaint, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.06em' }}>Ou cocher/décocher un statut</div>
-          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-            {STATUTS_ORDRE.map(s => {
-              const actif = filtreStatutsGlobal.has(s)
-              return (
-                <button key={s} onClick={() => toggleStatutGlobal(s)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'none', border: 'none', padding: '0 0 4px', borderBottom: '2px solid ' + (actif ? statutProjetMarker[s] : 'transparent'), cursor: 'pointer', fontFamily: fonts.display }}>
-                  <span style={marker(statutProjetMarker[s])} />
-                  <span style={{ fontSize: 12.5, color: actif ? colors.ink : colors.inkFaint, fontWeight: actif ? 600 : 400 }}>{s}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', borderBottom: '1px solid ' + colors.line }}>
-          {(() => {
-            const parLigne = isMobile ? 2 : 4
-            return [
-              { label: 'Projets sélectionnés', value: String(projetsFiltresGlobal.length) },
-              { label: 'CA total HT', value: fmt(caGlobalFiltre) },
-              { label: baseCoutGlobal === 'prevu' ? 'Coût prévu HT' : 'Coût engagé HT', value: fmt(coutGlobalFiltre) },
-              { label: 'Marge (' + tauxGlobalFiltre + ' % · coeff. ' + (coeffGlobalFiltre ?? '—') + ')', value: fmt(margeGlobalFiltre), color: margeGlobalFiltre >= 0 ? colors.success : colors.danger },
-            ].map((k, i) => {
-              const debutLigne = i % parLigne === 0
-              return (
-                <div key={k.label} style={{ padding: isMobile ? '14px 14px 16px' : '18px 20px 20px 0', paddingLeft: debutLigne ? (isMobile ? 0 : 0) : (isMobile ? 14 : 20), borderLeft: debutLigne ? 'none' : '1px solid ' + colors.line, borderTop: isMobile && i >= parLigne ? '1px solid ' + colors.line : 'none' }}>
-                  <div style={{ fontSize: 11, color: colors.inkMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.06em' }}>{k.label}</div>
-                  <div style={{ fontFamily: fonts.mono, fontSize: isMobile ? 17 : 20, fontVariantNumeric: 'tabular-nums', color: k.color || colors.ink }}>{k.value}</div>
-                </div>
-              )
-            })
-          })()}
-        </div>
-
-        {breakdownStatuts.length > 0 && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', minWidth: 600, borderCollapse: 'collapse', fontSize: 12.5 }}>
-              <thead>
-                <tr>
-                  {['Statut', 'Nb', 'CA HT', 'Coût HT', 'Marge', 'Taux'].map((h, i) => (
-                    <th key={h} style={{ textAlign: i === 0 ? 'left' : 'right', fontWeight: 500, color: colors.inkFaint, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', padding: '12px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {breakdownStatuts.map(b => (
-                  <tr key={b.statut} style={{ opacity: b.actif ? 1 : 0.4, cursor: 'pointer' }} onClick={() => toggleStatutGlobal(b.statut)}>
-                    <td style={{ padding: '10px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={marker(statutProjetMarker[b.statut])} />{b.statut}</span>
-                    </td>
-                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line }}>{b.nb}</td>
-                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.ca)}</td>
-                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.cout)}</td>
-                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', color: b.marge >= 0 ? colors.success : colors.danger }}>{fmt(b.marge)}</td>
-                    <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{b.taux} % (coeff. {b.coeff ?? '—'})</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 36 : 56, marginTop: 48 }}>
-
-        {/* Projets en cours */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
-            <h2 style={sectionTitle}>Projets actifs</h2>
-            <a onClick={() => navigate('/projets')} style={quietLink}>Voir tous</a>
-          </div>
-          <div style={{ borderTop: '1px solid ' + colors.line }}>
-            {projets.length === 0 ? (
-              <div style={{ padding: '20px 0', color: colors.inkFaint, fontSize: 13, borderBottom: '1px solid ' + colors.line }}>Aucun projet actif</div>
-            ) : projets.map(p => (
-              <div key={p.id} onClick={() => navigate('/projets/' + p.id)}
-                style={{ padding: '13px 0', borderBottom: '1px solid ' + colors.line, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nom}</div>
-                  <div style={{ fontSize: 11.5, color: colors.inkMuted, marginTop: 2 }}>{p.clients?.nom || '—'}</div>
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontFamily: fonts.mono, fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>{fmt(p.montant_ht)}</div>
-                  <div style={{ fontSize: 10.5, color: colors.inkFaint, marginTop: 3 }}>{p.statut}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* Commandes en attente, factures frs./cli., dépenses — la "Vue
+          globale des projets" (filtres par statut, prévu/engagé) et
+          "Projets actifs" ont été retirés de ce tableau de bord, remplacés
+          respectivement par le bouton "Vue globale" de l'onglet Projets
+          (voir Projets.jsx) et par l'onglet Trésorerie (qui regroupe déjà
+          tout le suivi financier). */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 36 : 48, marginTop: 48 }}>
 
         {/* Commandes en attente */}
         <div>
@@ -624,9 +333,6 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: isMobile ? 36 : 40, marginTop: 48 }}>
 
         {/* Factures frs à payer */}
         <div>
