@@ -6,9 +6,16 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { useTri, appliquerTri } from '../lib/useTri'
 import { ThTri } from '../components/ThTri'
 import { ConditionsPaiement } from '../components/ConditionsPaiement'
+import { ContactsMultiples } from '../components/ContactsMultiples'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 
 const METIERS = ['Électricité', 'Plomberie', 'CVC', 'Menuiserie', 'Cloisons', 'Sols', 'Peinture', 'Serrurerie', 'Informatique', 'Autre']
+
+// Suggestions de types de contact (voir fournisseur_contacts_migration.sql)
+// — le champ reste du texte libre en base, ces valeurs ne sont qu'une
+// <datalist> pour accélérer la saisie des cas courants (gérée par
+// ContactsMultiples, partagé avec Clients.jsx).
+const TYPES_CONTACT_SUGGERES = ['Facturation', 'Commercial', 'Livraison', 'Personnel', 'Général', 'Technique', 'Direction']
 
 // Couleur de statut commande, cohérente avec le reste de l'app (voir
 // statutProjetMarker dans theme.js pour l'équivalent projets).
@@ -292,6 +299,11 @@ export default function Fournisseurs() {
               ))}
             </div>
           </div>
+        </div>
+
+        {/* Contacts multiples (facturation, commercial, livraison...) */}
+        <div style={{ marginBottom: 48 }}>
+          <ContactsMultiples table="fournisseur_contacts" ownerIdColumn="fournisseur_id" ownerId={fournisseurOuvert.id} typesSuggeres={TYPES_CONTACT_SUGGERES} />
         </div>
 
         {/* Historique commandes */}
