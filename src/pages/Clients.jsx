@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { PRESETS_DELAI_PAIEMENT, fmtEUR as fmt } from '../lib/calculs'
+import { fmtEUR as fmt } from '../lib/calculs'
 import { useIsMobile } from '../lib/useIsMobile'
+import { ConditionsPaiement } from '../components/ConditionsPaiement'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 
 // Suggestions de types de contact (voir client_contacts_migration.sql) — le
@@ -20,39 +21,6 @@ const btnPrimary = { background: colors.ink, color: colors.surface, border: 'non
 const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px solid ' + colors.line, padding: '10px 18px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
 const btnPrimarySmall = { ...btnPrimary, padding: '7px 14px', fontSize: 12 }
 const btnGhostSmall = { ...btnGhost, padding: '7px 12px', fontSize: 12 }
-
-// Sélecteur "Conditions de paiement" (délai en jours + case "fin de mois"),
-// partagé entre le formulaire de création et le formulaire d'édition — sert
-// à pré-remplir automatiquement l'échéance des factures de ce client (voir
-// calculerEcheance dans lib/calculs.js et son usage dans ProjetDetail.jsx).
-// Composant local (non exporté) : pas de conflit avec
-// react-refresh/only-export-components puisque ce fichier n'exporte que
-// le composant Clients par défaut.
-function ConditionsPaiement({ jours, finMois, onChange }) {
-  const actif = p => Number(jours) === p.jours && !!finMois === p.finMois
-  return (
-    <div style={{ marginBottom: 18 }}>
-      <label style={fieldLabel}>Conditions de paiement</label>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 10 }}>
-        {PRESETS_DELAI_PAIEMENT.map(p => (
-          <button key={p.label} type="button" onClick={() => onChange(p.jours, p.finMois)}
-            style={{ background: 'none', border: 'none', padding: '0 0 3px', borderBottom: '1px solid ' + (actif(p) ? colors.ink : 'transparent'), color: actif(p) ? colors.ink : colors.inkMuted, cursor: 'pointer', fontSize: 12, fontFamily: fonts.display, fontWeight: actif(p) ? 600 : 400 }}>
-            {p.label}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <input type="number" min="0" value={jours ?? 30} onChange={e => onChange(parseInt(e.target.value, 10) || 0, !!finMois)}
-          style={{ ...inputUnderline, width: 60 }} />
-        <span style={{ fontSize: 13, color: colors.inkMuted }}>jours</span>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: colors.inkMuted, cursor: 'pointer' }}>
-          <input type="checkbox" checked={!!finMois} onChange={e => onChange(Number(jours) || 0, e.target.checked)} />
-          Fin de mois
-        </label>
-      </div>
-    </div>
-  )
-}
 
 export default function Clients() {
   const isMobile = useIsMobile()
@@ -212,13 +180,32 @@ export default function Clients() {
               <div style={{ borderTop: '1px solid ' + colors.line, marginTop: 12, paddingTop: 16 }}>
                 {editMode ? (
                   <div>
-                    {[['nom', 'Nom'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['adresse', 'Adresse'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, lbl]) => (
+                    {[['nom', 'Nom'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['adresse', 'Adresse']].map(([key, lbl]) => (
                       <div key={key} style={{ marginBottom: 16 }}>
                         <label style={fieldLabel}>{lbl}</label>
                         <input value={formEdit[key] || ''} onChange={e => setFormEdit(p => ({ ...p, [key]: e.target.value }))}
                           style={inputUnderline} />
                       </div>
                     ))}
+                    {/* Adresse de facturation — un seul intitulé au lieu de
+                        répéter "(pour Pennylane)" sur 4 champs séparés (retour
+                        de Louis : pas logique). Distincte du champ "Adresse"
+                        libre ci-dessus, utilisée pour l'export comptable. Code
+                        postal + ville sur la même ligne, comme une adresse
+                        classique. */}
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={fieldLabel}>Adresse de facturation</label>
+                      <input value={formEdit.rue || ''} onChange={e => setFormEdit(p => ({ ...p, rue: e.target.value }))} placeholder="Rue"
+                        style={{ ...inputUnderline, marginBottom: 12 }} />
+                      <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                        <input value={formEdit.code_postal || ''} onChange={e => setFormEdit(p => ({ ...p, code_postal: e.target.value }))} placeholder="Code postal"
+                          style={{ ...inputUnderline, width: 110 }} />
+                        <input value={formEdit.ville || ''} onChange={e => setFormEdit(p => ({ ...p, ville: e.target.value }))} placeholder="Ville"
+                          style={{ ...inputUnderline, flex: 1 }} />
+                      </div>
+                      <input value={formEdit.pays || ''} onChange={e => setFormEdit(p => ({ ...p, pays: e.target.value }))} placeholder="Pays (code, ex: FR)"
+                        style={{ ...inputUnderline, width: 110 }} />
+                    </div>
                     <ConditionsPaiement jours={formEdit.delai_paiement_jours} finMois={formEdit.delai_paiement_fin_mois}
                       onChange={(j, f) => setFormEdit(p => ({ ...p, delai_paiement_jours: j, delai_paiement_fin_mois: f }))} />
                     <div style={{ marginBottom: 16 }}>
@@ -425,13 +412,28 @@ export default function Clients() {
           <div style={{ background: colors.surface, padding: isMobile ? 22 : 32, width: isMobile ? '100%' : 480, maxWidth: '100%', maxHeight: isMobile ? '90vh' : 'none', overflow: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
             <h3 style={{ margin: '0 0 22px', fontSize: 17, fontWeight: 700 }}>Nouveau client</h3>
             {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 16, fontSize: 13 }}>{error}</div>}
-            {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['adresse', 'Adresse'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, lbl]) => (
+            {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['adresse', 'Adresse']].map(([key, lbl]) => (
               <div key={key} style={{ marginBottom: 16 }}>
                 <label style={fieldLabel}>{lbl}</label>
                 <input value={form[key]} onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))}
                   style={inputUnderline} />
               </div>
             ))}
+            {/* Adresse de facturation — voir le même bloc en mode édition
+                ci-dessus pour le détail du choix. */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={fieldLabel}>Adresse de facturation</label>
+              <input value={form.rue} onChange={e => setForm(prev => ({ ...prev, rue: e.target.value }))} placeholder="Rue"
+                style={{ ...inputUnderline, marginBottom: 12 }} />
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <input value={form.code_postal} onChange={e => setForm(prev => ({ ...prev, code_postal: e.target.value }))} placeholder="Code postal"
+                  style={{ ...inputUnderline, width: 110 }} />
+                <input value={form.ville} onChange={e => setForm(prev => ({ ...prev, ville: e.target.value }))} placeholder="Ville"
+                  style={{ ...inputUnderline, flex: 1 }} />
+              </div>
+              <input value={form.pays} onChange={e => setForm(prev => ({ ...prev, pays: e.target.value }))} placeholder="Pays (code, ex: FR)"
+                style={{ ...inputUnderline, width: 110 }} />
+            </div>
             <ConditionsPaiement jours={form.delai_paiement_jours} finMois={form.delai_paiement_fin_mois}
               onChange={(j, f) => setForm(prev => ({ ...prev, delai_paiement_jours: j, delai_paiement_fin_mois: f }))} />
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>

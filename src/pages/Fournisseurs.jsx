@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useLocation } from 'react-router-dom'
-import { PRESETS_DELAI_PAIEMENT, fmtEUR as fmt } from '../lib/calculs'
+import { fmtEUR as fmt } from '../lib/calculs'
 import { useIsMobile } from '../lib/useIsMobile'
 import { useTri, appliquerTri } from '../lib/useTri'
 import { ThTri } from '../components/ThTri'
+import { ConditionsPaiement } from '../components/ConditionsPaiement'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
 
 const METIERS = ['Électricité', 'Plomberie', 'CVC', 'Menuiserie', 'Cloisons', 'Sols', 'Peinture', 'Serrurerie', 'Informatique', 'Autre']
@@ -38,38 +39,6 @@ const inputUnderline = {
 const fieldLabel = { display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }
 const btnPrimary = { background: colors.ink, color: colors.surface, border: 'none', padding: '10px 20px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
 const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px solid ' + colors.line, padding: '10px 18px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
-
-// Sélecteur "Conditions de paiement" (délai en jours + case "fin de mois")
-// — pré-remplit automatiquement l'échéance des factures de ce fournisseur
-// (voir calculerEcheance dans lib/calculs.js et son usage dans
-// ProjetDetail.jsx). Composant local (non exporté) : pas de conflit avec
-// react-refresh/only-export-components puisque ce fichier n'exporte que le
-// composant Fournisseurs par défaut.
-function ConditionsPaiement({ jours, finMois, onChange }) {
-  const actif = p => Number(jours) === p.jours && !!finMois === p.finMois
-  return (
-    <div style={{ marginBottom: 20 }}>
-      <label style={fieldLabel}>Conditions de paiement</label>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 10 }}>
-        {PRESETS_DELAI_PAIEMENT.map(p => (
-          <button key={p.label} type="button" onClick={() => onChange(p.jours, p.finMois)}
-            style={{ background: 'none', border: 'none', padding: '0 0 3px', borderBottom: '1px solid ' + (actif(p) ? colors.ink : 'transparent'), color: actif(p) ? colors.ink : colors.inkMuted, cursor: 'pointer', fontSize: 12, fontFamily: fonts.display, fontWeight: actif(p) ? 600 : 400 }}>
-            {p.label}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <input type="number" min="0" value={jours ?? 30} onChange={e => onChange(parseInt(e.target.value, 10) || 0, !!finMois)}
-          style={{ ...inputUnderline, width: 60 }} />
-        <span style={{ fontSize: 13, color: colors.inkMuted }}>jours</span>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: colors.inkMuted, cursor: 'pointer' }}>
-          <input type="checkbox" checked={!!finMois} onChange={e => onChange(Number(jours) || 0, e.target.checked)} />
-          Fin de mois
-        </label>
-      </div>
-    </div>
-  )
-}
 
 export default function Fournisseurs() {
   const isMobile = useIsMobile()
@@ -179,16 +148,65 @@ export default function Fournisseurs() {
       <div style={{ background: colors.surface, padding: isMobile ? 22 : 32, width: isMobile ? '100%' : 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box', border: '1px solid ' + colors.line }}>
         <h3 style={{ margin: '0 0 22px', fontSize: 17, fontWeight: 700 }}>{editingId ? 'Modifier le fournisseur' : 'Nouveau fournisseur'}</h3>
         {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 16, fontSize: 13 }}>{error}</div>}
-        {[['nom', 'Nom *'], ['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone'], ['rue', 'Rue (pour Pennylane)'], ['code_postal', 'Code postal (pour Pennylane)'], ['ville', 'Ville (pour Pennylane)'], ['pays', 'Pays (code, ex: FR)']].map(([key, label]) => (
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={fieldLabel}>Nom *</label>
+          <input value={form.nom} onChange={e => setForm(p => ({ ...p, nom: e.target.value }))} style={inputUnderline} />
+        </div>
+
+        {/* Métier — identité du fournisseur au même titre que le nom, donc
+            remonté ici plutôt qu'après paiement/TVA (voir demande de Louis). */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={fieldLabel}>Métier</label>
+          {metierLibre ? (
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+              <input value={form.metier} onChange={e => setForm(p => ({ ...p, metier: e.target.value }))} placeholder="Nouveau métier..." autoFocus
+                style={{ ...inputUnderline, flex: 1 }} />
+              <button type="button" onClick={() => { setMetierLibre(false); setForm(p => ({ ...p, metier: '' })) }} style={{ ...quietLink, whiteSpace: 'nowrap' }}>
+                Liste
+              </button>
+            </div>
+          ) : (
+            <select value={form.metier} onChange={e => {
+              if (e.target.value === '__NOUVEAU__') { setMetierLibre(true); setForm(p => ({ ...p, metier: '' })) }
+              else setForm(p => ({ ...p, metier: e.target.value }))
+            }} style={{ ...inputUnderline, cursor: 'pointer' }}>
+              <option value=''>— Sélectionner —</option>
+              {metiersConnus.map(m => <option key={m}>{m}</option>)}
+              <option value='__NOUVEAU__'>+ Ajouter un nouveau métier...</option>
+            </select>
+          )}
+        </div>
+
+        {[['contact', 'Contact'], ['email', 'Email'], ['telephone', 'Téléphone']].map(([key, label]) => (
           <div key={key} style={{ marginBottom: 16 }}>
             <label style={fieldLabel}>{label}</label>
             <input value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
               style={inputUnderline} />
           </div>
         ))}
+
+        {/* Adresse — un seul intitulé de section au lieu de répéter "(pour
+            Pennylane)" sur chacun des 4 champs (retour de Louis : pas
+            logique). Code postal + ville sur la même ligne, comme une
+            adresse classique. */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={fieldLabel}>Adresse</label>
+          <input value={form.rue} onChange={e => setForm(p => ({ ...p, rue: e.target.value }))} placeholder="Rue"
+            style={{ ...inputUnderline, marginBottom: 12 }} />
+          <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+            <input value={form.code_postal} onChange={e => setForm(p => ({ ...p, code_postal: e.target.value }))} placeholder="Code postal"
+              style={{ ...inputUnderline, width: 110 }} />
+            <input value={form.ville} onChange={e => setForm(p => ({ ...p, ville: e.target.value }))} placeholder="Ville"
+              style={{ ...inputUnderline, flex: 1 }} />
+          </div>
+          <input value={form.pays} onChange={e => setForm(p => ({ ...p, pays: e.target.value }))} placeholder="Pays (code, ex: FR)"
+            style={{ ...inputUnderline, width: 110 }} />
+        </div>
+
         <ConditionsPaiement jours={form.delai_paiement_jours} finMois={form.delai_paiement_fin_mois}
           onChange={(j, f) => setForm(p => ({ ...p, delai_paiement_jours: j, delai_paiement_fin_mois: f }))} />
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ marginBottom: 22 }}>
           <label style={fieldLabel}>TVA sur les commandes</label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: colors.inkMuted, cursor: 'pointer' }}>
             <input type="checkbox" checked={!!form.autoliquidation} onChange={e => setForm(p => ({ ...p, autoliquidation: e.target.checked }))} />
@@ -198,25 +216,6 @@ export default function Fournisseurs() {
             Pré-sélectionne automatiquement ce régime de TVA à chaque nouvelle commande pour ce fournisseur.
           </div>
         </div>
-        <label style={fieldLabel}>Métier</label>
-        {metierLibre ? (
-          <div style={{ display: 'flex', gap: 12, marginBottom: 22, alignItems: 'flex-end' }}>
-            <input value={form.metier} onChange={e => setForm(p => ({ ...p, metier: e.target.value }))} placeholder="Nouveau métier..." autoFocus
-              style={{ ...inputUnderline, flex: 1 }} />
-            <button type="button" onClick={() => { setMetierLibre(false); setForm(p => ({ ...p, metier: '' })) }} style={{ ...quietLink, whiteSpace: 'nowrap' }}>
-              Liste
-            </button>
-          </div>
-        ) : (
-          <select value={form.metier} onChange={e => {
-            if (e.target.value === '__NOUVEAU__') { setMetierLibre(true); setForm(p => ({ ...p, metier: '' })) }
-            else setForm(p => ({ ...p, metier: e.target.value }))
-          }} style={{ ...inputUnderline, marginBottom: 22, cursor: 'pointer' }}>
-            <option value=''>— Sélectionner —</option>
-            {metiersConnus.map(m => <option key={m}>{m}</option>)}
-            <option value='__NOUVEAU__'>+ Ajouter un nouveau métier...</option>
-          </select>
-        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={() => { setShowForm(false); setEditingId(null); setError(''); setForm(FORM_VIDE); setMetierLibre(false) }} style={btnGhost}>Annuler</button>
           <button onClick={sauvegarderFournisseur} disabled={savingFournisseur}
