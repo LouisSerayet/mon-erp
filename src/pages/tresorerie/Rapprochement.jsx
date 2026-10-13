@@ -115,14 +115,19 @@ export default function Rapprochement() {
         .select('id, libelle, categorie, montant, qonto_transaction_id, qonto_matched_at, qonto_match_confiance')
         .not('qonto_transaction_id', 'is', null).is('deleted_at', null),
     ])
+    // `positif` indique le sens du mouvement (entrée vs sortie d'argent),
+    // utilisé pour colorer le montant dans le tableau (vert/rouge, voir le
+    // rendu de la colonne "Montant HT" ci-dessous) — indépendant de
+    // `montant_ht` qui reste toujours une grandeur positive à l'affichage.
     const combine = [
-      ...(hCli || []).map(f => ({ table: 'factures_cli', facture: f, tiers: f.projets?.clients?.nom })),
-      ...(hFrs || []).map(f => ({ table: 'factures_frs', facture: f, tiers: f.fournisseurs?.nom })),
-      ...(hDep || []).map(d => ({ table: 'depenses_generales', facture: d, tiers: d.fournisseurs?.nom || d.categorie })),
+      ...(hCli || []).map(f => ({ table: 'factures_cli', facture: f, tiers: f.projets?.clients?.nom, positif: true })),
+      ...(hFrs || []).map(f => ({ table: 'factures_frs', facture: f, tiers: f.fournisseurs?.nom, positif: false })),
+      ...(hDep || []).map(d => ({ table: 'depenses_generales', facture: d, tiers: d.fournisseurs?.nom || d.categorie, positif: false })),
       // montant_ht est ici l'équivalent affiché de `montant` (toujours positif à
       // l'affichage, comme pour toutes les autres lignes de l'historique — le
-      // signe réel du mouvement reste en base dans `montant`).
-      ...(hEcr || []).map(e => ({ table: 'ecritures_diverses', facture: { ...e, montant_ht: Math.abs(e.montant) }, tiers: e.categorie })),
+      // signe réel du mouvement reste en base dans `montant`, repris ici dans
+      // `positif` pour la coloration).
+      ...(hEcr || []).map(e => ({ table: 'ecritures_diverses', facture: { ...e, montant_ht: Math.abs(e.montant) }, tiers: e.categorie, positif: e.montant >= 0 })),
     ].sort((a, b) => new Date(b.facture.qonto_matched_at || 0) - new Date(a.facture.qonto_matched_at || 0))
     setHistorique(combine)
   }
@@ -834,7 +839,9 @@ export default function Rapprochement() {
                         <td style={{ padding: '10px 14px', color: colors.inkMuted }}>
                           {h.tiers || '—'}{h.facture.projets?.nom ? ' · ' + h.facture.projets.nom : ''}
                         </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(h.facture.montant_ht)}</td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', color: h.positif ? colors.success : colors.danger }}>
+                          {h.positif ? '' : '− '}{fmt(h.facture.montant_ht)}
+                        </td>
                         <td style={{ padding: '10px 14px' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.inkMuted }}>
                             <span style={marker((BADGE_CONFIANCE[h.facture.qonto_match_confiance] || BADGE_CONFIANCE.montant).color)} />
