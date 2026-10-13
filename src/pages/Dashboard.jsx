@@ -179,24 +179,19 @@ export default function Dashboard() {
         {new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
       </p>
 
-      {/* Solde bancaire (Qonto) — mini-widget cliquable vers l'onglet
-          "Comptes" de Trésorerie (voir pages/tresorerie/Comptes.jsx), aussi
-          atteignable directement depuis le menu (voir Layout.jsx). Le détail
-          compte de résultat/TVA/rapprochement vit entièrement dans ce hub
-          désormais, pas de doublon ici. */}
-      <div onClick={() => navigate('/tresorerie/comptes')} style={{ marginTop: isMobile ? 28 : 44, padding: '0 0 22px', cursor: 'pointer', maxWidth: 360 }}>
+      {/* Solde bancaire (Qonto) — juste le solde, rien d'autre : pas de
+          bouton/lien (Rapprocher, Voir la trésorerie...), ces actions vivent
+          déjà dans l'onglet Trésorerie (voir pages/tresorerie/Comptes.jsx),
+          atteignable directement depuis le menu (voir Layout.jsx). */}
+      <div style={{ marginTop: isMobile ? 36 : 56, padding: '0 0 28px', textAlign: 'center' }}>
         <div style={{ ...eyebrow, marginBottom: 14 }}>Solde bancaire — Qonto</div>
         {loadingSoldeQonto ? (
           <div style={{ fontSize: 13, color: colors.inkFaint }}>Chargement...</div>
         ) : soldeQontoError ? (
           <div style={{ fontSize: 12, color: colors.danger }} title={soldeQontoError}>Indisponible — {soldeQontoError}</div>
         ) : (
-          <div style={{ fontFamily: fonts.mono, fontSize: isMobile ? 28 : 34, fontWeight: 500, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{fmt(soldeQonto / 100)}</div>
+          <div style={{ fontFamily: fonts.mono, fontSize: isMobile ? 34 : 44, fontWeight: 500, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{fmt(soldeQonto / 100)}</div>
         )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-          <a style={quietLink}>Voir la trésorerie</a>
-          <a onClick={e => { e.stopPropagation(); navigate('/tresorerie/rapprochement') }} style={quietLink}>Rapprocher</a>
-        </div>
       </div>
 
       {/* Alertes */}
