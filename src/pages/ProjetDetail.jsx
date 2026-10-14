@@ -4734,43 +4734,35 @@ export default function ProjetDetail() {
               {/* Tableau comparatif */}
               <div style={{ overflow: isMobile ? 'auto' : 'hidden', marginBottom: 20 }}>
                 <div style={{ minWidth: isMobile ? 620 : 'auto' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr', borderBottom: '1px solid ' + colors.line, borderTop: '1px solid ' + colors.line }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', borderBottom: '1px solid ' + colors.line, borderTop: '1px solid ' + colors.line }}>
                   <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: colors.inkFaint }}></div>
                   <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textAlign: 'right', color: colors.focus, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Prévisionnel</div>
                   <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textAlign: 'right', color: colors.warning, textTransform: 'uppercase', letterSpacing: '0.05em' }}>En cours</div>
                   <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textAlign: 'right', color: colors.success, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Réel</div>
-                  <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, textAlign: 'right', color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Écart</div>
                 </div>
 
+                {/* Colonne "Écart" retirée (demande de Louis) : la case
+                    "verdict" plus bas (meilleure/moins bonne marge que prévu)
+                    donne déjà ce chiffre, inutile de le répéter ici. */}
                 {[
-                  { label: "Chiffre d'affaires (vente)", prev: ca, enCours: caEnCours, reel: caReel, showEcart: false },
-                  { label: 'Coût achats', prev: achatPrevu, enCours: achatEnCours, reel: achatReel, showEcart: true, ecartPositifMauvais: true },
-                  { label: 'Marge brute', prev: margePrevu, enCours: margeEnCours, reel: margeReelle, showEcart: true, ecartPositifMauvais: false, bold: true },
-                  { label: 'Taux de marge', prev: fmtTauxCoeff(tauxMargePrevu, coeffPrevu), enCours: fmtTauxCoeff(tauxMargeEnCours, coeffEnCours), reel: fmtTauxCoeff(tauxMargeReelle, coeffReel), showEcart: false, isTaux: true },
-                ].map(({ label, prev, enCours, reel, showEcart, ecartPositifMauvais, bold, isTaux }, i) => {
-                  const ecart = isTaux ? null : (typeof reel === 'number' && typeof prev === 'number' ? reel - prev : null)
-                  return (
-                    <div key={label} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr', borderBottom: i < 3 ? '1px solid ' + colors.line : 'none' }}>
-                      <div style={{ padding: '12px', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.ink }}>{label}</div>
-                      <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
-                        {isTaux ? prev : fmt(prev)}
-                      </div>
-                      <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.warning, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
-                        {isTaux ? enCours : fmt(enCours)}
-                      </div>
-                      <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
-                        {isTaux ? reel : fmt(reel)}
-                      </div>
-                      <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 400, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
-                        {showEcart && ecart !== null ? (
-                          <span style={{ color: col(ecart, !ecartPositifMauvais), fontWeight: 600 }}>
-                            {ecart > 0 ? '+' : ''}{fmt(ecart)}
-                          </span>
-                        ) : '—'}
-                      </div>
+                  { label: "Chiffre d'affaires (vente)", prev: ca, enCours: caEnCours, reel: caReel },
+                  { label: 'Coût achats', prev: achatPrevu, enCours: achatEnCours, reel: achatReel },
+                  { label: 'Marge brute', prev: margePrevu, enCours: margeEnCours, reel: margeReelle, bold: true },
+                  { label: 'Taux de marge', prev: fmtTauxCoeff(tauxMargePrevu, coeffPrevu), enCours: fmtTauxCoeff(tauxMargeEnCours, coeffEnCours), reel: fmtTauxCoeff(tauxMargeReelle, coeffReel), isTaux: true },
+                ].map(({ label, prev, enCours, reel, bold, isTaux }, i) => (
+                  <div key={label} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', borderBottom: i < 3 ? '1px solid ' + colors.line : 'none' }}>
+                    <div style={{ padding: '12px', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.ink }}>{label}</div>
+                    <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
+                      {isTaux ? prev : fmt(prev)}
                     </div>
-                  )
-                })}
+                    <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.warning, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
+                      {isTaux ? enCours : fmt(enCours)}
+                    </div>
+                    <div style={{ padding: '12px', textAlign: 'right', fontSize: 13, fontWeight: bold ? 700 : 500, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
+                      {isTaux ? reel : fmt(reel)}
+                    </div>
+                  </div>
+                ))}
                 </div>
               </div>
               <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: -14, marginBottom: 20 }}>
@@ -4811,45 +4803,33 @@ export default function ProjetDetail() {
                   commander sans descendre sous tel coefficient ?", à partir de
                   ce qui est déjà commandé (achatEnCours), pas de ce qui est
                   déjà facturé : décision prise avec Louis. */}
-              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, marginBottom: 20, paddingTop: 16, borderTop: '1px solid ' + colors.line }}>
-                <div style={{ flex: 1, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 20 }}>
-                  <div>
-                    <div style={eyebrow}>Marge prévisionnelle</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: margePrevu >= 0 ? colors.ink : colors.danger, marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(margePrevu)}</div>
-                    <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargePrevu, coeffPrevu)}</div>
+              {/* Les 3 pavés "Marge prévisionnelle/en cours/réelle" qui
+                  étaient ici ont été retirés (demande de Louis) : ils ne
+                  faisaient que répéter la ligne "Marge brute" du tableau
+                  ci-dessus en plus gros. Le budget par coefficient, lui, est
+                  gardé tel quel — seul endroit où cette info apparaît. */}
+              {ca > 0 && (
+                <div style={{ width: isMobile ? '100%' : 320, marginBottom: 20, paddingTop: 16, borderTop: '1px solid ' + colors.line }}>
+                  <div style={eyebrow}>Budget par coefficient</div>
+                  <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 2, marginBottom: 8 }}>
+                    Reste à commander avant de descendre sous ce coeff. (CA ÷ coeff − déjà commandé)
                   </div>
-                  <div>
-                    <div style={eyebrow}>Marge en cours (commandes)</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: margeEnCours === null ? colors.inkFaint : (margeEnCours >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeEnCours === null ? 'Aucune commande' : fmt(margeEnCours)}</div>
-                    <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargeEnCours, coeffEnCours)}</div>
-                  </div>
-                  <div>
-                    <div style={eyebrow}>Marge réelle (factures)</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: margeReelle === null ? colors.inkFaint : (margeReelle >= 0 ? colors.ink : colors.danger), marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{margeReelle === null ? 'Aucune facture' : fmt(margeReelle)}</div>
-                    <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>Taux : {fmtTauxCoeff(tauxMargeReelle, coeffReel)}</div>
-                  </div>
-                </div>
-
-                {ca > 0 && (
-                  <div style={{ width: isMobile ? '100%' : 220, flexShrink: 0 }}>
-                    <div style={eyebrow}>Budget par coefficient</div>
-                    <div style={{ fontSize: 11, color: colors.inkFaint, marginTop: 2, marginBottom: 8 }}>
-                      Reste à commander avant de descendre sous ce coeff. (CA ÷ coeff − déjà commandé)
+                  {resteADepenserParCoeff(ca, achatEnCours ?? 0).map(({ coeff, reste }) => (
+                    <div key={coeff} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0', borderBottom: '1px solid ' + colors.line, fontSize: 12 }}>
+                      <span style={{ color: colors.inkMuted, fontFamily: fonts.mono }}>{coeff.toFixed(2)}</span>
+                      <span style={{ fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: reste >= 0 ? colors.ink : colors.danger }}>{fmt(reste)}</span>
                     </div>
-                    {resteADepenserParCoeff(ca, achatEnCours ?? 0).map(({ coeff, reste }) => (
-                      <div key={coeff} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0', borderBottom: '1px solid ' + colors.line, fontSize: 12 }}>
-                        <span style={{ color: colors.inkMuted, fontFamily: fonts.mono }}>{coeff.toFixed(2)}</span>
-                        <span style={{ fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: reste >= 0 ? colors.ink : colors.danger }}>{fmt(reste)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
 
-              {/* Écart global — seulement quand il y a un vrai réel (au moins
-                  une facture) à comparer au prévisionnel, sinon le calcul
-                  compare le devis à du vide et affiche à tort "meilleure
-                  marge que prévu". */}
+              {/* Verdict global — seulement quand il y a un vrai réel (au
+                  moins une facture) à comparer au prévisionnel, sinon le
+                  calcul compare le devis à du vide et affiche à tort
+                  "meilleure marge que prévu". Le sous-texte reformulé pour ne
+                  plus utiliser le mot "Écart" (demande de Louis) — c'est
+                  désormais le seul endroit de la page qui chiffre cette
+                  différence sur les achats. */}
               {ca > 0 && ecartMarge !== null && (
                 <div style={{ borderLeft: '2px solid ' + (ecartMarge >= 0 ? colors.success : colors.danger), padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
@@ -4857,7 +4837,7 @@ export default function ProjetDetail() {
                       {ecartMarge >= 0 ? 'Meilleure marge que prévu' : 'Marge inférieure au prévisionnel'}
                     </div>
                     <div style={{ fontSize: 12, color: colors.inkMuted, marginTop: 4 }}>
-                      Écart achat : <strong style={{ color: col(ecartAchat, false), fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{ecartAchat > 0 ? '+' : ''}{fmt(ecartAchat)}</strong>
+                      dont <strong style={{ color: col(ecartAchat, false), fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{ecartAchat > 0 ? '+' : ''}{fmt(ecartAchat)}</strong> sur les achats
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
