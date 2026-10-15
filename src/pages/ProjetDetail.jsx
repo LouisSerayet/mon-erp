@@ -578,8 +578,14 @@ export default function ProjetDetail() {
               && !(ll.categorie_ligne === 'variante' && ll.variante_active === false) && (ll.total_ht !== 0 || ll.prix_unit_ht !== 0)
           )
           if (hasLignesAvecMontant || l.categorie_ligne === 'texte') {
-            body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
-              styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', fillColor: [255, 255, 255], textColor: INK, fontSize: 7, lineWidth: { bottom: 0.15 }, lineColor: LINE } }])
+            // Plus de colSpan (demande de Louis, "pas lisibles" en travers de
+            // tout le tableau) : la ligne de titre/texte prend désormais
+            // exactement la même place que la Désignation d'une ligne
+            // normale — pas de numéro, pas d'unité/quantité/prix — au lieu
+            // d'étaler le texte sur toute la largeur du tableau.
+            body.push(['',
+              { content: (l.descriptif || '').toUpperCase(), styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', textColor: INK } },
+              '', '', '', ''])
           }
         } else {
           // Ignorer les lignes sans montant ni prix
@@ -640,8 +646,14 @@ export default function ProjetDetail() {
               && !(ll.categorie_ligne === 'variante' && ll.variante_active === false) && (ll.total_ht !== 0 || ll.prix_unit_ht !== 0)
           )
           if (hasLignesAvecMontant || l.categorie_ligne === 'texte') {
-            body.push([{ content: (l.descriptif || '').toUpperCase(), colSpan: 6,
-              styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', fillColor: [255, 255, 255], textColor: INK, fontSize: 7, lineWidth: { bottom: 0.15 }, lineColor: LINE } }])
+            // Plus de colSpan (demande de Louis, "pas lisibles" en travers de
+            // tout le tableau) : la ligne de titre/texte prend désormais
+            // exactement la même place que la Désignation d'une ligne
+            // normale — pas de numéro, pas d'unité/quantité/prix — au lieu
+            // d'étaler le texte sur toute la largeur du tableau.
+            body.push(['',
+              { content: (l.descriptif || '').toUpperCase(), styles: { fontStyle: l.type === 'titre' ? 'bold' : 'italic', textColor: INK } },
+              '', '', '', ''])
           }
         } else {
           if (!l.total_ht && !l.prix_unit_ht && !l.qte) continue
