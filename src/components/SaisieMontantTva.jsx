@@ -20,7 +20,7 @@ import { TAUX_TVA_COURANTS, ttcDepuisHt, htDepuisTtc } from '../lib/tva'
 // `onChangeMontant(valeurTexte)` / `onChangeTaux(nombre)` suivent le même
 // principe que les autres champs d'édition inline de l'app (une valeur à
 // la fois, l'appelant décide quoi en faire — voir editCmd/editFacFrs/
-// editer dans ProjetDetail.jsx et Depenses.jsx).
+// editer dans ProjetDetail.jsx et tresorerie/Depenses.jsx).
 //
 // Champ en type="text" (pas type="number") : un <input type="number">
 // rejette silencieusement la virgule décimale française à la frappe (elle

@@ -85,7 +85,7 @@ const iconBtn = (color) => ({
 })
 // Style des champs d'édition inline dans les tableaux — souligné, teinte
 // warning tant que la ligne a des changements non enregistrés (voir
-// cellInput dans Depenses.jsx pour le même principe).
+// cellInput dans tresorerie/Depenses.jsx pour le même principe).
 const cellInput = isEdited => ({
   padding: '3px 6px', border: 'none', borderBottom: '1px solid ' + (isEdited ? colors.warning : 'transparent'),
   fontSize: 12, background: 'transparent', boxSizing: 'border-box', width: '100%', fontFamily: fonts.display, color: colors.ink,

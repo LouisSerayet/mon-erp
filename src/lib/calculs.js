@@ -203,7 +203,7 @@ export const PRESETS_DELAI_PAIEMENT = [
 // valeur parfaitement valide (ligne offerte, facture soldée...) — comme
 // une valeur absente et affiche "—" au lieu de "0,00 €". Le test correct
 // est `n !== undefined && n !== null`, déjà utilisé sur d'autres pages
-// (Depenses.jsx, Rapprochement.jsx...) — voir calculs.test.js.
+// (tresorerie/Depenses.jsx, Rapprochement.jsx...) — voir calculs.test.js.
 export function fmtEUR(n) {
   return n !== undefined && n !== null
     ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'

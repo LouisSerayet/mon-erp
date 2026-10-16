@@ -21,7 +21,7 @@ import { SaisieMontantTva } from '../components/SaisieMontantTva'
 //
 // Toutes les factures reçues ne concernent pas un projet client : la note
 // d'honoraires du comptable, un abonnement logiciel... sont des dépenses
-// générales de la société (voir Depenses.jsx). Chaque email peut donc
+// générales de la société (voir tresorerie/Depenses.jsx). Chaque email peut donc
 // être validé selon deux chemins (bascule "Type" dans le formulaire,
 // voir TYPES_VALIDATION ci-dessous) : soit une facture fournisseur liée à
 // un projet (comportement d'origine), soit une dépense générale — même
@@ -97,7 +97,7 @@ export default function BoiteReceptionFactures() {
           date_facture: '',
           date_echeance: '',
           // Champs utilisés uniquement si type === 'depense' (voir
-          // Depenses.jsx, même schéma) — libellé pré-rempli à partir du
+          // tresorerie/Depenses.jsx, même schéma) — libellé pré-rempli à partir du
           // sujet de l'email (nettoyé d'un éventuel préfixe "Fw:"/"Tr:"),
           // modifiable avant validation.
           libelle: (item.sujet || '').replace(/^(fwd?|tr)\s*:\s*/i, ''),
@@ -134,7 +134,7 @@ export default function BoiteReceptionFactures() {
       }
       // Changer de catégorie de dépense met à jour le taux de TVA par
       // défaut associé (ex. Assurance -> 0%) — même logique que le
-      // formulaire de création dans Depenses.jsx.
+      // formulaire de création dans tresorerie/Depenses.jsx.
       if (champ === 'categorie') courant.taux_tva = tauxTvaDepense(valeur)
       return { ...prev, [itemId]: courant }
     })
@@ -198,13 +198,13 @@ export default function BoiteReceptionFactures() {
     setBusyId(null)
   }
 
-  // Chemin "Dépense générale" — même schéma/table que Depenses.jsx, sauf
+  // Chemin "Dépense générale" — même schéma/table que tresorerie/Depenses.jsx, sauf
   // qu'il n'y a ni projet ni commande (une dépense générale n'est liée à
   // aucun des deux) et que le PDF est repris tel quel depuis l'archivage
   // déjà fait à l'import (pas de re-upload). Volontairement pas d'envoi
   // automatique à Pennylane ici : les dépenses générales partent par lot
   // depuis la page Exports, comme une dépense créée manuellement (voir
-  // Depenses.jsx, qui ne fait pas non plus d'envoi à la création).
+  // tresorerie/Depenses.jsx, qui ne fait pas non plus d'envoi à la création).
   async function validerCommeDepense(item, f) {
     if (!f.libelle?.trim()) { alert('Le libellé est obligatoire.'); return }
     if (!f.date_facture) { alert('La date de facture est obligatoire (sinon la dépense n\'apparaît pas dans le Compte de résultat).'); return }

@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { DataProvider } from './DataContext'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import Layout from './components/Layout'
@@ -19,8 +19,7 @@ const FacturesClients = lazy(() => import('./pages/FacturesClients'))
 const FacturesFournisseurs = lazy(() => import('./pages/FacturesFournisseurs'))
 const CommandesFournisseurs = lazy(() => import('./pages/CommandesFournisseurs'))
 const Recherche = lazy(() => import('./pages/Recherche'))
-const Depenses = lazy(() => import('./pages/Depenses'))
-const Tresorerie = lazy(() => import('./pages/Tresorerie'))
+const Financier = lazy(() => import('./pages/Financier'))
 const Corbeille = lazy(() => import('./pages/Corbeille'))
 const Historique = lazy(() => import('./pages/Historique'))
 const Exports = lazy(() => import('./pages/Exports'))
@@ -33,6 +32,16 @@ function ChargementPage() {
       Chargement...
     </div>
   )
+}
+
+// <Navigate> exige une cible "to" statique — pour préserver un lien du
+// type /tresorerie/<tab> (ancienne URL par onglet, avant la fusion dans
+// Financier) sans perdre l'onglet demandé, il faut lire :tab et choisir
+// la cible dynamiquement, d'où ce petit composant au lieu d'une simple
+// <Route element={<Navigate .../>} />.
+function RedirectTresorerieTab() {
+  const { tab } = useParams()
+  return <Navigate to={'/financier/' + (tab || 'comptes')} replace />
 }
 
 function Gate() {
@@ -68,17 +77,22 @@ function Gate() {
             <Route path="commandes-fournisseurs" element={<CommandesFournisseurs />} />
             <Route path="boite-reception-factures" element={<BoiteReceptionFactures />} />
             <Route path="recherche" element={<Recherche />} />
-            <Route path="depenses" element={<Depenses />} />
-            {/* Trésorerie regroupe maintenant Comptes/TVA/Rapprochement/
-                Compte de résultat en onglets (voir Tresorerie.jsx) — les
-                anciennes pages séparées /resultat et /rapprochement
-                redirigent vers l'onglet correspondant pour préserver les
-                favoris/liens existants (même principe que la redirection
-                /devis -> /projets ci-dessus). */}
-            <Route path="tresorerie" element={<Navigate to="/tresorerie/comptes" replace />} />
-            <Route path="tresorerie/:tab" element={<Tresorerie />} />
-            <Route path="resultat" element={<Navigate to="/tresorerie/resultat" replace />} />
-            <Route path="rapprochement" element={<Navigate to="/tresorerie/rapprochement" replace />} />
+            {/* Financier (ex-"Trésorerie") regroupe Comptes/TVA/
+                Rapprochement/Compte de résultat/Dépenses en onglets (voir
+                Financier.jsx — Dépenses était avant une page séparée,
+                /depenses, fusionnée ici comme un onglet de plus). Les
+                anciennes URLs (/tresorerie, /tresorerie/:tab, /resultat,
+                /rapprochement, /depenses) redirigent vers l'onglet
+                correspondant pour préserver les favoris/liens existants
+                (même principe que la redirection /devis -> /projets
+                ci-dessus). */}
+            <Route path="financier" element={<Navigate to="/financier/comptes" replace />} />
+            <Route path="financier/:tab" element={<Financier />} />
+            <Route path="tresorerie" element={<Navigate to="/financier/comptes" replace />} />
+            <Route path="tresorerie/:tab" element={<RedirectTresorerieTab />} />
+            <Route path="resultat" element={<Navigate to="/financier/resultat" replace />} />
+            <Route path="rapprochement" element={<Navigate to="/financier/rapprochement" replace />} />
+            <Route path="depenses" element={<Navigate to="/financier/depenses" replace />} />
             <Route path="corbeille" element={<Corbeille />} />
             <Route path="historique" element={<Historique />} />
             <Route path="exports" element={<Exports />} />

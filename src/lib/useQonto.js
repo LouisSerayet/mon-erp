@@ -62,7 +62,7 @@ async function fetchTransactionsPage(account, perPage, additionalParams = '') {
 
 // NB : per_page=100 (max habituel côté Qonto), une seule page — au-delà, il
 // faudrait une vraie pagination (page suivante) qui n'est pas branchée côté
-// UI (Tresorerie.jsx n'affiche que ce premier lot de transactions). Pour un
+// UI (Comptes.jsx n'affiche que ce premier lot de transactions). Pour un
 // historique plus large, voir getTransactionsPourRapprochement ci-dessous.
 export async function getTransactions(account, perPage = 100) {
   const data = await fetchTransactionsPage(account, perPage)

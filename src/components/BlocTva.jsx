@@ -3,7 +3,7 @@ import { fmtEUR as fmt, fmtDateFr } from '../lib/calculs'
 import { colors, fonts, eyebrow, sectionTitle, quietLink } from '../lib/theme'
 
 // Section TVA (collectée / déductible / nette) sur une période donnée —
-// utilisée par l'onglet "TVA" de Trésorerie (voir
+// utilisée par l'onglet "TVA" de Financier (voir
 // src/pages/tresorerie/Tva.jsx) : même calcul, mêmes règles
 // (autoliquidation, taux par ligne...), même rendu — un seul endroit à
 // corriger si jamais une règle doit changer (voir lib/tva.js).

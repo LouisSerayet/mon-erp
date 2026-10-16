@@ -30,7 +30,7 @@ export default function Dashboard() {
   // creerBrouillonDepuisModal) — distinct de l'envoi direct ci-dessus.
   const [modalRelanceDraftBusy, setModalRelanceDraftBusy] = useState(false)
   // Mini-widget "Solde bancaire" — appel Qonto séparé de fetchAll() (données
-  // Supabase) : un souci Qonto (clé absente/expirée, voir Tresorerie.jsx qui
+  // Supabase) : un souci Qonto (clé absente/expirée, voir Financier.jsx qui
   // a le même appel) ne doit pas empêcher le reste du dashboard de
   // s'afficher, d'où le try/catch dédié et son propre état de chargement.
   const [soldeQonto, setSoldeQonto] = useState(null) // en centimes, ou null tant que pas chargé
@@ -180,9 +180,10 @@ export default function Dashboard() {
       </p>
 
       {/* Solde bancaire (Qonto) — juste le solde, rien d'autre : pas de
-          bouton/lien (Rapprocher, Voir la trésorerie...), ces actions vivent
-          déjà dans l'onglet Trésorerie (voir pages/tresorerie/Comptes.jsx),
-          atteignable directement depuis le menu (voir Layout.jsx). */}
+          bouton/lien (Rapprocher, Voir le financier...), ces actions vivent
+          déjà dans l'onglet Comptes de Financier (voir
+          pages/tresorerie/Comptes.jsx), atteignable directement depuis le
+          menu (voir Layout.jsx). */}
       <div style={{ marginTop: isMobile ? 36 : 56, padding: '0 0 28px', textAlign: 'center' }}>
         <div style={{ ...eyebrow, marginBottom: 14 }}>Solde bancaire — Qonto</div>
         {loadingSoldeQonto ? (
@@ -297,7 +298,7 @@ export default function Dashboard() {
           globale des projets" (filtres par statut, prévu/engagé) et
           "Projets actifs" ont été retirés de ce tableau de bord, remplacés
           respectivement par le bouton "Vue globale" de l'onglet Projets
-          (voir Projets.jsx) et par l'onglet Trésorerie (qui regroupe déjà
+          (voir Projets.jsx) et par le hub Financier (qui regroupe déjà
           tout le suivi financier). */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 36 : 48, marginTop: 48 }}>
 
@@ -407,7 +408,7 @@ export default function Dashboard() {
                 {depensesAPayer.map(d => {
                   const enRetard = d.date_echeance && new Date(d.date_echeance) < new Date()
                   return (
-                    <div key={d.id} onClick={() => navigate('/depenses')}
+                    <div key={d.id} onClick={() => navigate('/financier/depenses')}
                       style={{ padding: '12px 0', borderBottom: '1px solid ' + colors.line, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', borderLeft: enRetard ? '2px solid ' + colors.danger : 'none', paddingLeft: enRetard ? 12 : 0, marginLeft: enRetard ? -14 : 0 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.libelle}</div>

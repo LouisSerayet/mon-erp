@@ -1,5 +1,5 @@
 // TVA (collectée / déductible / nette) — logique partagée entre les
-// onglets "TVA" et "Compte de résultat" de Trésorerie (voir
+// onglets "TVA" et "Compte de résultat" de Financier (voir
 // src/pages/tresorerie/Tva.jsx et CompteResultat.jsx, chacun avec son
 // propre sélecteur de période et son propre détail ligne par ligne) et
 // l'onglet "Comptes" (simple mémo sous le solde bancaire pour le mois en

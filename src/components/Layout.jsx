@@ -6,14 +6,15 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, quietLink } from '../lib/theme'
 
 // Dashboard n'a pas d'entrée ici : le logo (desktop) / l'onglet Dashboard
-// (mobile) y ramène toujours. Trésorerie regroupe maintenant Comptes/TVA/
-// Rapprochement/Compte de résultat en onglets (voir Tresorerie.jsx) — une
-// seule entrée suffit donc ici, les widgets du Dashboard y mènent aussi
-// (sur l'onglet correspondant).
+// (mobile) y ramène toujours. Financier (ex-"Trésorerie") regroupe
+// maintenant Comptes/TVA/Rapprochement/Compte de résultat/Dépenses en
+// onglets (voir Financier.jsx — Dépenses avait avant sa propre entrée de
+// menu, fusionnée ici comme un onglet de plus) — une seule entrée suffit
+// donc ici, les widgets du Dashboard y mènent aussi (sur l'onglet
+// correspondant).
 const nav = [
   { to: '/projets', label: 'Projets', icon: '📋' },
-  { to: '/depenses', label: 'Dépenses', icon: '💸' },
-  { to: '/tresorerie', label: 'Trésorerie', icon: '💰' },
+  { to: '/financier', label: 'Financier', icon: '💰' },
   { section: 'Comptes' },
   { to: '/clients', label: 'Clients', icon: '👤' },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏢' },
@@ -31,14 +32,16 @@ const nav = [
 
 // Sur mobile, il n'y a pas de logo cliquable comme sur desktop pour revenir
 // au Dashboard — on lui garde donc son propre onglet dans la barre du bas,
-// à côté de Projets et Dépenses (les deux usages "coup d'œil rapide" du
-// haut du nouveau menu desktop). Le reste (Comptes, Commandes/Factures,
-// Support) est regroupé derrière "Plus".
+// à côté de Projets et Financier (les deux usages "coup d'œil rapide" du
+// haut du nouveau menu desktop — Financier reprend ici la place qu'avait
+// Dépenses avant leur fusion, pour ne pas perdre l'accès en un tap aux
+// dépenses sur mobile). Le reste (Comptes, Commandes/Factures, Support)
+// est regroupé derrière "Plus".
 const NAV_MOBILE_PRINCIPALE = [
   { to: '/dashboard', label: 'Dashboard', icon: '◻' },
-  ...nav.filter(n => n.to && ['/projets', '/depenses'].includes(n.to)),
+  ...nav.filter(n => n.to && ['/projets', '/financier'].includes(n.to)),
 ]
-const NAV_MOBILE_PLUS = nav.filter(n => n.section || (n.to && !['/projets', '/depenses'].includes(n.to)))
+const NAV_MOBILE_PLUS = nav.filter(n => n.section || (n.to && !['/projets', '/financier'].includes(n.to)))
 
 // ── Recherche globale ────────────────────────────────────────────
 // Cherche un client/fournisseur/projet/facture par nom ou numéro depuis

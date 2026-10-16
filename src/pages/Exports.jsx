@@ -188,7 +188,7 @@ export default function Exports() {
   // inclureEnvoyees), les factures clients, factures fournisseurs et
   // dépenses générales concernées. Partagé par l'envoi par email et le ZIP
   // de secours ci-dessous. Les dépenses générales ne sont jamais liées à un
-  // projet (voir Depenses.jsx) : elles sont ignorées dès qu'un projet
+  // projet (voir tresorerie/Depenses.jsx) : elles sont ignorées dès qu'un projet
   // précis est sélectionné, puisqu'aucune ne pourrait y correspondre.
   async function recupererFacturesFiltrees() {
     let facturesCli = [], facturesFrs = [], depenses = []

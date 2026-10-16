@@ -1,26 +1,28 @@
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
-import { useIsMobile } from '../lib/useIsMobile'
-import { getBankAccounts, getTransactionsPourRapprochement } from '../lib/useQonto'
-import { rapprocherFactures, appliquerRapprochement } from '../lib/rapprochement'
-import { CATEGORIES } from '../lib/depenses'
-import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
-import { useTri, appliquerTri } from '../lib/useTri'
-import { ThTri } from '../components/ThTri'
-import { SaisieMontantTva } from '../components/SaisieMontantTva'
-import { tauxTvaDepense } from '../lib/tva'
-import { colors, fonts, eyebrow, quietLink } from '../lib/theme'
+import { supabase } from '../../lib/supabase'
+import { useIsMobile } from '../../lib/useIsMobile'
+import { getBankAccounts, getTransactionsPourRapprochement } from '../../lib/useQonto'
+import { rapprocherFactures, appliquerRapprochement } from '../../lib/rapprochement'
+import { CATEGORIES } from '../../lib/depenses'
+import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../../lib/calculs'
+import { useTri, appliquerTri } from '../../lib/useTri'
+import { ThTri } from '../../components/ThTri'
+import { SaisieMontantTva } from '../../components/SaisieMontantTva'
+import { tauxTvaDepense } from '../../lib/tva'
+import { colors, fonts, eyebrow, quietLink } from '../../lib/theme'
 
-// Dépenses générales de la société : loyer, comptabilité, assurance,
-// abonnements... tout ce qui n'est pas lié à un projet client précis.
+// Onglet "Dépenses" de Financier — achats et frais de la société non liés
+// à un projet client (loyer, comptabilité, assurance, abonnements...).
 // Avant cette page, il fallait créer un faux "projet" (ex. "Frais
-// généraux") juste pour avoir un endroit où suivre ces achats — cette
-// page remplace ce détour par un vrai espace dédié, avec les mêmes
+// généraux") juste pour avoir un endroit où suivre ces achats — cette page
+// remplace ce détour par un vrai espace dédié, avec les mêmes
 // fonctionnalités que l'onglet "Factures frs" d'un projet (suivi du
 // statut, pièce jointe, rapprochement bancaire Qonto).
-// CATEGORIES vit maintenant dans lib/depenses.js (partagé avec
-// Rapprochement.jsx) — voir l'import ci-dessus.
+// Anciennement une page séparée (/depenses, voir App.jsx pour la
+// redirection) — fusionnée ici dans le hub Financier (ex-Trésorerie, voir
+// Financier.jsx) pour regrouper tout le suivi financier au même endroit.
+// CATEGORIES vit dans lib/depenses.js (partagé avec Rapprochement.jsx).
 const STATUTS = ['À payer', 'Payée']
 
 // Tri par clic sur les en-têtes de colonne — voir lib/useTri.js.
@@ -167,9 +169,10 @@ export default function Depenses() {
   }
 
   // ── Rapprochement bancaire Qonto ────────────────────────────────────
-  // Même logique que dans un projet (ProjetDetail.jsx) et sur la page
-  // "Rapprochement" globale — src/lib/rapprochement.js est générique et
-  // fonctionne sur n'importe quelle table ayant id/numero/montant_ht.
+  // Même logique que dans un projet (ProjetDetail.jsx) et sur l'onglet
+  // "Rapprochement" de ce même hub — src/lib/rapprochement.js est
+  // générique et fonctionne sur n'importe quelle table ayant
+  // id/numero/montant_ht.
   async function verifierQonto() {
     setRapprochementError(''); setRapprochementBusy(true)
     try {
@@ -239,25 +242,18 @@ export default function Depenses() {
   const totalPaye = depenses.filter(d => d.statut === 'Payée').reduce((s, d) => s + (d.montant_ht || 0), 0)
 
   return (
-    <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1280, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
-        <div>
-          <p style={eyebrow}>Partenaires Particuliers</p>
-          <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Dépenses</h1>
-          <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Achats et frais de la société non liés à un projet client</p>
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button onClick={verifierQonto} disabled={rapprochementBusy} style={btnGhost}>
-            {rapprochementBusy ? 'Vérification...' : 'Vérifier sur Qonto'}
-          </button>
-          <button onClick={() => { setShowForm(true); setError('') }} style={btnPrimary}>
-            + Nouvelle dépense
-          </button>
-        </div>
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+        <button onClick={verifierQonto} disabled={rapprochementBusy} style={btnGhost}>
+          {rapprochementBusy ? 'Vérification...' : 'Vérifier sur Qonto'}
+        </button>
+        <button onClick={() => { setShowForm(true); setError('') }} style={btnPrimary}>
+          + Nouvelle dépense
+        </button>
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr 1fr' : 'repeat(3, 1fr)', gap: 24, margin: '36px 0 32px', paddingBottom: 24, borderBottom: '1px solid ' + colors.line }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr 1fr' : 'repeat(3, 1fr)', gap: 24, margin: '20px 0 32px', paddingBottom: 24, borderBottom: '1px solid ' + colors.line }}>
         <div>
           <div style={eyebrow}>À payer</div>
           <div style={{ fontFamily: fonts.mono, fontSize: 24, fontWeight: 500, marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalAPayer)}</div>
