@@ -413,7 +413,7 @@ export default function Dashboard() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.libelle}</div>
                         <div style={{ fontSize: 11, color: enRetard ? colors.danger : colors.inkMuted, marginTop: 2 }}>
-                          {enRetard ? 'En retard · ' : ''}{d.categorie}
+                          {enRetard ? 'En retard · ' : ''}{d.categorie}{d.date_echeance ? ' · Échéance : ' + fmtDate(d.date_echeance) : ''}
                         </div>
                       </div>
                       <div style={{ fontFamily: fonts.mono, fontSize: 13, fontVariantNumeric: 'tabular-nums', color: enRetard ? colors.danger : colors.warning, flexShrink: 0 }}>{fmt(d.montant_ht)}</div>
