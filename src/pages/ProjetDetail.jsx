@@ -2814,7 +2814,7 @@ export default function ProjetDetail() {
               const preuves = {
                 'Devis signé': { label: 'Uploader le devis signé', type: 'upload' },
                 'En cours': { label: 'Renseigner la date de début de chantier', type: 'date' },
-                'Finalisation': { label: 'Toutes les commandes doivent être en statut "Validée"', type: 'auto' },
+                'Finalisation': { label: 'Toutes les commandes doivent être en statut "Validée" et le projet doit être facturé à 100 % au client', type: 'auto' },
                 'Clôturé': { label: 'Toutes les factures clients doivent être "Payées"', type: 'auto' },
               }
 
@@ -2843,6 +2843,13 @@ export default function ProjetDetail() {
                 if (preuve?.type === 'auto' && nextStatut === 'Finalisation') {
                   const cmdNonValidees = commandes.filter(c => c.statut !== 'Validée' && c.statut !== 'Annulée')
                   if (cmdNonValidees.length > 0) { setValidationError(cmdNonValidees.length + ' commande(s) ne sont pas encore en statut "Validée".'); setValidating(false); return }
+                  // Le projet doit être facturé à 100 % au client avant de
+                  // passer en finalisation (peu importe que les factures
+                  // soient déjà payées — ça, c'est la condition pour passer
+                  // en "Clôturé" juste après). Tolérance d'un centime pour
+                  // les arrondis (voir totalFcli plus haut).
+                  const resteAFacturer = Math.round(((projet.montant_ht || 0) - totalFcli) * 100) / 100
+                  if (resteAFacturer > 0.01) { setValidationError('Il reste ' + fmt(resteAFacturer) + ' à facturer au client avant de pouvoir passer en finalisation.'); setValidating(false); return }
                 }
 
                 if (preuve?.type === 'auto' && nextStatut === 'Clôturé') {
