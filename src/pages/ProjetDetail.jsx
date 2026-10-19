@@ -2573,6 +2573,11 @@ export default function ProjetDetail() {
   const totalCommandes = commandes.reduce((s, c) => s + (c.montant_ht || 0), 0)
   const totalFfrs = facturesFrs.reduce((s, f) => s + (f.montant_ht || 0), 0)
   const totalFcli = facturesCli.reduce((s, f) => s + (f.montant_ht || 0), 0)
+  // Même total, mais sans les factures encore "À envoyer" (brouillon pas
+  // encore sorti) — utilisé pour le garde-fou de passage en Finalisation
+  // ci-dessous : une facture pas encore envoyée ne compte pas comme
+  // "facturée au client", même si son montant existe déjà dans le devis.
+  const totalFcliEnvoyees = facturesCli.filter(f => f.statut !== 'À envoyer').reduce((s, f) => s + (f.montant_ht || 0), 0)
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: colors.inkFaint }}>Chargement...</div>
   if (!projet) return <div style={{ padding: 40, textAlign: 'center', color: colors.danger }}>Projet introuvable</div>
@@ -2846,9 +2851,11 @@ export default function ProjetDetail() {
                   // Le projet doit être facturé à 100 % au client avant de
                   // passer en finalisation (peu importe que les factures
                   // soient déjà payées — ça, c'est la condition pour passer
-                  // en "Clôturé" juste après). Tolérance d'un centime pour
-                  // les arrondis (voir totalFcli plus haut).
-                  const resteAFacturer = Math.round(((projet.montant_ht || 0) - totalFcli) * 100) / 100
+                  // en "Clôturé" juste après) — mais une facture encore "À
+                  // envoyer" ne compte pas : tant qu'elle n'est pas sortie,
+                  // le client n'a rien reçu (voir totalFcliEnvoyees plus
+                  // haut). Tolérance d'un centime pour les arrondis.
+                  const resteAFacturer = Math.round(((projet.montant_ht || 0) - totalFcliEnvoyees) * 100) / 100
                   if (resteAFacturer > 0.01) { setValidationError('Il reste ' + fmt(resteAFacturer) + ' à facturer au client avant de pouvoir passer en finalisation.'); setValidating(false); return }
                 }
 
