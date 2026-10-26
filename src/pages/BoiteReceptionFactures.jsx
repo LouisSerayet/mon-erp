@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
-import { fmtDateFr as fmtDate } from '../lib/calculs'
+import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { colors, fonts, eyebrow, quietLink } from '../lib/theme'
 import { verifierNouvellesFactures } from '../lib/useImportFactures'
 import { envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
@@ -46,6 +46,48 @@ function getDocUrl(path) {
   return data.publicUrl
 }
 
+// ── Détection de doublon ────────────────────────────────────────────
+// Un même achat peut finir deux fois dans l'app : une fois via cette boîte
+// de réception (l'email avec le PDF), une fois via un autre chemin (saisie
+// manuelle, ou "+ Créer une dépense" depuis une transaction Qonto non
+// rapprochée, voir tresorerie/Rapprochement.jsx) — rien ne relie ces
+// chemins entre eux, donc rien ne prévenait jusqu'ici qu'une facture/
+// dépense très proche existait déjà avant de valider cet email.
+// On ne peut pas comparer de façon fiable sur le fournisseur ou le numéro
+// de facture : une dépense créée depuis Qonto n'a pas de fournisseur_id
+// renseigné, et son "numero" (quand il existe) est repris du libellé
+// bancaire, pas du vrai numéro de facture. Le montant HT reste le signal
+// le plus robuste, avec la même tolérance d'arrondi que le rapprochement
+// bancaire (voir TOLERANCE_CENTIMES dans lib/rapprochement.js) ; on
+// resserre avec une fenêtre de dates assez large pour couvrir un
+// fournisseur qui renvoie sa facture plusieurs semaines après l'achat,
+// sans non plus matcher deux dépenses sans rapport qui partagent un
+// montant rond par pur hasard.
+const TOLERANCE_CENTIMES_DOUBLON = 2
+const FENETRE_JOURS_DOUBLON = 21
+
+function joursEntre(a, b) {
+  if (!a || !b) return null
+  const diff = Math.abs(new Date(a) - new Date(b))
+  return Number.isNaN(diff) ? null : diff / 86400000
+}
+
+function doublonProbable(item, f, facturesExistantes, depensesExistantes) {
+  const montant = parseFloat(f.montant_ht)
+  if (!montant || !Number.isFinite(montant)) return null
+  const montantCents = Math.round(montant * 100)
+  const refDate = f.date_facture || item.recu_le || null
+  const candidats = [
+    ...facturesExistantes.map(c => ({ ...c, table: 'Facture fournisseur', ref: c.numero })),
+    ...depensesExistantes.map(c => ({ ...c, table: 'Dépense générale', ref: c.numero || c.libelle })),
+  ]
+  return candidats.find(c => {
+    if (Math.abs(Math.round((c.montant_ht || 0) * 100) - montantCents) > TOLERANCE_CENTIMES_DOUBLON) return false
+    const ecart = joursEntre(refDate, c.date_facture)
+    return ecart === null || ecart <= FENETRE_JOURS_DOUBLON
+  }) || null
+}
+
 export default function BoiteReceptionFactures() {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
@@ -53,6 +95,8 @@ export default function BoiteReceptionFactures() {
   const [fournisseurs, setFournisseurs] = useState([])
   const [commandes, setCommandes] = useState([])
   const [projets, setProjets] = useState([])
+  const [facturesExistantes, setFacturesExistantes] = useState([])
+  const [depensesExistantes, setDepensesExistantes] = useState([])
   const [loading, setLoading] = useState(true)
   const [verifBusy, setVerifBusy] = useState(false)
   const [verifResume, setVerifResume] = useState('')
@@ -63,16 +107,25 @@ export default function BoiteReceptionFactures() {
 
   async function charger() {
     setLoading(true)
-    const [{ data: items }, { data: frs }, { data: cmds }, { data: prjs }] = await Promise.all([
+    const [{ data: items }, { data: frs }, { data: cmds }, { data: prjs }, { data: fexist }, { data: dexist }] = await Promise.all([
       supabase.from('factures_frs_a_traiter').select('*').eq('statut', 'a_traiter').is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('fournisseurs').select('id, nom').is('deleted_at', null).order('nom'),
       supabase.from('commandes').select('id, numero, description, fournisseur_id, projet_id').is('deleted_at', null),
       supabase.from('projets').select('id, nom').is('deleted_at', null).order('nom'),
+      // Pour la détection de doublon ci-dessous (voir doublonProbable) —
+      // toutes les factures fournisseurs et dépenses générales déjà en
+      // base, quel que soit leur statut ou leur origine (saisie manuelle,
+      // "+ Créer une dépense" depuis Qonto, ou une précédente validation
+      // ici même).
+      supabase.from('factures_frs').select('id, numero, montant_ht, date_facture').is('deleted_at', null),
+      supabase.from('depenses_generales').select('id, numero, libelle, montant_ht, date_facture').is('deleted_at', null),
     ])
     setBoite(items || [])
     setFournisseurs(frs || [])
     setCommandes(cmds || [])
     setProjets(prjs || [])
+    setFacturesExistantes(fexist || [])
+    setDepensesExistantes(dexist || [])
     // Pré-remplit le formulaire d'édition de chaque brouillon à partir de
     // ce que l'import a deviné, sans écraser une éventuelle saisie déjà en
     // cours sur un item déjà présent (recharge après "Vérifier").
@@ -266,6 +319,7 @@ export default function BoiteReceptionFactures() {
           </div>
         ) : boite.map(item => {
           const f = forms[item.id] || {}
+          const doublon = doublonProbable(item, f, facturesExistantes, depensesExistantes)
           return (
             <div key={item.id} style={{ borderTop: '1px solid ' + colors.line, padding: '22px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -285,6 +339,11 @@ export default function BoiteReceptionFactures() {
               {item.alerte && (
                 <div style={{ borderLeft: '2px solid ' + colors.warning, color: colors.warning, padding: '8px 12px', marginBottom: 14, fontSize: 12.5 }}>
                   {item.alerte}
+                </div>
+              )}
+              {doublon && (
+                <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 14, fontSize: 12.5 }}>
+                  ⚠ Doublon probable : {doublon.table.toLowerCase()} « {doublon.ref || 'sans référence'} » déjà enregistrée pour {fmt(doublon.montant_ht)}{doublon.date_facture ? ' le ' + fmtDate(doublon.date_facture) : ''}. Vérifie avant de valider.
                 </div>
               )}
               {texteOuvert === item.id && (
