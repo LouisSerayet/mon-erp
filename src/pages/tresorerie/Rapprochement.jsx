@@ -8,6 +8,7 @@ import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../../lib/calculs'
 import { tauxTvaDepense, htDepuisTtc } from '../../lib/tva'
 import { SaisieMontantTva } from '../../components/SaisieMontantTva'
 import { colors, fonts, eyebrow, quietLink, marker } from '../../lib/theme'
+import { useDroits } from '../../lib/useDroits'
 
 // Nombre max de transactions non rapprochées affichées (les plus récentes
 // d'abord) — au-delà, la liste serait juste noyée sous des mouvements
@@ -51,6 +52,10 @@ const btnGhost = { background: 'none', color: colors.inkMuted, border: '1px soli
 // (toujours accessible à cette URL, qui redirige maintenant vers cet
 // onglet — voir App.jsx).
 export default function Rapprochement() {
+  // Droit par rôle (voir sql/droits_roles_migration.sql) : confirmer une
+  // correspondance, ou créer une dépense/facture/écriture depuis une
+  // transaction Qonto, demande rapprochement_modification.
+  const { aDroit } = useDroits()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [dernierRapport, setDernierRapport] = useState(null) // { appliques, echecs }
@@ -456,9 +461,11 @@ export default function Rapprochement() {
           <div style={{ marginBottom: 2 }}>↔ {r.transaction.label || r.transaction.reference || 'Transaction Qonto'}</div>
           <div>{fmtDate(r.transaction.settled_at || r.transaction.emitted_at)} · {fmtTx(r.transaction.amount_cents)} ({r.base})</div>
         </div>
-        <button onClick={() => confirmer(table, r)} disabled={busy === cle} style={quietLink}>
-          {busy === cle ? '...' : 'Marquer payée'}
-        </button>
+        {aDroit('rapprochement_modification') && (
+          <button onClick={() => confirmer(table, r)} disabled={busy === cle} style={quietLink}>
+            {busy === cle ? '...' : 'Marquer payée'}
+          </button>
+        )}
       </div>
     )
   }
@@ -788,19 +795,21 @@ export default function Rapprochement() {
                         <div style={{ fontFamily: fonts.mono, fontSize: 14, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: estCredit ? colors.success : colors.ink, flexShrink: 0 }}>
                           {estCredit ? '+ ' : '− '}{fmtTx(Math.abs(tx.amount_cents))}
                         </div>
-                        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-                          <button onClick={() => ouvrirAssociationGroupee(tx, estCredit ? 'factures_cli' : 'factures_frs')} style={quietLink}
-                            title="Paiement groupé : cette transaction règle plusieurs factures à la fois">
-                            Associer à des factures {estCredit ? 'clients' : 'fournisseurs'}
-                          </button>
-                          <button onClick={() => estCredit ? ouvrirCreationFacture(tx) : ouvrirCreationDepense(tx)} style={quietLink}>
-                            {estCredit ? '+ Créer une facture client' : '+ Créer une dépense'}
-                          </button>
-                          <button onClick={() => ouvrirCreationEcriture(tx)} style={quietLink}
-                            title="Pour un mouvement qui n'est ni une facture ni une dépense : apport en capital, emprunt, remboursement...">
-                            + Décrire ce mouvement
-                          </button>
-                        </div>
+                        {aDroit('rapprochement_modification') && (
+                          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                            <button onClick={() => ouvrirAssociationGroupee(tx, estCredit ? 'factures_cli' : 'factures_frs')} style={quietLink}
+                              title="Paiement groupé : cette transaction règle plusieurs factures à la fois">
+                              Associer à des factures {estCredit ? 'clients' : 'fournisseurs'}
+                            </button>
+                            <button onClick={() => estCredit ? ouvrirCreationFacture(tx) : ouvrirCreationDepense(tx)} style={quietLink}>
+                              {estCredit ? '+ Créer une facture client' : '+ Créer une dépense'}
+                            </button>
+                            <button onClick={() => ouvrirCreationEcriture(tx)} style={quietLink}
+                              title="Pour un mouvement qui n'est ni une facture ni une dépense : apport en capital, emprunt, remboursement...">
+                              + Décrire ce mouvement
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )
                   })}

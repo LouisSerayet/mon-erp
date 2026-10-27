@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { DataProvider } from './DataContext'
 import { AuthProvider, useAuth } from './lib/AuthContext'
+import { useDroits } from './lib/useDroits'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 
@@ -42,6 +43,23 @@ function ChargementPage() {
 function RedirectTresorerieTab() {
   const { tab } = useParams()
   return <Navigate to={'/financier/' + (tab || 'comptes')} replace />
+}
+
+// Onglet Financier réservé aux rôles ayant le droit "financier_acces"
+// (voir sql/droits_roles_migration.sql, src/lib/useDroits.js) — tant que
+// les droits n'ont pas fini de charger, on affiche "Chargement..." plutôt
+// que de montrer la page un instant avant de la masquer.
+function RequireFinancier({ children }) {
+  const { aDroit, charge } = useDroits()
+  if (!charge) return <ChargementPage />
+  if (!aDroit('financier_acces')) {
+    return (
+      <div style={{ padding: 60, textAlign: 'center', color: '#9CA3AF', fontFamily: 'Inter, sans-serif', fontSize: 13 }}>
+        Accès non autorisé — cette section est réservée à certains rôles (voir "Mes informations").
+      </div>
+    )
+  }
+  return children
 }
 
 function Gate() {
@@ -87,7 +105,7 @@ function Gate() {
                 (même principe que la redirection /devis -> /projets
                 ci-dessus). */}
             <Route path="financier" element={<Navigate to="/financier/comptes" replace />} />
-            <Route path="financier/:tab" element={<Financier />} />
+            <Route path="financier/:tab" element={<RequireFinancier><Financier /></RequireFinancier>} />
             <Route path="tresorerie" element={<Navigate to="/financier/comptes" replace />} />
             <Route path="tresorerie/:tab" element={<RedirectTresorerieTab />} />
             <Route path="resultat" element={<Navigate to="/financier/resultat" replace />} />

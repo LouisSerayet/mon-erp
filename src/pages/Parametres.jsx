@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { useMonRole } from '../lib/useMonRole'
 import { ROLES } from '../lib/roles'
+import { DROITS } from '../lib/droits'
 import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, eyebrow } from '../lib/theme'
 
@@ -15,12 +16,12 @@ import { colors, fonts, eyebrow } from '../lib/theme'
 // L'email n'est pas modifiable ici : c'est celui du compte de connexion,
 // déjà connu et utilisé pour retrouver la bonne fiche.
 //
-// Pour un Gérant, cette page affiche aussi "Rôles de l'équipe" : la liste
-// de tous les utilisateurs de l'ERP avec leur rôle actuel, modifiable
-// directement (voir sql/roles_utilisateurs_migration.sql pour le détail de
-// ce que chaque rôle fera plus tard — pour l'instant aucune action de
-// l'appli n'est encore restreinte par rôle, cette page ne fait que poser
-// l'infrastructure).
+// Pour un Gérant, cette page affiche aussi "Rôles de l'équipe" (liste des
+// utilisateurs, rôle modifiable directement — voir
+// sql/roles_utilisateurs_migration.sql) et "Droits par rôle" (quelle
+// action est permise pour quel rôle — voir sql/droits_roles_migration.sql
+// et src/lib/droits.js pour le catalogue des droits existants, et
+// useDroits() dans le reste de l'appli pour leur usage réel).
 
 const inputUnderline = {
   width: '100%', padding: '8px 2px', background: 'transparent', border: 'none',
@@ -51,6 +52,12 @@ export default function Parametres() {
   const [errorEquipe, setErrorEquipe] = useState('')
   const [idEnCours, setIdEnCours] = useState(null)
 
+  // table (role -> droit -> actif), voir sql/droits_roles_migration.sql
+  const [droitsRoles, setDroitsRoles] = useState({})
+  const [loadingDroits, setLoadingDroits] = useState(false)
+  const [errorDroits, setErrorDroits] = useState('')
+  const [droitEnCours, setDroitEnCours] = useState(null)
+
   useEffect(() => {
     if (!session?.user?.id) return
     (async () => {
@@ -73,6 +80,22 @@ export default function Parametres() {
     })()
   }, [monRole])
 
+  useEffect(() => {
+    if (monRole !== 'Gérant') return
+    (async () => {
+      setLoadingDroits(true); setErrorDroits('')
+      const { data, error: err } = await supabase.from('droits_roles').select('role, droit, actif')
+      if (err) { setErrorDroits('Erreur : ' + err.message); setLoadingDroits(false); return }
+      const table = {}
+      for (const d of data || []) {
+        if (!table[d.role]) table[d.role] = {}
+        table[d.role][d.droit] = d.actif
+      }
+      setDroitsRoles(table)
+      setLoadingDroits(false)
+    })()
+  }, [monRole])
+
   async function enregistrer() {
     if (!session?.user?.id) return
     setSaving(true); setError(''); setEnregistre(false)
@@ -89,6 +112,16 @@ export default function Parametres() {
     setIdEnCours(null)
     if (err) { setErrorEquipe('Erreur : ' + err.message); return }
     setEquipe(prev => prev.map(u => u.user_id === userId ? { ...u, role: nouveauRole } : u))
+  }
+
+  async function toggleDroit(role, cle, actuel) {
+    const nouveauActif = !actuel
+    const id = role + '|' + cle
+    setDroitEnCours(id); setErrorDroits('')
+    const { error: err } = await supabase.from('droits_roles').update({ actif: nouveauActif }).eq('role', role).eq('droit', cle)
+    setDroitEnCours(null)
+    if (err) { setErrorDroits('Erreur : ' + err.message); return }
+    setDroitsRoles(prev => ({ ...prev, [role]: { ...prev[role], [cle]: nouveauActif } }))
   }
 
   return (
@@ -173,6 +206,52 @@ export default function Parametres() {
               {equipe.length === 0 && (
                 <p style={{ color: colors.inkFaint, fontSize: 13, textAlign: 'center', padding: '20px 0' }}>Aucun utilisateur trouvé.</p>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {monRole === 'Gérant' && (
+        <div style={{ marginTop: 56, paddingTop: 36, borderTop: '1px solid ' + colors.line }}>
+          <h2 style={{ margin: 0, fontSize: isMobile ? 19 : 22, fontWeight: 700, letterSpacing: '-0.01em' }}>Droits par rôle</h2>
+          <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0', lineHeight: 1.5 }}>
+            Coche, pour chaque rôle, les actions qu'il peut effectuer dans l'ERP. Un changement prend effet immédiatement pour les personnes concernées.
+          </p>
+
+          {errorDroits && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', margin: '20px 0', fontSize: 13 }}>{errorDroits}</div>}
+
+          {loadingDroits ? (
+            <div style={{ textAlign: 'center', padding: 40, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
+          ) : (
+            <div style={{ marginTop: 24, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: isMobile ? 480 : undefined }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left', padding: '0 10px 10px 0', fontWeight: 500, color: colors.inkMuted }}></th>
+                    {ROLES.map(r => (
+                      <th key={r} style={{ padding: '0 10px 10px', fontWeight: 600, fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '.04em', color: colors.inkMuted }}>{r}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {DROITS.map(d => (
+                    <tr key={d.cle} style={{ borderTop: '1px solid ' + colors.line }}>
+                      <td style={{ padding: '10px 10px 10px 0', color: colors.ink }}>{d.label}</td>
+                      {ROLES.map(r => {
+                        const actif = !!(droitsRoles[r] && droitsRoles[r][d.cle])
+                        const id = r + '|' + d.cle
+                        return (
+                          <td key={r} style={{ padding: '10px', textAlign: 'center' }}>
+                            <input type="checkbox" checked={actif} disabled={droitEnCours === id}
+                              onChange={() => toggleDroit(r, d.cle, actif)}
+                              style={{ width: 16, height: 16, cursor: 'pointer', opacity: droitEnCours === id ? 0.5 : 1 }} />
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

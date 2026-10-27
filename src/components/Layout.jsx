@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
+import { useDroits } from '../lib/useDroits'
 import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, quietLink } from '../lib/theme'
 
@@ -143,6 +144,14 @@ export default function Layout() {
   const [rechercheOuverte, setRechercheOuverte] = useState(false)
   const [rechercheMobileOuverte, setRechercheMobileOuverte] = useState(false)
   const { resultats, loading: rechercheEnCours } = useRechercheGlobale(rechercheQ)
+  const { aDroit } = useDroits()
+  // "Financier" masqué pour qui n'a pas le droit financier_acces (voir
+  // sql/droits_roles_migration.sql) — même filtre appliqué aux 3 rendus du
+  // menu (desktop, barre mobile, "Plus" mobile) puisqu'ils partagent tous
+  // la même entrée /financier dans nav.
+  const navVisible = nav.filter(n => n.to !== '/financier' || aDroit('financier_acces'))
+  const navMobilePrincipaleVisible = NAV_MOBILE_PRINCIPALE.filter(n => n.to !== '/financier' || aDroit('financier_acces'))
+  const navMobilePlusVisible = NAV_MOBILE_PLUS.filter(n => n.to !== '/financier' || aDroit('financier_acces'))
 
   async function logout() {
     await supabase.auth.signOut()
@@ -207,7 +216,7 @@ export default function Layout() {
             style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.4)', zIndex: 20, display: 'flex', alignItems: 'flex-end' }}>
             <div onClick={e => e.stopPropagation()}
               style={{ background: colors.surface, width: '100%', borderTop: '1px solid ' + colors.line, padding: '4px 0 calc(10px + env(safe-area-inset-bottom))' }}>
-              {NAV_MOBILE_PLUS.map((n, i) => n.section ? (
+              {navMobilePlusVisible.map((n, i) => n.section ? (
                 <div key={i} style={{ fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '14px 20px 4px', fontWeight: 600 }}>{n.section}</div>
               ) : (
                 <NavLink key={i} to={n.to} state={n.state} onClick={() => setPlusOuvert(false)}
@@ -243,7 +252,7 @@ export default function Layout() {
           display: 'flex', background: colors.surface, borderTop: '1px solid ' + colors.line,
           paddingBottom: 'env(safe-area-inset-bottom)', flexShrink: 0,
         }}>
-          {NAV_MOBILE_PRINCIPALE.map((n, i) => (
+          {navMobilePrincipaleVisible.map((n, i) => (
             <NavLink key={i} to={n.to} style={linkStyle}>
               {n.label}
             </NavLink>
@@ -287,7 +296,7 @@ export default function Layout() {
         </div>
 
         <nav style={{ padding: '8px', flex: 1, overflow: 'auto' }}>
-          {nav.map((n, i) => n.section ? (
+          {navVisible.map((n, i) => n.section ? (
             <div key={i} style={{ fontSize: 10, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '16px 10px 4px', fontWeight: 600 }}>{n.section}</div>
           ) : (
             <NavLink key={i} to={n.to} state={n.state}

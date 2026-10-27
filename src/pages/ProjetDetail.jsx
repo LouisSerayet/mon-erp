@@ -6,6 +6,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane, envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
+import { useDroits } from '../lib/useDroits'
 import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, resteADepenserParCoeff, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, bandeauHaut, titreSection, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
@@ -152,6 +153,12 @@ export default function ProjetDetail() {
   const navigate = useNavigate()
   const location = useLocation()
   const isMobile = useIsMobile()
+  // Droits par rôle (voir sql/droits_roles_migration.sql,
+  // src/lib/useDroits.js) — restreint la création/validation/modification
+  // des commandes, la validation des factures frs, la création de
+  // factures client et l'envoi vers Pennylane selon le rôle de la
+  // personne connectée.
+  const { aDroit } = useDroits()
   // Un lien depuis le Dashboard (ex: "Factures clients à encaisser") peut
   // demander d'arriver directement sur le bon onglet — et sur la bonne
   // ligne (focusId, voir plus bas) — plutôt que sur "Infos" par défaut, ce
@@ -2155,7 +2162,7 @@ export default function ProjetDetail() {
           // n'annule pas l'email déjà parti chez le client (voir
           // envoyerFactureCliAutoPennylane, idempotent sur pennylane_synced_at).
           const factureEnvoyee = (data || []).find(f => f.id === envoiEmailModal.id)
-          if (factureEnvoyee) {
+          if (factureEnvoyee && aDroit('pennylane')) {
             envoyerFactureCliAutoPennylane(factureEnvoyee, projet).catch(err => {
               setPennylaneError('Email envoyé, mais échec de l\'envoi automatique à Pennylane : ' + err.message)
             })
@@ -2227,9 +2234,11 @@ export default function ProjetDetail() {
         // Envoi automatique à Pennylane dès la création — en tâche de
         // fond, non bloquant : un échec ici n'annule pas l'enregistrement
         // de la facture, qui a déjà réussi (voir envoyerFactureFrsAutoPennylane).
-        envoyerFactureFrsAutoPennylane({ ...inserted, fichier_path: path }, fileFfrs).catch(err => {
-          setPennylaneError('Facture enregistrée, mais échec de l\'envoi automatique à Pennylane : ' + err.message)
-        })
+        if (aDroit('pennylane')) {
+          envoyerFactureFrsAutoPennylane({ ...inserted, fichier_path: path }, fileFfrs).catch(err => {
+            setPennylaneError('Facture enregistrée, mais échec de l\'envoi automatique à Pennylane : ' + err.message)
+          })
+        }
       }
     }
 
@@ -2476,7 +2485,7 @@ export default function ProjetDetail() {
     // a déjà réussi à ce stade.
     if (changes.statut === 'Envoyée' && facture.statut !== 'Envoyée') {
       const factureEnvoyee = (data || []).find(f => f.id === facture.id)
-      if (factureEnvoyee) {
+      if (factureEnvoyee && aDroit('pennylane')) {
         envoyerFactureCliAutoPennylane(factureEnvoyee, projet).catch(err => {
           setPennylaneError('Enregistré, mais échec de l\'envoi automatique à Pennylane : ' + err.message)
         })
@@ -3858,11 +3867,13 @@ export default function ProjetDetail() {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Commandes fournisseurs · <span style={{ color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalCommandes)}</span></div>
-              <button onClick={() => { setShowForm(true); setError(''); setFileCmd(null);
-                setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', taux_tva: 20, statut: 'Brouillon', date_commande: new Date().toISOString().split('T')[0], regime_tva: 'normale' }) }}
-                style={btnPrimary}>
-                + Nouvelle commande
-              </button>
+              {aDroit('commande_creation') && (
+                <button onClick={() => { setShowForm(true); setError(''); setFileCmd(null);
+                  setFormCmd({ fournisseur_id: '', numero: genNumeroCommande(projet, commandes), description: '', montant_ht: '', taux_tva: 20, statut: 'Brouillon', date_commande: new Date().toISOString().split('T')[0], regime_tva: 'normale' }) }}
+                  style={btnPrimary}>
+                  + Nouvelle commande
+                </button>
+              )}
             </div>
 
             {/* Petit récap achat : budget devis vs déjà commandé vs reste —
@@ -4016,7 +4027,15 @@ export default function ProjetDetail() {
                       // tomber sur l'invite de motif au milieu d'une saisie,
                       // le cadenas est désormais le seul point d'entrée.
                       const verrouille = c.statut === 'Validée' && !cmdDeverrouillees.has(c.id)
-                      const styleVerrouille = verrouille ? { opacity: 0.55, cursor: 'not-allowed' } : {}
+                      // Au verrou existant s'ajoutent les droits par rôle
+                      // (voir useDroits en haut du fichier) : modifier les
+                      // champs d'une commande demande commande_modification,
+                      // changer son statut (le passage à "Validée" en
+                      // particulier) demande commande_validation.
+                      const bloqueModif = verrouille || !aDroit('commande_modification')
+                      const bloqueValidation = verrouille || !aDroit('commande_validation')
+                      const styleBloqueModif = bloqueModif ? { opacity: 0.55, cursor: 'not-allowed' } : {}
+                      const styleBloqueValidation = bloqueValidation ? { opacity: 0.55, cursor: 'not-allowed' } : {}
                       return (
                         <>
                         <tr key={c.id} id={'row-' + c.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: c.id === focusId ? '2px solid ' + colors.focus : 'none' }}>
@@ -4027,26 +4046,26 @@ export default function ProjetDetail() {
                                   title="Commande validée — figée, cliquer pour déverrouiller (modification tracée)"
                                   style={{ fontSize: 11, background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 1 }}>🔒</button>
                               )}
-                              <input value={getCmdVal(c, 'numero')} onChange={e => editCmd(c.id, 'numero', e.target.value)} disabled={verrouille}
-                                style={{ ...inStyle, width: 140, fontWeight: 600, color: colors.ink, ...styleVerrouille }} />
+                              <input value={getCmdVal(c, 'numero')} onChange={e => editCmd(c.id, 'numero', e.target.value)} disabled={bloqueModif}
+                                style={{ ...inStyle, width: 140, fontWeight: 600, color: colors.ink, ...styleBloqueModif }} />
                             </span>
                           </td>
                           <td style={{ padding: '8px 14px' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
                               <span style={marker(STATUT_COMMANDE_MARKER[getCmdVal(c, 'statut')])} />
-                              <select value={getCmdVal(c, 'statut')} onChange={e => { editCmd(c.id, 'statut', e.target.value) }} disabled={verrouille}
-                                style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display, ...styleVerrouille }}
-                                title={verrouille ? 'Commande validée — cliquer sur le cadenas pour déverrouiller' : ''}>
+                              <select value={getCmdVal(c, 'statut')} onChange={e => { editCmd(c.id, 'statut', e.target.value) }} disabled={bloqueValidation}
+                                style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display, ...styleBloqueValidation }}
+                                title={verrouille ? 'Commande validée — cliquer sur le cadenas pour déverrouiller' : !aDroit('commande_validation') ? 'Droit "Valider une commande fournisseur" requis' : ''}>
                                 {STATUTS_CMD.map(s => <option key={s}>{s}</option>)}
                               </select>
                             </span>
                           </td>
                           <td style={{ padding: '8px 14px', color: colors.inkFaint, whiteSpace: 'nowrap' }}>
-                            <input type="date" value={getCmdVal(c, 'date_commande')} onChange={e => editCmd(c.id, 'date_commande', e.target.value)} disabled={verrouille}
-                              style={{ ...inStyle, width: 120, color: colors.inkMuted, ...styleVerrouille }} />
+                            <input type="date" value={getCmdVal(c, 'date_commande')} onChange={e => editCmd(c.id, 'date_commande', e.target.value)} disabled={bloqueModif}
+                              style={{ ...inStyle, width: 120, color: colors.inkMuted, ...styleBloqueModif }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
-                            <SelecteurFournisseur fournisseurs={fournisseurs} value={getCmdVal(c, 'fournisseur_id') || ''} disabled={verrouille}
+                            <SelecteurFournisseur fournisseurs={fournisseurs} value={getCmdVal(c, 'fournisseur_id') || ''} disabled={bloqueModif}
                               onChange={fournisseur_id => {
                                 editCmd(c.id, 'fournisseur_id', fournisseur_id)
                                 // Même pré-sélection automatique du régime de TVA qu'à la
@@ -4054,11 +4073,11 @@ export default function ProjetDetail() {
                                 const f = fournisseurs.find(fr => fr.id === fournisseur_id)
                                 editCmd(c.id, 'regime_tva', f?.autoliquidation ? 'autoliquidation' : 'normale')
                               }}
-                              style={{ ...inStyle, width: 160, ...styleVerrouille }} />
+                              style={{ ...inStyle, width: 160, ...styleBloqueModif }} />
                           </td>
                           <td style={{ padding: '8px 14px' }}>
-                            <input value={getCmdVal(c, 'description')} onChange={e => editCmd(c.id, 'description', e.target.value)} disabled={verrouille}
-                              style={{ ...inStyle, minWidth: 200, ...styleVerrouille }} />
+                            <input value={getCmdVal(c, 'description')} onChange={e => editCmd(c.id, 'description', e.target.value)} disabled={bloqueModif}
+                              style={{ ...inStyle, minWidth: 200, ...styleBloqueModif }} />
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right' }}>
                             {/* 0% est une valeur valide (pas "non renseigné") : on chaîne les
@@ -4069,7 +4088,7 @@ export default function ProjetDetail() {
                             <SaisieMontantTva montantHt={getCmdVal(c, 'montant_ht')} tauxTva={cmdEditees[c.id]?.taux_tva ?? c.taux_tva ?? 20}
                               onChangeMontant={v => editCmd(c.id, 'montant_ht', v)} onChangeTaux={v => editCmd(c.id, 'taux_tva', v)}
                               tauxSansEffet={getCmdVal(c, 'regime_tva') === 'autoliquidation'}
-                              disabled={verrouille} compact />
+                              disabled={bloqueModif} compact />
                           </td>
                           <td style={{ padding: '8px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                             {(() => {
@@ -4092,10 +4111,10 @@ export default function ProjetDetail() {
                             })()}
                           </td>
                           <td style={{ padding: '8px 14px' }}>
-                            <select value={getCmdVal(c, 'regime_tva') || 'normale'} onChange={e => editCmd(c.id, 'regime_tva', e.target.value)} disabled={verrouille}
+                            <select value={getCmdVal(c, 'regime_tva') || 'normale'} onChange={e => editCmd(c.id, 'regime_tva', e.target.value)} disabled={bloqueModif}
                               title="Autoliquidation : le fournisseur facture hors taxe, vous déclarez la TVA vous-même (sous-traitance BTP, article 283 du CGI)."
                               style={{ border: 'none', borderBottom: '1px solid ' + (getCmdVal(c, 'regime_tva') === 'autoliquidation' ? colors.warning : 'transparent'), background: 'transparent', fontSize: 11, cursor: 'pointer', padding: '3px 2px', fontFamily: fonts.display,
-                                color: getCmdVal(c, 'regime_tva') === 'autoliquidation' ? colors.warning : colors.inkMuted, ...styleVerrouille }}>
+                                color: getCmdVal(c, 'regime_tva') === 'autoliquidation' ? colors.warning : colors.inkMuted, ...styleBloqueModif }}>
                               <option value="normale">Normale</option>
                               <option value="autoliquidation">Autoliq.</option>
                             </select>
@@ -4325,7 +4344,8 @@ export default function ProjetDetail() {
                       <td style={{ padding: '8px 14px' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted }}>
                           <span style={marker(STATUT_FFRS_MARKER[getFacFrsVal(f, 'statut')])} />
-                          <select value={getFacFrsVal(f, 'statut')} onChange={e => editFacFrs(f.id, 'statut', e.target.value)} disabled={verrouille}
+                          <select value={getFacFrsVal(f, 'statut')} onChange={e => editFacFrs(f.id, 'statut', e.target.value)} disabled={verrouille || !aDroit('facture_frs_validation')}
+                            title={!aDroit('facture_frs_validation') ? 'Droit "Valider une facture fournisseur" requis' : ''}
                             style={{ border: 'none', background: 'transparent', fontSize: 11, cursor: 'pointer', color: colors.inkMuted, fontFamily: fonts.display, ...styleVerrouille }}>
                             {STATUTS_FFRS.map(s => <option key={s}>{s}</option>)}
                           </select>
@@ -4391,16 +4411,18 @@ export default function ProjetDetail() {
                 <button onClick={verifierQontoCli} disabled={rapprochementBusy === 'cli'} style={btnGhost}>
                   {rapprochementBusy === 'cli' ? 'Vérification...' : 'Vérifier sur Qonto'}
                 </button>
-                <button onClick={() => {
-                  setShowForm(true); setError(''); setEcheanceFcliVerrouillee(true)
-                  // Même pré-remplissage que côté factures fournisseurs
-                  // ci-dessus (voir le commentaire associé) — ici c'est
-                  // encore plus net puisque c'est Louis lui-même qui émet
-                  // la facture : la date du jour est la bonne valeur par
-                  // défaut dans l'immense majorité des cas.
-                  const dateFacture = new Date().toISOString().split('T')[0]
-                  setFormFcli(p => ({ ...p, date_facture: dateFacture, date_echeance: echeanceFcliAuto(dateFacture, p.type_facture === 'acompte' && p.paiement_comptant) }))
-                }} style={btnPrimary}>+ Nouvelle facture</button>
+                {aDroit('facturation_client') && (
+                  <button onClick={() => {
+                    setShowForm(true); setError(''); setEcheanceFcliVerrouillee(true)
+                    // Même pré-remplissage que côté factures fournisseurs
+                    // ci-dessus (voir le commentaire associé) — ici c'est
+                    // encore plus net puisque c'est Louis lui-même qui émet
+                    // la facture : la date du jour est la bonne valeur par
+                    // défaut dans l'immense majorité des cas.
+                    const dateFacture = new Date().toISOString().split('T')[0]
+                    setFormFcli(p => ({ ...p, date_facture: dateFacture, date_echeance: echeanceFcliAuto(dateFacture, p.type_facture === 'acompte' && p.paiement_comptant) }))
+                  }} style={btnPrimary}>+ Nouvelle facture</button>
+                )}
               </div>
             </div>
             {rapprochementError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{rapprochementError}</div>}
