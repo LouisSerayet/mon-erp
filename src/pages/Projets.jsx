@@ -31,23 +31,22 @@ const STATUTS_AVEC_FACTURATION = ['En cours', 'Finalisation', 'Clôturé']
 // prévisionnel ni facturé) : on affiche un tiret plutôt qu'une barre à 0%
 // trompeuse (même logique que la colonne "Facturé" de l'onglet Commandes
 // fournisseurs dans ProjetDetail.jsx).
+// Icône, piste de barre et pourcentage gardent toujours la même position
+// (même quand il n'y a pas de pourcentage à afficher) pour que les trois
+// lignes de BarreFacturation d'un même projet, et la colonne entière
+// d'une ligne à l'autre, s'alignent proprement plutôt que de sauter d'une
+// largeur à l'autre selon qu'il y a une valeur ou un tiret.
 function BarreFacturation({ pct, Icon, color, title }) {
-  if (pct === null) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-        <Icon size={12} style={{ color, flexShrink: 0, opacity: 0.5 }} />
-        <span style={{ fontSize: 11, color: colors.inkFaint }}>—</span>
-      </div>
-    )
-  }
-  const largeur = Math.max(0, Math.min(100, pct))
+  const largeur = pct === null ? 0 : Math.max(0, Math.min(100, pct))
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }} title={title}>
-      <Icon size={12} style={{ color, flexShrink: 0 }} />
+      <Icon size={12} style={{ color, flexShrink: 0, opacity: pct === null ? 0.5 : 1 }} />
       <div style={{ flex: 1, height: 4, background: colors.line, overflow: 'hidden' }}>
-        <div style={{ height: '100%', background: color, width: largeur + '%' }} />
+        {pct !== null && <div style={{ height: '100%', background: color, width: largeur + '%' }} />}
       </div>
-      <span style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.inkMuted, width: 30, textAlign: 'right', flexShrink: 0 }}>{pct}%</span>
+      <span style={{ fontFamily: fonts.mono, fontSize: 10, color: colors.inkMuted, width: 30, textAlign: 'right', flexShrink: 0 }}>
+        {pct === null ? '—' : pct + '%'}
+      </span>
     </div>
   )
 }
@@ -567,7 +566,12 @@ export default function Projets() {
                       )}
                     </div>
                     <div style={{ textAlign: isMobile ? 'left' : 'right', display: 'flex', flexDirection: isMobile ? 'row-reverse' : 'row', justifyContent: isMobile ? 'space-between' : 'flex-start', alignItems: 'center', gap: 20 }}>
-                      <div>
+                      {/* Largeur fixe (desktop) pour que le montant et le
+                          statut de chaque ligne s'alignent sur la même
+                          colonne, au lieu de suivre la largeur du texte du
+                          montant (qui varie selon le nombre de chiffres) et
+                          de faire sauter "Supprimer" d'une ligne à l'autre. */}
+                      <div style={{ width: isMobile ? undefined : 150, flexShrink: 0 }}>
                         <div style={{ fontFamily: fonts.mono, fontWeight: 500, fontSize: 15, fontVariantNumeric: 'tabular-nums', marginBottom: 4 }}>{fmt(p.montant_ht)}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted, justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
                           <span style={marker(statutProjetMarker[p.statut])} />{p.statut}
