@@ -7,6 +7,8 @@ import autoTable from 'jspdf-autotable'
 import { syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane, envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
 import { useDroits } from '../lib/useDroits'
+import { useRelance } from '../lib/useRelance'
+import { ModalRelance } from '../components/ModalRelance'
 import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, resteADepenserParCoeff, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, bandeauHaut, titreSection, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
@@ -159,6 +161,10 @@ export default function ProjetDetail() {
   // factures client et l'envoi vers Pennylane selon le rôle de la
   // personne connectée.
   const { aDroit } = useDroits()
+  // Bouton "Relancer" (facture client en retard) — logique partagée avec le
+  // Dashboard et la page "Factures clients", voir src/lib/useRelance.js et
+  // components/ModalRelance.jsx.
+  const relance = useRelance()
   // Un lien depuis le Dashboard (ex: "Factures clients à encaisser") peut
   // demander d'arriver directement sur le bon onglet — et sur la bonne
   // ligne (focusId, voir plus bas) — plutôt que sur "Infos" par défaut, ce
@@ -2750,6 +2756,11 @@ export default function ProjetDetail() {
         </div>
       )}
 
+      {/* Modale "Relancer" (facture client en retard) — voir
+          src/lib/useRelance.js et components/ModalRelance.jsx, partagée
+          avec le Dashboard et la page "Factures clients". */}
+      <ModalRelance {...relance} />
+
       {/* Aperçu visuel PDF (devis / commande / facture client) — placée hors
           des onglets pour rester accessible depuis l'en-tête (devis) comme
           depuis n'importe quel onglet. Voir pdfPreview / previewDoc. */}
@@ -4685,6 +4696,15 @@ export default function ProjetDetail() {
                           <button onClick={() => ouvrirApercuFactureCli(f, 'fr')}
                             title="Aperçu du PDF (français)" style={iconBtn()}><IconApercu /></button>
                           <button onClick={() => ouvrirEnvoiFactureCli(f)} title="Envoyer la facture par email (PDF joint)" style={iconBtn()}><IconEnvoyer /></button>
+                          {enRetard && (
+                            relance.envoiRelance[f.id] === 'envoye' ? (
+                              <span style={{ fontSize: 11, color: colors.success, fontWeight: 500 }}>Envoyé</span>
+                            ) : projet.clients?.email ? (
+                              <a onClick={() => relance.ouvrirRelance({ ...f, projets: { nom: projet.nom, clients: projet.clients } }, projet.client_id)} style={{ ...quietLink, fontSize: 11 }}>Relancer</a>
+                            ) : (
+                              <span style={{ fontSize: 11, color: colors.inkFaint }} title="Aucun email renseigné pour ce client">pas d'email</span>
+                            )
+                          )}
                           <button onClick={() => supprimer('factures_cli', f.id)} title="Supprimer" style={iconBtn(colors.danger)}><IconSupprimer /></button>
                         </div>
                       </td>

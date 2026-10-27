@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
-import { envoyerEmailOutlook, creerBrouillonOutlook } from '../lib/useOutlook'
+import { useRelance } from '../lib/useRelance'
+import { ModalRelance } from '../components/ModalRelance'
 import { getBankAccounts } from '../lib/useQonto'
 import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
@@ -16,19 +17,10 @@ export default function Dashboard() {
   const [depensesAPayer, setDepensesAPayer] = useState([])
   const [relances, setRelances] = useState([])
   const [loading, setLoading] = useState(true)
-  // État d'envoi par facture (id -> 'envoye'), uniquement pour le retour
-  // visuel une fois l'envoi confirmé depuis la modale ci-dessous.
-  const [envoiRelance, setEnvoiRelance] = useState({})
-  // Modale d'aperçu/édition avant envoi — { factureId, to, subject, body } ou
-  // null si fermée. L'email ne part jamais directement au clic sur
-  // "Relancer" : on ouvre toujours cette modale pour valider/corriger le
-  // contenu avant l'envoi réel (voir ouvrirRelance / envoyerRelanceDepuisModal).
-  const [modalRelance, setModalRelance] = useState(null)
-  const [modalRelanceBusy, setModalRelanceBusy] = useState(false)
-  const [modalRelanceError, setModalRelanceError] = useState('')
-  // Busy state séparé pour "créer un brouillon dans Outlook" (voir
-  // creerBrouillonDepuisModal) — distinct de l'envoi direct ci-dessus.
-  const [modalRelanceDraftBusy, setModalRelanceDraftBusy] = useState(false)
+  // Bouton "Relancer" (facture client en retard) — logique partagée avec
+  // la page "Factures clients" et l'onglet "Factures cli" d'un projet, voir
+  // src/lib/useRelance.js et components/ModalRelance.jsx.
+  const relance = useRelance()
   // Mini-widget "Solde bancaire" — appel Qonto séparé de fetchAll() (données
   // Supabase) : un souci Qonto (clé absente/expirée, voir Financier.jsx qui
   // a le même appel) ne doit pas empêcher le reste du dashboard de
@@ -64,7 +56,7 @@ export default function Dashboard() {
       // client est rattaché au projet après coup, une facture déjà créée
       // reste orpheline pour toujours si on la lit directement (même
       // correctif que FacturesClients.jsx, voir ce fichier pour le détail).
-      supabase.from('factures_cli').select('*, projets(nom, clients(nom, email, telephone))').is('deleted_at', null).in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
+      supabase.from('factures_cli').select('*, projets(nom, clients(id, nom, email, telephone))').is('deleted_at', null).in('statut', ['À envoyer', 'Envoyée']).order('date_echeance', { ascending: true }),
       // Dépenses générales (loyer, compta, assurance...) — non liées à un
       // projet, voir src/pages/Depenses.jsx. La table peut ne pas encore
       // exister si sql/depenses_generales_migration.sql n'a pas été
@@ -114,58 +106,6 @@ export default function Dashboard() {
     setLoading(false)
   }
 
-  function contenuRelance(f) {
-    const joursRetard = f.date_echeance ? Math.floor((new Date() - new Date(f.date_echeance)) / 86400000) : null
-    const sujet = 'Relance facture ' + (f.numero || '') + ' — ' + (f.projets?.nom || '')
-    const corps = 'Bonjour,\n\nSauf erreur de notre part, la facture ' + (f.numero || '') +
-      (f.projets?.nom ? ' (' + f.projets.nom + ')' : '') +
-      ' d\'un montant de ' + Number(f.montant_ht || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' € HT' +
-      (joursRetard !== null ? ', échue depuis ' + joursRetard + ' jour(s),' : '') +
-      ' ne semble pas encore réglée.\n\nPourriez-vous nous indiquer où en est son règlement ?\n\nMerci d\'avance,\nCordialement'
-    return { sujet, corps }
-  }
-
-  // Ouvre l'aperçu/édition avant envoi — l'email ne part jamais directement
-  // au clic sur "Relancer", il faut valider (et éventuellement corriger) le
-  // contenu dans la modale qui s'ouvre ensuite. Voir modalRelance ci-dessous.
-  function ouvrirRelance(f) {
-    if (!f.projets?.clients?.email) return
-    const { sujet, corps } = contenuRelance(f)
-    setModalRelance({ factureId: f.id, to: f.projets.clients.email, subject: sujet, body: corps })
-    setModalRelanceError('')
-  }
-
-  async function envoyerRelanceDepuisModal() {
-    if (!modalRelance) return
-    setModalRelanceBusy(true)
-    setModalRelanceError('')
-    try {
-      await envoyerEmailOutlook({ to: modalRelance.to, subject: modalRelance.subject, body: modalRelance.body })
-      setEnvoiRelance(prev => ({ ...prev, [modalRelance.factureId]: 'envoye' }))
-      setModalRelance(null)
-    } catch (err) {
-      setModalRelanceError(err.message)
-    }
-    setModalRelanceBusy(false)
-  }
-
-  // Alternative à l'envoi automatique : enregistre le message comme
-  // brouillon dans la boîte Outlook configurée puis l'ouvre dans un nouvel
-  // onglet (Outlook sur le web), pour que Louis le relise et l'envoie
-  // lui-même directement depuis Outlook.
-  async function creerBrouillonDepuisModal() {
-    if (!modalRelance) return
-    setModalRelanceDraftBusy(true)
-    setModalRelanceError('')
-    try {
-      const webLink = await creerBrouillonOutlook({ to: modalRelance.to, subject: modalRelance.subject, body: modalRelance.body })
-      if (webLink) window.open(webLink, '_blank', 'noopener,noreferrer')
-      setModalRelance(null)
-    } catch (err) {
-      setModalRelanceError(err.message)
-    }
-    setModalRelanceDraftBusy(false)
-  }
 
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: colors.inkFaint, fontFamily: fonts.display }}>Chargement...</div>
@@ -214,48 +154,11 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Modale d'aperçu/édition avant envoi — voir ouvrirRelance() /
-          envoyerRelanceDepuisModal(). L'email ne part jamais tant qu'on n'a
-          pas validé son contenu ici. */}
-      {modalRelance && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,24,26,0.45)', zIndex: 200, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 14 }}>
-          <div style={{ background: colors.surface, padding: isMobile ? 20 : 32, width: isMobile ? '100%' : 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
-            <h3 style={{ margin: '0 0 22px', fontSize: 16, fontWeight: 600 }}>Relance par email</h3>
-
-            {modalRelanceError && (
-              <div style={{ background: colors.dangerBg, color: colors.danger, padding: '8px 12px', marginBottom: 14, fontSize: 13 }}>
-                {modalRelanceError}
-              </div>
-            )}
-
-            <label style={{ display: 'block', fontSize: 11, color: colors.inkMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.06em' }}>À</label>
-            <input value={modalRelance.to} onChange={e => setModalRelance(p => ({ ...p, to: e.target.value }))}
-              style={{ width: '100%', padding: '9px 0', border: 'none', borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box', marginBottom: 18, fontFamily: fonts.display, background: 'transparent' }} />
-
-            <label style={{ display: 'block', fontSize: 11, color: colors.inkMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.06em' }}>Objet</label>
-            <input value={modalRelance.subject} onChange={e => setModalRelance(p => ({ ...p, subject: e.target.value }))}
-              style={{ width: '100%', padding: '9px 0', border: 'none', borderBottom: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box', marginBottom: 18, fontFamily: fonts.display, background: 'transparent' }} />
-
-            <label style={{ display: 'block', fontSize: 11, color: colors.inkMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.06em' }}>Message</label>
-            <textarea value={modalRelance.body} onChange={e => setModalRelance(p => ({ ...p, body: e.target.value }))} rows={9}
-              style={{ width: '100%', padding: '10px 12px', border: '1px solid ' + colors.line, fontSize: 13, boxSizing: 'border-box', marginBottom: 22, fontFamily: 'inherit', resize: 'vertical', background: 'transparent' }} />
-
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
-              <button onClick={creerBrouillonDepuisModal} disabled={modalRelanceBusy || modalRelanceDraftBusy || !modalRelance.to} style={{ ...quietLink, fontSize: 12 }}>
-                {modalRelanceDraftBusy ? 'Création du brouillon...' : 'ou créer un brouillon dans Outlook'}
-              </button>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setModalRelance(null)} disabled={modalRelanceBusy}
-                  style={{ padding: '9px 18px', border: '1px solid ' + colors.line, background: 'transparent', cursor: 'pointer', fontSize: 13, fontFamily: fonts.display, color: colors.ink }}>Annuler</button>
-                <button onClick={envoyerRelanceDepuisModal} disabled={modalRelanceBusy || modalRelanceDraftBusy || !modalRelance.to}
-                  style={{ padding: '9px 20px', border: 'none', background: colors.ink, color: colors.surface, cursor: 'pointer', fontWeight: 500, fontSize: 13, fontFamily: fonts.display }}>
-                  {modalRelanceBusy ? 'Envoi...' : 'Envoyer'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modale d'aperçu/édition avant envoi — voir src/lib/useRelance.js et
+          components/ModalRelance.jsx (partagée avec Factures clients et
+          l'onglet Factures cli d'un projet). L'email ne part jamais tant
+          qu'on n'a pas validé son contenu ici. */}
+      <ModalRelance {...relance} />
 
       {/* Relances à faire — factures clients en retard ; le bouton ouvre un
           aperçu/édition avant tout envoi (voir modale ci-dessus). */}
@@ -278,10 +181,10 @@ export default function Dashboard() {
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontFamily: fonts.mono, fontSize: 13.5, fontVariantNumeric: 'tabular-nums', color: colors.danger }}>{fmt(f.montant_ht)}</div>
                     {f.projets?.clients?.email ? (
-                      envoiRelance[f.id] === 'envoye' ? (
+                      relance.envoiRelance[f.id] === 'envoye' ? (
                         <span style={{ fontSize: 11, color: colors.success, fontWeight: 500 }}>Envoyé</span>
                       ) : (
-                        <a onClick={() => ouvrirRelance(f)} style={{ ...quietLink, fontSize: 11 }}>Relancer</a>
+                        <a onClick={() => relance.ouvrirRelance(f, f.projets?.clients?.id)} style={{ ...quietLink, fontSize: 11 }}>Relancer</a>
                       )
                     ) : (
                       <span style={{ fontSize: 11, color: colors.inkFaint }} title="Aucun email renseigné pour ce client">pas d'email</span>

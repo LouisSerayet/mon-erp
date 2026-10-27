@@ -5,7 +5,9 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { useTri, appliquerTri } from '../lib/useTri'
 import { ThTri } from '../components/ThTri'
-import { colors, fonts, eyebrow, marker } from '../lib/theme'
+import { useRelance } from '../lib/useRelance'
+import { ModalRelance } from '../components/ModalRelance'
+import { colors, fonts, eyebrow, marker, quietLink } from '../lib/theme'
 
 // Page dédiée "Factures clients" — vue de navigation/consultation, tous
 // projets confondus (contrairement à l'onglet "Factures clients" d'un
@@ -57,6 +59,10 @@ export default function FacturesClients() {
   const [dateDebut, setDateDebut] = useState('')
   const [dateFin, setDateFin] = useState('')
   const { cle: triCle, sens: triSens, trierPar } = useTri('date', 'desc')
+  // Bouton "Relancer" (facture en retard) — logique partagée avec le
+  // Dashboard et l'onglet "Factures cli" d'un projet, voir
+  // src/lib/useRelance.js et components/ModalRelance.jsx.
+  const relance = useRelance()
 
   useEffect(() => {
     (async () => {
@@ -68,7 +74,7 @@ export default function FacturesClients() {
         // client est rattaché au projet après coup, une facture déjà créée
         // reste orpheline pour toujours si on la lit directement. Même
         // jointure vive que Dashboard.jsx/Exports.jsx/Rapprochement.jsx.
-        .select('id, numero, montant_ht, statut, date_facture, date_echeance, projet_id, projets(nom, clients(nom))')
+        .select('id, numero, montant_ht, statut, date_facture, date_echeance, projet_id, projets(nom, clients(id, nom, email))')
         .is('deleted_at', null)
         .order('date_facture', { ascending: false })
       setFactures(data || [])
@@ -177,6 +183,17 @@ export default function FacturesClients() {
                     </span>
                     <span style={{ fontFamily: fonts.mono, fontWeight: 500, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmt(f.montant_ht)}</span>
                   </div>
+                  {enRetardF && (
+                    <div style={{ marginTop: 6, textAlign: 'right' }}>
+                      {relance.envoiRelance[f.id] === 'envoye' ? (
+                        <span style={{ fontSize: 11, color: colors.success, fontWeight: 500 }}>Envoyé</span>
+                      ) : f.projets?.clients?.email ? (
+                        <a onClick={e => { e.stopPropagation(); relance.ouvrirRelance(f, f.projets?.clients?.id) }} style={{ ...quietLink, fontSize: 11 }}>Relancer</a>
+                      ) : (
+                        <span style={{ fontSize: 11, color: colors.inkFaint }} title="Aucun email renseigné pour ce client">pas d'email</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -199,6 +216,7 @@ export default function FacturesClients() {
                 <ThTri col="montant" label="Montant HT" align="right" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
                 <ThTri col="statut" label="Statut" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
                 <ThTri col="impayee" label="Impayée" align="right" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                <th style={{ padding: '0 14px 10px', borderBottom: '1px solid ' + colors.line }} />
               </tr>
             </thead>
             <tbody>
@@ -226,12 +244,24 @@ export default function FacturesClients() {
                     <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: enRetardF ? 600 : 400, color: enRetardF ? colors.danger : colors.inkFaint }}>
                       {enRetardF ? 'Oui' : 'Non'}
                     </td>
+                    <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                      {enRetardF && (
+                        relance.envoiRelance[f.id] === 'envoye' ? (
+                          <span style={{ fontSize: 11, color: colors.success, fontWeight: 500 }}>Envoyé</span>
+                        ) : f.projets?.clients?.email ? (
+                          <a onClick={e => { e.stopPropagation(); relance.ouvrirRelance(f, f.projets?.clients?.id) }} style={{ ...quietLink, fontSize: 11 }}>Relancer</a>
+                        ) : (
+                          <span style={{ fontSize: 11, color: colors.inkFaint }} title="Aucun email renseigné pour ce client">pas d'email</span>
+                        )
+                      )}
+                    </td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
         )}
+      <ModalRelance {...relance} />
     </div>
   )
 }
