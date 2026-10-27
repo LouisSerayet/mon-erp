@@ -99,7 +99,7 @@ begin
     raise exception 'Réservé au rôle Gérant.';
   end if;
   return query
-    select au.id, au.email, pu.nom, pu.telephone, coalesce(pu.role, 'Collaborateur')
+    select au.id, au.email::text, pu.nom, pu.telephone, coalesce(pu.role, 'Collaborateur')
     from auth.users au
     left join public.profils_utilisateurs pu on pu.user_id = au.id
     order by au.email;
