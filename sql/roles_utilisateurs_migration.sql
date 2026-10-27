@@ -77,6 +77,10 @@ create trigger avant_maj_profils_utilisateurs_role
 -- (SECURITY DEFINER : seule façon pour le front de lire auth.users, pas
 -- accessible directement via l'API publique Supabase) et vérifient
 -- elles-mêmes que l'appelant est Gérant plutôt que de s'appuyer sur RLS.
+-- `returns table (user_id uuid, ...)` crée des paramètres de sortie
+-- implicites de ces noms, visibles dans tout le corps de la fonction —
+-- d'où l'alias `pu` dans le test ci-dessous, sans quoi `user_id`/`role`
+-- redeviennent ambigus avec la colonne de profils_utilisateurs.
 create or replace function public.profils_utilisateurs_tous()
 returns table (user_id uuid, email text, nom text, telephone text, role text)
 language plpgsql
@@ -84,7 +88,10 @@ security definer
 set search_path = public
 as $$
 begin
-  if not exists (select 1 from public.profils_utilisateurs where user_id = auth.uid() and role = 'Gérant') then
+  if not exists (
+    select 1 from public.profils_utilisateurs pu
+    where pu.user_id = auth.uid() and pu.role = 'Gérant'
+  ) then
     raise exception 'Réservé au rôle Gérant.';
   end if;
   return query
