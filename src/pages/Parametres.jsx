@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
+import { useMonRole } from '../lib/useMonRole'
+import { ROLES } from '../lib/roles'
 import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, eyebrow } from '../lib/theme'
 
@@ -12,6 +14,13 @@ import { colors, fonts, eyebrow } from '../lib/theme'
 // src/lib/contacts.js (contactPourProjet) et projets.created_by_email.
 // L'email n'est pas modifiable ici : c'est celui du compte de connexion,
 // déjà connu et utilisé pour retrouver la bonne fiche.
+//
+// Pour un Gérant, cette page affiche aussi "Rôles de l'équipe" : la liste
+// de tous les utilisateurs de l'ERP avec leur rôle actuel, modifiable
+// directement (voir sql/roles_utilisateurs_migration.sql pour le détail de
+// ce que chaque rôle fera plus tard — pour l'instant aucune action de
+// l'appli n'est encore restreinte par rôle, cette page ne fait que poser
+// l'infrastructure).
 
 const inputUnderline = {
   width: '100%', padding: '8px 2px', background: 'transparent', border: 'none',
@@ -20,10 +29,15 @@ const inputUnderline = {
 }
 const fieldLabel = { display: 'block', fontSize: 11, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }
 const btnPrimary = { background: colors.ink, color: colors.surface, border: 'none', padding: '10px 22px', fontSize: 13, fontFamily: fonts.display, cursor: 'pointer' }
+const selectRole = {
+  padding: '6px 8px', background: colors.surface, border: '1px solid ' + colors.line, borderRadius: 4,
+  fontSize: 13, fontFamily: fonts.display, color: colors.ink, cursor: 'pointer',
+}
 
 export default function Parametres() {
   const isMobile = useIsMobile()
   const { session } = useAuth()
+  const monRole = useMonRole()
   const email = session?.user?.email || ''
   const [loading, setLoading] = useState(true)
   const [nom, setNom] = useState('')
@@ -31,6 +45,11 @@ export default function Parametres() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [enregistre, setEnregistre] = useState(false)
+
+  const [equipe, setEquipe] = useState([])
+  const [loadingEquipe, setLoadingEquipe] = useState(false)
+  const [errorEquipe, setErrorEquipe] = useState('')
+  const [idEnCours, setIdEnCours] = useState(null)
 
   useEffect(() => {
     if (!session?.user?.id) return
@@ -43,6 +62,17 @@ export default function Parametres() {
     })()
   }, [session?.user?.id])
 
+  useEffect(() => {
+    if (monRole !== 'Gérant') return
+    (async () => {
+      setLoadingEquipe(true); setErrorEquipe('')
+      const { data, error: err } = await supabase.rpc('profils_utilisateurs_tous')
+      if (err) { setErrorEquipe('Erreur : ' + err.message); setLoadingEquipe(false); return }
+      setEquipe(data || [])
+      setLoadingEquipe(false)
+    })()
+  }, [monRole])
+
   async function enregistrer() {
     if (!session?.user?.id) return
     setSaving(true); setError(''); setEnregistre(false)
@@ -51,6 +81,14 @@ export default function Parametres() {
     if (err) { setError('Erreur : ' + err.message); setSaving(false); return }
     setSaving(false)
     setEnregistre(true)
+  }
+
+  async function changerRole(userId, nouveauRole) {
+    setIdEnCours(userId); setErrorEquipe('')
+    const { error: err } = await supabase.rpc('definir_role_utilisateur', { p_user_id: userId, p_role: nouveauRole })
+    setIdEnCours(null)
+    if (err) { setErrorEquipe('Erreur : ' + err.message); return }
+    setEquipe(prev => prev.map(u => u.user_id === userId ? { ...u, role: nouveauRole } : u))
   }
 
   return (
@@ -96,6 +134,46 @@ export default function Parametres() {
             <p style={{ color: colors.inkFaint, fontSize: 11.5, marginTop: 28, lineHeight: 1.5 }}>
               Tant que ce champ est vide, les documents des projets que tu crées affichent les coordonnées par défaut de Partenaires Particuliers.
             </p>
+          )}
+        </div>
+      )}
+
+      {monRole === 'Gérant' && (
+        <div style={{ marginTop: 56, paddingTop: 36, borderTop: '1px solid ' + colors.line }}>
+          <h2 style={{ margin: 0, fontSize: isMobile ? 19 : 22, fontWeight: 700, letterSpacing: '-0.01em' }}>Rôles de l'équipe</h2>
+          <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0', lineHeight: 1.5 }}>
+            Visible uniquement par toi (Gérant). Ces rôles ne restreignent encore aucune action dans l'ERP — c'est la première étape avant d'ajouter de vraies règles par rôle.
+          </p>
+
+          {errorEquipe && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', margin: '20px 0', fontSize: 13 }}>{errorEquipe}</div>}
+
+          {loadingEquipe ? (
+            <div style={{ textAlign: 'center', padding: 40, color: colors.inkFaint, fontSize: 13 }}>Chargement...</div>
+          ) : (
+            <div style={{ marginTop: 24 }}>
+              {equipe.map(u => (
+                <div key={u.user_id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                  padding: '12px 0', borderBottom: '1px solid ' + colors.line,
+                }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{u.nom || u.email}</div>
+                    {u.nom && <div style={{ fontSize: 12, color: colors.inkFaint, marginTop: 2 }}>{u.email}</div>}
+                  </div>
+                  <select
+                    value={u.role || 'Collaborateur'}
+                    disabled={idEnCours === u.user_id}
+                    onChange={e => changerRole(u.user_id, e.target.value)}
+                    style={{ ...selectRole, opacity: idEnCours === u.user_id ? 0.6 : 1 }}
+                  >
+                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+              ))}
+              {equipe.length === 0 && (
+                <p style={{ color: colors.inkFaint, fontSize: 13, textAlign: 'center', padding: '20px 0' }}>Aucun utilisateur trouvé.</p>
+              )}
+            </div>
           )}
         </div>
       )}
