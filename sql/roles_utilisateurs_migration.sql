@@ -44,6 +44,10 @@ where email = 'lserayet@partenaires-particuliers.com';
 -- ligne entière), un trigger BEFORE UPDATE peut lui comparer OLD.role et
 -- NEW.role et annuler silencieusement tout changement de role tenté par
 -- quelqu'un qui n'est pas déjà Gérant.
+-- (alias `pu` dans le test ci-dessous : sans lui, `user_id`/`role` sont
+-- ambigus — vu en Prod sur profils_utilisateurs_tous(), voir
+-- roles_utilisateurs_fix_ambiguite.sql — même precaution reprise ici et
+-- dans definir_role_utilisateur plus bas.)
 create or replace function public.profils_utilisateurs_proteger_role()
 returns trigger
 language plpgsql
@@ -53,8 +57,8 @@ as $$
 begin
   if new.role is distinct from old.role then
     if not exists (
-      select 1 from public.profils_utilisateurs
-      where user_id = auth.uid() and role = 'Gérant'
+      select 1 from public.profils_utilisateurs pu
+      where pu.user_id = auth.uid() and pu.role = 'Gérant'
     ) then
       new.role := old.role;
     end if;
@@ -112,7 +116,10 @@ as $$
 declare
   v_email text;
 begin
-  if not exists (select 1 from public.profils_utilisateurs where user_id = auth.uid() and role = 'Gérant') then
+  if not exists (
+    select 1 from public.profils_utilisateurs pu
+    where pu.user_id = auth.uid() and pu.role = 'Gérant'
+  ) then
     raise exception 'Réservé au rôle Gérant.';
   end if;
   if p_role not in ('Gérant', 'Associé', 'Collaborateur', 'Stagiaire') then
