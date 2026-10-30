@@ -2001,19 +2001,33 @@ export default function ProjetDetail() {
     return `${jour}-${mois}-${annee}`
   }
 
+  // Nom de fichier téléchargé (devis/commande) à partir du nom du projet ou
+  // du fournisseur — remplace juste les espaces et les caractères interdits
+  // dans un nom de fichier (Windows notamment : \ / : * ? " < > |), mais
+  // garde les lettres accentuées (parfaitement valides dans un nom de
+  // fichier sur Mac/Windows/Linux) : un ancien `replace(/[^a-z0-9]/gi, '_')`
+  // les remplaçait aussi par "_", d'où des noms du type "TS_R_paration_PMF"
+  // au lieu de "TS_Réparation_PMF" — remonté par Louis. .normalize('NFC')
+  // par précaution, même raison que creerDocumentPDF (lib/pdfStyle.js) : un
+  // accent saisi/collé sous forme Unicode "décomposée" doit rester fondu
+  // dans sa lettre pour ne pas être traité comme un caractère à part.
+  function nomFichierSlug(str) {
+    return String(str || '').normalize('NFC').replace(/[\\/:*?"<>|]/g, '').trim().replace(/\s+/g, '_')
+  }
+
   // ── Aperçu visuel PDF (devis / commande / facture client) ───────────
   // Ouvre PdfPreviewModal au lieu de télécharger directement — voir
   // pdfPreview (état) et previewDoc (calculé plus bas, régénéré à chaque
   // changement de langue). onEnvoyer, quand fourni, ferme l'aperçu et
   // rouvre la modale d'envoi par email existante avec le même document.
   function ouvrirApercuDevis(lang = 'fr') {
-    setPdfPreview({ tipo: 'devis', titre: 'Devis — ' + (projet?.nom || ''), filenameBase: projet.nom.replace(/[^a-z0-9]/gi, '_') + '_' + dateExportPdf(), lang })
+    setPdfPreview({ tipo: 'devis', titre: 'Devis — ' + (projet?.nom || ''), filenameBase: nomFichierSlug(projet.nom) + '_' + dateExportPdf(), lang })
   }
   function ouvrirApercuCommande(cmd, lang = 'fr') {
     // Nom du fournisseur en tête du nom de fichier téléchargé : plus facile
     // à repérer dans un dossier Téléchargements que plusieurs "PP-XXX-003.pdf"
     // qui se ressemblent tous au premier coup d'œil.
-    const fournisseurSlug = cmd.fournisseurs?.nom ? cmd.fournisseurs.nom.replace(/[^a-z0-9]/gi, '_') + '_' : ''
+    const fournisseurSlug = cmd.fournisseurs?.nom ? nomFichierSlug(cmd.fournisseurs.nom) + '_' : ''
     setPdfPreview({ tipo: 'commande', titre: 'Commande ' + (cmd.numero || ''), filenameBase: fournisseurSlug + dateExportPdf(), payload: cmd, lang,
       onEnvoyer: () => { setPdfPreview(null); ouvrirEnvoiCommande(cmd) } })
   }
