@@ -7,10 +7,9 @@
 // règlement — deux différences volontaires propres à la facture. Pas de
 // bloc signature non plus (une facture n'a pas besoin d'un "bon pour
 // accord").
-import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
-  fmt as fmtEUR, enTeteDocument, bandeauHaut, blocMetaEtDestinataire, blocTotaux,
+  creerDocumentPDF, fmt as fmtEUR, enTeteDocument, bandeauHaut, blocMetaEtDestinataire, blocTotaux,
   blocConditionsEtSignature, blocCoordonneesBancaires, piedDePage, lignesAdresse,
   TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_ALT_ROW_STYLE, MUTED,
 } from './pdfStyle'
@@ -23,7 +22,7 @@ import { L, fmtDate as fmtDatePdf } from './pdfI18n'
 // résolu par l'appelant (voir lib/contacts.js) — à défaut, ENTREPRISE.contact.
 export function genererFactureCliPDF(facture, projet, lang = 'fr', contact) {
   const t = L[lang]
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const doc = creerDocumentPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const totalHt = facture.montant_ht || 0
   const tauxTva = Number(projet?.taux_tva ?? 20)
   const totalTva = totalHt * (tauxTva / 100)

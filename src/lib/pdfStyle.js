@@ -8,9 +8,38 @@
 // conditions générales de vente rattachées aux devis/factures, et
 // pdfI18n.js pour les libellés traduits (chaque document peut être généré
 // en FR ou en EN).
+import { jsPDF } from 'jspdf'
 import { LOGO_ALEXIS_BASE64, LOGO_ALEXIS_RATIO } from './logo'
 import { ENTREPRISE } from './entreprise'
 import { L, fmtMontant } from './pdfI18n'
+
+// Créer le document PDF avec `new jsPDF(...)` directement (voir
+// pdfFacture.js/ProjetDetail.jsx) affichait des lettres accentuées
+// manquantes ("café" -> "cafe", "hôtel" -> "hotel"...) chez certains
+// utilisateurs, alors que le même texte collé à la main fonctionnait : le
+// texte saisi/copié-collé peut arriver sous forme Unicode "décomposée"
+// (l'accent est un caractère combinant séparé de la lettre, ex. "e" +
+// U+0301 au lieu du seul caractère précomposé "é" — fréquent avec du texte
+// copié depuis certaines sources sur Mac) et les polices standards de jsPDF
+// (Helvetica/Courier) ignorent silencieusement ce caractère combinant isolé
+// au rendu, sans toucher à la lettre de base. Plutôt que de corriger ce
+// problème à la saisie (risque de rater une source), on le corrige ici, au
+// seul endroit par où passe tout texte affiché sur un PDF : `text`,
+// `getTextWidth`, `getStringUnitWidth` et `splitTextToSize` sont des
+// méthodes propres à chaque instance jsPDF (pas sur le prototype — on ne
+// peut donc pas patcher une fois pour toutes les instances), remplacées ici
+// par une version qui normalise d'abord la chaîne en forme Unicode
+// "précomposée" (NFC) avant de déléguer à l'originale. À utiliser partout
+// où un document PDF est créé, à la place de `new jsPDF(...)`.
+export function creerDocumentPDF(options) {
+  const doc = new jsPDF(options)
+  const normaliser = t => typeof t === 'string' ? t.normalize('NFC') : Array.isArray(t) ? t.map(normaliser) : t
+  for (const methode of ['text', 'getTextWidth', 'getStringUnitWidth', 'splitTextToSize']) {
+    const original = doc[methode].bind(doc)
+    doc[methode] = (premier, ...rest) => original(normaliser(premier), ...rest)
+  }
+  return doc
+}
 
 export const NAVY = [22, 46, 82]         // #162E52 — accent fort (bandeau, HT, en-têtes de tableau)
 export const NAVY_SOFT = [231, 236, 245] // #E7ECF5 — bandeaux clairs (destinataire, TVA)

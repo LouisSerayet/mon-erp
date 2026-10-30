@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import PdfPreviewModal from '../components/PdfPreviewModal'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { syncFactureClientStatut, syncFactureFrsStatut, updateFactureClientPennylane, updateFactureFrsPennylane, envoyerFactureCliAutoPennylane, envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -10,7 +9,7 @@ import { useDroits } from '../lib/useDroits'
 import { useRelance } from '../lib/useRelance'
 import { ModalRelance } from '../components/ModalRelance'
 import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, resteADepenserParCoeff, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
-import { INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, bandeauHaut, titreSection, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
+import { creerDocumentPDF, INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, bandeauHaut, titreSection, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { genererFactureCliPDF } from '../lib/pdfFacture'
 import { chargerProfilsParEmail, contactPourProjet } from '../lib/contacts'
@@ -373,7 +372,7 @@ export default function ProjetDetail() {
   }
   function generateDevisPDF(lang = 'fr') {
     const t = L[lang]
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const doc = creerDocumentPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     // Valeurs "effectives" (édition en cours non enregistrée comprise, via
     // getLigneVal — même logique que ce qui s'affiche à l'écran) plutôt que
     // les valeurs brutes de `lignes` (dernier état enregistré en base) : sans
@@ -1900,7 +1899,7 @@ export default function ProjetDetail() {
 
   function generateCmdPDF(cmd, lang = 'fr') {
     const t = L[lang]
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const doc = creerDocumentPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
 
     let y = enTeteDocument(doc, { titre: t.titreCommande, lang, contact: contactPourProjet(projet, profilsParEmail) })
     y = blocMetaEtDestinataire(doc, y, {
