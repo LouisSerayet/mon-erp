@@ -4416,8 +4416,21 @@ export default function ProjetDetail() {
         {/* ── FACTURES CLI ── */}
         {tab === 'factures_cli' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Factures clients · <span style={{ color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalFcli)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>Factures clients · <span style={{ color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalFcli)}</span></div>
+                {/* Reste à facturer / % déjà facturé — par rapport au budget
+                    vente du devis (totalVenteGlobal/resteAFacturer, voir plus
+                    haut), même base que le récapitulatif affiché dans le
+                    formulaire "+ Nouvelle facture" ci-dessous. N'a de sens
+                    que si le devis a des lignes chiffrées. */}
+                {totalVenteGlobal > 0 && (
+                  <div style={{ fontSize: 12, color: colors.inkMuted, marginTop: 4 }}>
+                    Reste à facturer : <span style={{ fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: resteAFacturer >= 0 ? colors.ink : colors.danger }}>{fmt(resteAFacturer)}</span>
+                    {' '}· <span style={{ fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: colors.ink }}>{(totalFcli / totalVenteGlobal * 100).toFixed(1)}%</span> déjà facturé
+                  </div>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={verifierQontoCli} disabled={rapprochementBusy === 'cli'} style={btnGhost}>
                   {rapprochementBusy === 'cli' ? 'Vérification...' : 'Vérifier sur Qonto'}
