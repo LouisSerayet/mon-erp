@@ -8,11 +8,12 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-// Envoie un email depuis le compte Outlook configuré côté serveur (voir
-// api/outlook.js). Lève une erreur explicite (message lisible) si la
-// connexion Outlook n'est pas encore configurée ou si l'envoi échoue, pour
-// que l'UI puisse proposer un repli (ex. lien mailto) plutôt que de planter
-// silencieusement.
+// Envoie un email depuis la boîte Outlook (Microsoft 365) de la personne
+// connectée — jamais une boîte fixe, voir api/outlook.js (senderEmail =
+// adresse de connexion de l'utilisateur). Lève une erreur explicite
+// (message lisible) si la connexion Outlook n'est pas encore configurée ou
+// si l'envoi échoue, pour que l'UI puisse proposer un repli (ex. lien
+// mailto) plutôt que de planter silencieusement.
 //
 // attachments (optionnel) : tableau de { name, contentType, contentBytes }
 // — contentBytes en base64 pur (pas de préfixe data:...;base64,). Utilisé
@@ -33,12 +34,12 @@ export async function envoyerEmailOutlook({ to, subject, body, cc, attachments }
   return true
 }
 
-// Crée un brouillon dans le dossier Brouillons de la boîte Outlook
-// configurée côté serveur, SANS l'envoyer. Le brouillon est créé
-// directement dans la vraie boîte Outlook de Louis (voir OUTLOOK_SENDER_EMAIL
-// côté api/outlook.js) : il apparaît donc de lui-même dans le dossier
-// Brouillons, aussi bien dans l'app de bureau que sur le web, sans qu'on ait
-// besoin d'ouvrir quoi que ce soit depuis ici. Le webLink renvoyé par
+// Crée un brouillon dans le dossier Brouillons de la boîte Outlook de la
+// personne connectée (voir api/outlook.js — chacun envoie depuis sa propre
+// boîte Microsoft 365, jamais une boîte fixe), SANS l'envoyer. Le
+// brouillon apparaît donc de lui-même dans le dossier Brouillons, aussi
+// bien dans l'app de bureau que sur le web, sans qu'on ait besoin d'ouvrir
+// quoi que ce soit depuis ici. Le webLink renvoyé par
 // Microsoft Graph pointe toujours vers Outlook sur le web (OWA) — Graph ne
 // fournit aucun moyen fiable d'ouvrir un brouillon précis dans l'app de
 // bureau — donc l'appelant ne doit PAS l'ouvrir automatiquement dans un

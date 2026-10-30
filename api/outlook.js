@@ -1,15 +1,28 @@
 import { requireAuth, authedClient } from './_auth.js'
 
-// Envoi d'email via le compte Outlook (Microsoft 365) de Louis, utilisé par
-// les boutons "Relancer" du Dashboard (et plus tard, envoi de devis/factures)
+// Envoi d'email via Microsoft 365, utilisé par les boutons "Relancer"
+// (Dashboard, Factures clients, onglet projet) et l'envoi de devis/factures
 // — remplace le simple lien mailto qui se contentait d'ouvrir la messagerie
 // par défaut sans jamais envoyer quoi que ce soit automatiquement.
 //
 // Authentification "app-only" (client credentials) auprès de Microsoft
-// Graph : un jeu d'identifiants Azure AD à configurer une seule fois, pas de
-// connexion interactive ni de jeton de rafraîchissement à renouveler. Voir
-// les instructions de configuration transmises séparément (App registration
-// Azure + variables d'environnement Vercel ci-dessous).
+// Graph : un seul jeu d'identifiants Azure AD, configuré une fois pour
+// toute l'entreprise (pas de connexion interactive, pas de jeton de
+// rafraîchissement par utilisateur). Avec ces identifiants, l'app peut
+// envoyer "au nom de" n'importe quelle boîte Microsoft 365 DE LA MÊME
+// ORGANISATION (même tenant) — on envoie donc toujours depuis la boîte de
+// la personne connectée à l'ERP (son adresse ERP = son adresse Outlook
+// pro), jamais depuis une boîte fixe : chacun envoie ses relances/factures
+// sous son propre nom. Voir les instructions de configuration transmises
+// séparément (App registration Azure + variables d'environnement Vercel
+// ci-dessous).
+//
+// Si l'envoi échoue pour quelqu'un avec une erreur Graph du type
+// "ErrorAccessDenied" (alors que ça marche pour d'autres), c'est
+// probablement qu'une "Application Access Policy" côté Microsoft 365
+// restreint l'app à certaines boîtes seulement — il faut alors demander à
+// l'administrateur Microsoft 365 d'ajouter la boîte concernée au groupe
+// autorisé (PowerShell Exchange Online, pas un réglage de ce code).
 //
 // Garde-fous anti-abus (voir sql/email_send_log_migration.sql) : toute
 // session connectée à l'ERP peut déclencher un envoi vers l'adresse de son
@@ -44,12 +57,20 @@ export default async function handler(req, res) {
   const tenantId = process.env.AZURE_TENANT_ID
   const clientId = process.env.AZURE_CLIENT_ID
   const clientSecret = process.env.AZURE_CLIENT_SECRET
-  const senderEmail = process.env.OUTLOOK_SENDER_EMAIL
 
-  if (!tenantId || !clientId || !clientSecret || !senderEmail) {
+  if (!tenantId || !clientId || !clientSecret) {
     return res.status(500).json({
-      error: 'Connexion Outlook non configurée (variables AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / OUTLOOK_SENDER_EMAIL manquantes sur Vercel).',
+      error: 'Connexion Outlook non configurée (variables AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET manquantes sur Vercel).',
     })
+  }
+
+  // On envoie toujours depuis la boîte Microsoft 365 de la personne
+  // connectée à l'ERP (son adresse de connexion = son adresse Outlook
+  // professionnelle) — jamais depuis une boîte fixe, voir le commentaire
+  // en tête de fichier.
+  const senderEmail = user.email
+  if (!senderEmail || !EMAIL_REGEX.test(senderEmail)) {
+    return res.status(400).json({ error: 'Impossible de déterminer ta boîte Outlook (adresse de connexion ERP invalide ou manquante).' })
   }
 
   // attachments : tableau optionnel de pièces jointes déjà encodées en
@@ -57,10 +78,10 @@ export default async function handler(req, res) {
   // format attendu par Microsoft Graph — voir construction ci-dessous.
   //
   // draftOnly : si true, on ne fait qu'enregistrer le message dans le
-  // dossier Brouillons de la boîte configurée (sans l'envoyer) et on
-  // renvoie son webLink — pratique pour ouvrir directement le brouillon
-  // dans Outlook (web ou app) et laisser Louis l'envoyer lui-même depuis
-  // là, plutôt que de forcer un envoi automatique.
+  // dossier Brouillons de la boîte de la personne connectée (sans
+  // l'envoyer) et on renvoie son webLink — pratique pour ouvrir directement
+  // le brouillon dans Outlook (web ou app) et le laisser l'envoyer
+  // elle-même depuis là, plutôt que de forcer un envoi automatique.
   const { to, subject, body, cc, attachments, draftOnly } = req.body || {}
   if (!to || !subject || !body) {
     return res.status(400).json({ error: 'to, subject et body sont requis.' })
@@ -135,9 +156,10 @@ export default async function handler(req, res) {
     }
 
     if (draftOnly) {
-      // 2a) Création d'un brouillon (dossier Drafts de la boîte configurée)
-      // — POST /messages sans passer par /sendMail équivaut à enregistrer
-      // un brouillon. On renvoie son webLink pour l'ouvrir directement.
+      // 2a) Création d'un brouillon (dossier Drafts de la boîte de
+      // l'utilisateur connecté) — POST /messages sans passer par /sendMail
+      // équivaut à enregistrer un brouillon. On renvoie son webLink pour
+      // l'ouvrir directement.
       const draftRes = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(senderEmail)}/messages`, {
         method: 'POST',
         headers: {
@@ -162,7 +184,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, webLink: draftData.webLink, id: draftData.id })
     }
 
-    // 2b) Envoi direct via Microsoft Graph, "au nom de" la boîte configurée.
+    // 2b) Envoi direct via Microsoft Graph, "au nom de" la boîte de la
+    // personne connectée (senderEmail = user.email, voir plus haut).
     const sendRes = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(senderEmail)}/sendMail`, {
       method: 'POST',
       headers: {
