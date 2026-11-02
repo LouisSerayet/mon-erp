@@ -2853,7 +2853,7 @@ export default function ProjetDetail() {
                 'Devis signé': { label: 'Uploader le devis signé', type: 'upload' },
                 'En cours': { label: 'Renseigner la date de début de chantier', type: 'date' },
                 'Finalisation': { label: 'Toutes les commandes doivent être en statut "Validée" et le projet doit être facturé à 100 % au client', type: 'auto' },
-                'Clôturé': { label: 'Toutes les factures clients doivent être "Payées"', type: 'auto' },
+                'Clôturé': { label: 'Toutes les commandes doivent être validées, toutes les factures clients "Payées", et chaque commande validée doit avoir une facture fournisseur enregistrée et "Payée"', type: 'auto' },
               }
 
               async function validerEtape() {
@@ -2893,8 +2893,33 @@ export default function ProjetDetail() {
                 }
 
                 if (preuve?.type === 'auto' && nextStatut === 'Clôturé') {
-                  const factNonPayees = facturesCli.filter(f => f.statut !== 'Payée')
-                  if (factNonPayees.length > 0) { setValidationError(factNonPayees.length + ' facture(s) client ne sont pas encore "Payées".'); setValidating(false); return }
+                  // Re-vérifié ici aussi (pas seulement à l'entrée en
+                  // Finalisation) : une commande a pu être ajoutée, ou
+                  // repassée en Brouillon, après coup — voir le commentaire
+                  // de ce même contrôle dans la branche "Finalisation"
+                  // ci-dessus.
+                  const cmdNonValidees = commandes.filter(c => c.statut !== 'Validée' && c.statut !== 'Annulée')
+                  if (cmdNonValidees.length > 0) { setValidationError(cmdNonValidees.length + ' commande(s) ne sont pas encore en statut "Validée".'); setValidating(false); return }
+
+                  const factCliNonPayees = facturesCli.filter(f => f.statut !== 'Payée')
+                  if (factCliNonPayees.length > 0) { setValidationError(factCliNonPayees.length + ' facture(s) client ne sont pas encore "Payées".'); setValidating(false); return }
+
+                  // Demandé par Louis : un projet a pu être clôturé alors que
+                  // des factures fournisseurs n'étaient ni reçues ni payées —
+                  // il n'y avait jusqu'ici aucun contrôle sur les factures_frs
+                  // à cette étape (seulement sur les factures clients). Deux
+                  // vérifications : toutes les factures fournisseurs déjà
+                  // enregistrées doivent être "Payées", ET chaque commande
+                  // validée doit avoir au moins une facture fournisseur
+                  // enregistrée (sans quoi elle a pu ne jamais être reçue/
+                  // saisie — l'ERP n'a pas d'autre moyen de le savoir que la
+                  // présence d'une facture_frs liée, voir STATUTS_FFRS plus
+                  // haut, il n'y a pas d'état "reçue" séparé).
+                  const factFrsNonPayees = facturesFrs.filter(f => f.statut !== 'Payée')
+                  if (factFrsNonPayees.length > 0) { setValidationError(factFrsNonPayees.length + ' facture(s) fournisseur ne sont pas encore "Payées".'); setValidating(false); return }
+
+                  const cmdSansFactureFrs = commandes.filter(c => c.statut === 'Validée' && !facturesFrs.some(f => f.commande_id === c.id))
+                  if (cmdSansFactureFrs.length > 0) { setValidationError(cmdSansFactureFrs.length + ' commande(s) validée(s) n\'ont encore aucune facture fournisseur enregistrée.'); setValidating(false); return }
                 }
 
                 const { error: statutError } = await supabase.from('projets').update({ statut: nextStatut }).eq('id', id)
