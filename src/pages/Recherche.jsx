@@ -318,8 +318,12 @@ export default function Recherche() {
             )}
             {resultats.depenses.length > 0 && (
               <Groupe titre="Dépenses">
+                {/* L'onglet "Dépenses" de Financier a été retiré (voir
+                    Financier.jsx) — renvoie vers Rapprochement, qui ne
+                    préfiltre pas par dépense (d'où l'abandon du state.q
+                    utilisé ici avant, qui ne servait qu'à cet onglet). */}
                 {resultats.depenses.map(d => (
-                  <Ligne key={d.id} onClick={() => navigate('/financier/depenses', { state: { q: d.libelle || d.numero } })}
+                  <Ligne key={d.id} onClick={() => navigate('/financier/rapprochement')}
                     principal={d.libelle || d.numero} secondaire={[d.categorie, d.fournisseurs?.nom, fmtDate(d.date_facture)].filter(Boolean).join(' · ')}
                     droite={fmt(d.montant_ht) + ' · ' + d.statut} />
                 ))}

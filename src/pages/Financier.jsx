@@ -1,36 +1,35 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, eyebrow } from '../lib/theme'
-import Comptes from './tresorerie/Comptes'
-import Tva from './tresorerie/Tva'
 import Rapprochement from './tresorerie/Rapprochement'
 import CompteResultat from './tresorerie/CompteResultat'
-import Depenses from './tresorerie/Depenses'
 
 // Financier (ex-"Trésorerie") — hub à onglets regroupant tout ce qui était
 // avant éclaté entre plusieurs pages séparées (/tresorerie, /resultat,
 // /rapprochement, /depenses), chacune n'étant atteignable que depuis les
 // widgets du Dashboard ou sa propre entrée de menu. Louis trouvait que ça
 // "allait à droite à gauche" : même argent de la société, plusieurs
-// endroits différents — les dépenses générales (achats/frais non liés à
-// un projet client) ont rejoint ce hub comme un onglet de plus, d'où le
-// renommage "Trésorerie" -> "Financier" (plus large que le seul suivi de
-// trésorerie). Chaque onglet garde son propre fichier (voir le dossier
-// tresorerie/) avec son propre état/chargement — seul le cadre (titre,
-// barre d'onglets) est commun, porté par ce composant.
+// endroits différents. Chaque onglet garde son propre fichier (voir le
+// dossier tresorerie/) avec son propre état/chargement — seul le cadre
+// (titre, barre d'onglets) est commun, porté par ce composant.
 //
-// Chaque onglet a sa propre URL (/financier/comptes, /financier/tva...)
-// pour qu'un favori ou qu'un lien depuis le Dashboard ouvre directement le
-// bon onglet — voir App.jsx pour les routes, dont les redirections
-// /tresorerie(/:tab), /resultat, /rapprochement et /depenses qui
-// préservent les anciens liens/favoris (même principe que la redirection
-// /devis -> /projets).
+// Onglets "Comptes", "TVA" et "Dépenses" retirés à la demande de Louis
+// (pas utilisés / suivi TVA laissé au comptable) — leurs fichiers restent
+// dans tresorerie/ (faciles à réintégrer si besoin un jour), juste plus
+// listés ici. Le widget "Dépenses à payer" du Dashboard et l'entrée
+// correspondante de la Recherche avancée restent en revanche en place (ce
+// n'est que l'onglet Financier qui disparaît) — ils renvoient maintenant
+// vers Rapprochement plutôt que vers un onglet qui n'existe plus.
+//
+// Chaque onglet a sa propre URL (/financier/rapprochement,
+// /financier/resultat) pour qu'un favori ou qu'un lien depuis le Dashboard
+// ouvre directement le bon onglet — voir App.jsx pour les routes, dont les
+// redirections /tresorerie(/:tab), /resultat, /rapprochement et /depenses
+// qui préservent les anciens liens/favoris (même principe que la
+// redirection /devis -> /projets).
 const TABS = [
-  { id: 'comptes', label: 'Comptes', Contenu: Comptes },
-  { id: 'tva', label: 'TVA', Contenu: Tva },
   { id: 'rapprochement', label: 'Rapprochement', Contenu: Rapprochement },
   { id: 'resultat', label: 'Compte de résultat', Contenu: CompteResultat },
-  { id: 'depenses', label: 'Dépenses', Contenu: Depenses },
 ]
 
 export default function Financier() {
@@ -44,7 +43,7 @@ export default function Financier() {
     <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1280, margin: '0 auto' }}>
       <p style={eyebrow}>Partenaires Particuliers</p>
       <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Financier</h1>
-      <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Comptes, TVA, rapprochement bancaire, compte de résultat et dépenses générales</p>
+      <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0' }}>Rapprochement bancaire et compte de résultat</p>
 
       {/* Onglets */}
       <div style={{ display: 'flex', borderBottom: '1px solid ' + colors.line, margin: '28px 0 0', overflowX: 'auto' }}>

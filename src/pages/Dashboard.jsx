@@ -121,9 +121,7 @@ export default function Dashboard() {
 
       {/* Solde bancaire (Qonto) — juste le solde, rien d'autre : pas de
           bouton/lien (Rapprocher, Voir le financier...), ces actions vivent
-          déjà dans l'onglet Comptes de Financier (voir
-          pages/tresorerie/Comptes.jsx), atteignable directement depuis le
-          menu (voir Layout.jsx). */}
+          dans Financier (voir Layout.jsx pour l'accès depuis le menu). */}
       <div style={{ marginTop: isMobile ? 36 : 56, padding: '0 0 28px', textAlign: 'center' }}>
         <div style={{ ...eyebrow, marginBottom: 14 }}>Solde bancaire — Qonto</div>
         {loadingSoldeQonto ? (
@@ -310,8 +308,12 @@ export default function Dashboard() {
               <>
                 {depensesAPayer.map(d => {
                   const enRetard = d.date_echeance && new Date(d.date_echeance) < new Date()
+                  // L'onglet "Dépenses" de Financier a été retiré (voir
+                  // Financier.jsx) — ce widget reste affiché ici, mais
+                  // renvoie désormais vers Rapprochement plutôt que vers un
+                  // onglet qui n'existe plus.
                   return (
-                    <div key={d.id} onClick={() => navigate('/financier/depenses')}
+                    <div key={d.id} onClick={() => navigate('/financier/rapprochement')}
                       style={{ padding: '12px 0', borderBottom: '1px solid ' + colors.line, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', borderLeft: enRetard ? '2px solid ' + colors.danger : 'none', paddingLeft: enRetard ? 12 : 0, marginLeft: enRetard ? -14 : 0 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.libelle}</div>

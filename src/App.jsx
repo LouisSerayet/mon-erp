@@ -42,7 +42,12 @@ function ChargementPage() {
 // <Route element={<Navigate .../>} />.
 function RedirectTresorerieTab() {
   const { tab } = useParams()
-  return <Navigate to={'/financier/' + (tab || 'comptes')} replace />
+  // 'rapprochement' et non 'comptes' : l'onglet Comptes a été retiré (voir
+  // Financier.jsx) — un vieux lien vers /tresorerie/comptes ou
+  // /tresorerie/tva tombe maintenant sur Rapprochement plutôt que sur un
+  // onglet qui n'existe plus (Financier.jsx a de toute façon ce même repli
+  // si `tab` ne correspond à aucun onglet restant).
+  return <Navigate to={'/financier/' + (tab || 'rapprochement')} replace />
 }
 
 // Onglet Financier réservé aux rôles ayant le droit "financier_acces"
@@ -95,22 +100,22 @@ function Gate() {
             <Route path="commandes-fournisseurs" element={<CommandesFournisseurs />} />
             <Route path="boite-reception-factures" element={<BoiteReceptionFactures />} />
             <Route path="recherche" element={<Recherche />} />
-            {/* Financier (ex-"Trésorerie") regroupe Comptes/TVA/
-                Rapprochement/Compte de résultat/Dépenses en onglets (voir
-                Financier.jsx — Dépenses était avant une page séparée,
-                /depenses, fusionnée ici comme un onglet de plus). Les
-                anciennes URLs (/tresorerie, /tresorerie/:tab, /resultat,
-                /rapprochement, /depenses) redirigent vers l'onglet
-                correspondant pour préserver les favoris/liens existants
-                (même principe que la redirection /devis -> /projets
-                ci-dessus). */}
-            <Route path="financier" element={<Navigate to="/financier/comptes" replace />} />
+            {/* Financier (ex-"Trésorerie") regroupe Rapprochement/Compte de
+                résultat en onglets (voir Financier.jsx — Comptes, TVA et
+                Dépenses y figuraient aussi avant, retirés à la demande de
+                Louis). Les anciennes URLs (/tresorerie, /tresorerie/:tab,
+                /resultat, /rapprochement, /depenses) redirigent vers
+                l'onglet correspondant pour préserver les favoris/liens
+                existants (même principe que la redirection /devis ->
+                /projets ci-dessus) — /depenses retombe sur Rapprochement
+                puisque l'onglet Dépenses n'existe plus. */}
+            <Route path="financier" element={<Navigate to="/financier/rapprochement" replace />} />
             <Route path="financier/:tab" element={<RequireFinancier><Financier /></RequireFinancier>} />
-            <Route path="tresorerie" element={<Navigate to="/financier/comptes" replace />} />
+            <Route path="tresorerie" element={<Navigate to="/financier/rapprochement" replace />} />
             <Route path="tresorerie/:tab" element={<RedirectTresorerieTab />} />
             <Route path="resultat" element={<Navigate to="/financier/resultat" replace />} />
             <Route path="rapprochement" element={<Navigate to="/financier/rapprochement" replace />} />
-            <Route path="depenses" element={<Navigate to="/financier/depenses" replace />} />
+            <Route path="depenses" element={<Navigate to="/financier/rapprochement" replace />} />
             <Route path="corbeille" element={<Corbeille />} />
             <Route path="historique" element={<Historique />} />
             <Route path="exports" element={<Exports />} />
