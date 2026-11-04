@@ -91,6 +91,12 @@ export default function Projets() {
   // "Tous" : sélectionner "Clôturé" dans le filtre de statut reste
   // prioritaire et les affiche quand même.
   const [masquerClotures, setMasquerClotures] = useState(true)
+  // Même principe que masquerClotures ci-dessus, pour les projets "Perdu" :
+  // pas d'intérêt à les voir trainer dans la liste au quotidien, masqués
+  // par défaut, case à cocher pour les faire réapparaître (demandé par
+  // Louis). Ne s'applique qu'en vue "Tous" — sélectionner "Perdu" dans le
+  // filtre de statut reste prioritaire et les affiche quand même.
+  const [masquerPerdus, setMasquerPerdus] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [clients, setClients] = useState([])
   // Agrégats de facturation par projet (barres "% facturé"/"% commandé"),
@@ -260,7 +266,7 @@ export default function Projets() {
   const filtered = projets.filter(p => {
     const matchSearch = p.nom?.toLowerCase().includes(search.toLowerCase()) || p.clients?.nom?.toLowerCase().includes(search.toLowerCase())
     const matchStatut = filtreStatut === 'Tous'
-      ? (!masquerClotures || p.statut !== 'Clôturé')
+      ? (!masquerClotures || p.statut !== 'Clôturé') && (!masquerPerdus || p.statut !== 'Perdu')
       : p.statut === filtreStatut
     const matchCreateur = filtreCreateur === 'Tous' || p.created_by_email === filtreCreateur
     return matchSearch && matchStatut && matchCreateur
@@ -416,6 +422,12 @@ export default function Projets() {
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: colors.inkMuted, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
             <input type="checkbox" checked={masquerClotures} onChange={e => setMasquerClotures(e.target.checked)} />
             Masquer les clôturés
+          </label>
+        )}
+        {filtreStatut === 'Tous' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: colors.inkMuted, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <input type="checkbox" checked={masquerPerdus} onChange={e => setMasquerPerdus(e.target.checked)} />
+            Masquer les perdus
           </label>
         )}
       </div>
