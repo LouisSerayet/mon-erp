@@ -237,7 +237,12 @@ export function titreSection(doc, y, { titre, sousTitre, montant, note, accent =
 // glyphe € manquant en Courier (voir largeurEuro plus haut).
 // tauxTva : taux réellement appliqué à CE document (20 / 10 / 5,5 / 0 —
 // voir le réglage "TVA" du projet/devis), pas une constante figée à 20 %.
-export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true, tauxTva = ENTREPRISE.tvaTauxDefaut, lang = 'fr' }) {
+// `remise` (optionnel, devis uniquement) : { avantRemise, montant, label,
+// sousTotalLabel } — ajoute 2 barres fines avant le Total HT (qui doit
+// alors déjà être le total NET, calculé par l'appelant) pour que le client
+// voie d'où vient la réduction plutôt qu'un Total HT qui change sans
+// explication. +16mm de hauteur quand actif — voir generateDevisPDF.
+export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true, tauxTva = ENTREPRISE.tvaTauxDefaut, lang = 'fr', remise = null }) {
   const t = L[lang]
   const totX = 128, totW = MARGIN_R - totX
   let yy = y
@@ -264,6 +269,11 @@ export function blocTotaux(doc, y, { totalHt, totalTva, totalTtc, showTva = true
     doc.setFont('helvetica', style)
     doc.text(' €', startX + labelW + gap + montantNumW, ty)
     yy += hauteur
+  }
+
+  if (remise && remise.montant > 0) {
+    ligne(remise.sousTotalLabel, remise.avantRemise, { fillColor: [245, 246, 248], labelColor: MUTED, montantColor: MUTED, labelSize: 8.5, montantSize: 8.5, gras: false, hauteur: 8 })
+    ligne(remise.label, -remise.montant, { fillColor: [245, 246, 248], labelColor: WARNING, montantColor: WARNING, labelSize: 8.5, montantSize: 8.5, gras: false, hauteur: 8 })
   }
 
   ligne(t.totalHt, totalHt, { fillColor: NAVY, labelColor: [255, 255, 255], montantColor: [255, 255, 255], labelSize: 11, montantSize: 12, gras: true, hauteur: 11 })

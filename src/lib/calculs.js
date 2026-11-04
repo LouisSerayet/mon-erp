@@ -106,6 +106,34 @@ export function ligneCompteDansTotal(l) {
   return true
 }
 
+// Remise exceptionnelle globale d'un projet (bouton "Remise exceptionnelle"
+// de l'onglet Lignes, ProjetDetail.jsx) : un pourcentage ou un montant fixe
+// appliqué sur le total vente HT brut du devis, pour éviter d'avoir à
+// ajouter une ligne négative à chaque fois qu'une réduction exceptionnelle
+// est accordée à un client. `totalBrut` est le total vente HT des lignes
+// AVANT remise (projets.montant_ht, ou recalculé en direct côté
+// ProjetDetail.jsx pendant l'édition) — jamais lu directement depuis
+// `projet`, pour que l'appelant garde la main sur la source la plus à jour.
+// Une fois active, c'est le total NET (voir totalVenteNetRemise ci-dessous)
+// qui fait foi partout ailleurs dans l'ERP : PDF devis, marge/rentabilité,
+// reste à facturer, CA affiché sur les listes Projets/Clients et le widget
+// "Vue globale des projets" — décision prise avec Louis (la remise doit
+// réduire le CA réellement vendu, pas juste changer un affichage).
+export function montantRemiseProjet(projet, totalBrut) {
+  if (!projet?.remise_active) return 0
+  const brut = Number(totalBrut) || 0
+  const valeur = Number(projet.remise_valeur) || 0
+  const remise = projet.remise_type === 'montant' ? valeur : (brut * valeur / 100)
+  // Jamais négative, jamais plus que le total lui-même (un total vente net
+  // négatif n'aurait pas de sens).
+  return Math.min(Math.max(0, remise), brut)
+}
+
+export function totalVenteNetRemise(projet, totalBrut) {
+  const brut = Number(totalBrut) || 0
+  return brut - montantRemiseProjet(projet, brut)
+}
+
 // Lit la colonne "Nature" d'un import Excel (voir parseExcel dans
 // ProjetDetail.jsx et le gabarit d'import) : reconnaît le texte du libellé
 // affiché dans le sélecteur de l'app (insensible à la casse/aux espaces), et

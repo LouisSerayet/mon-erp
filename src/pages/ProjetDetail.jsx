@@ -8,7 +8,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { useDroits } from '../lib/useDroits'
 import { useRelance } from '../lib/useRelance'
 import { ModalRelance } from '../components/ModalRelance'
-import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, resteADepenserParCoeff, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { calculerLigne, getNatureLigne, natureLigneVersChamps, ligneCompteDansTotal, natureLigneDepuisTexte, NATURE_LIGNE_OPTIONS, calculerEcheance, resteADepenserParCoeff, montantRemiseProjet, fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
 import { creerDocumentPDF, INK, MUTED, LINE, WARNING, WARNING_BG, fmt as fmtEUR, enTeteDocument, bandeauHaut, titreSection, blocMetaEtDestinataire, blocTotaux, blocConditionsEtSignature, piedDePage, lignesAdresse, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_FOOT_STYLE, TABLE_ALT_ROW_STYLE } from '../lib/pdfStyle'
 import { ajouterPagesCGV } from '../lib/pdfCgv'
 import { genererFactureCliPDF } from '../lib/pdfFacture'
@@ -283,6 +283,17 @@ export default function ProjetDetail() {
   const [formLot, setFormLot] = useState({ categorie: '', descriptif: '' })
   const [savingLot, setSavingLot] = useState(false)
   const [lotError, setLotError] = useState('')
+  // Remise exceptionnelle sur le total du devis (demandé par Louis) — voir
+  // le bouton "Remise exceptionnelle" de l'onglet Lignes, ouvrirRemise() et
+  // enregistrerRemise() plus bas, et montantRemiseProjet/totalVenteNetRemise
+  // (lib/calculs.js) pour le calcul lui-même. `formRemise` reflète toujours
+  // l'état ENREGISTRÉ (projet.remise_*) à l'ouverture du panneau — pas un
+  // formulaire vierge comme "Nouveau lot" ci-dessus, puisqu'on édite une
+  // valeur déjà existante.
+  const [showRemise, setShowRemise] = useState(false)
+  const [formRemise, setFormRemise] = useState({ active: false, type: 'pourcentage', valeur: '' })
+  const [savingRemise, setSavingRemise] = useState(false)
+  const [remiseError, setRemiseError] = useState('')
   // Édition d'un lot existant (catégorie, descriptif) — voir
   // ouvrirEditionLot/enregistrerEditionLot. `lotEnEdition` retient le
   // numéro du lot en cours d'édition. Le N° lui-même n'est plus éditable à
@@ -432,8 +443,14 @@ export default function ProjetDetail() {
     // réduit...). Ne concerne que devis + facture client, pas les commandes
     // fournisseurs (leur TVA dépend du fournisseur, pas du client).
     const tauxTva = Number(projet.taux_tva ?? 20)
-    const totalTVA = totalHT * (tauxTva / 100)
-    const totalTTC = totalHT + totalTVA
+    // Remise exceptionnelle (onglet Lignes) — appliquée seulement ici, sur
+    // le total final (totalHT ci-dessus reste le total brut des lignes,
+    // utilisé plus haut pour la synthèse des lots : son détail doit
+    // continuer à s'additionner correctement). TVA/TTC calculées sur le net.
+    const montantRemisePdf = montantRemiseProjet(projet, totalHT)
+    const totalHTNet = totalHT - montantRemisePdf
+    const totalTVA = totalHTNet * (tauxTva / 100)
+    const totalTTC = totalHTNet + totalTVA
     const numero = 'DEV-' + projet.nom.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase() + '-' + new Date().getFullYear()
 
     // ── PAGE 1 : PRÉSENTATION ─────────────────────────────────
@@ -549,8 +566,11 @@ export default function ProjetDetail() {
     // 5 lots + adresse chantier/surface/accès renseignés) au lieu de
     // basculer toute la page 1 restante sur une page 2 en grande partie
     // vide.
-    if (y > 245) { doc.addPage(); bandeauHaut(doc); y = 20 }
-    y = blocTotaux(doc, y, { totalHt: totalHT, totalTva: totalTVA, totalTtc: totalTTC, tauxTva, lang })
+    // Seuil réduit si une remise est active : blocTotaux dessine alors 2
+    // barres de plus (sous-total brut + remise), ~16mm de plus.
+    if (y > (montantRemisePdf > 0 ? 229 : 245)) { doc.addPage(); bandeauHaut(doc); y = 20 }
+    y = blocTotaux(doc, y, { totalHt: totalHTNet, totalTva: totalTVA, totalTtc: totalTTC, tauxTva, lang,
+      remise: montantRemisePdf > 0 ? { avantRemise: totalHT, montant: montantRemisePdf, label: t.remiseExceptionnelle, sousTotalLabel: t.sousTotalHtBrut } : null })
     if (y > 210) { doc.addPage(); bandeauHaut(doc); y = 20 }
     blocConditionsEtSignature(doc, y, { bullets: t.bulletsDevisDetaille(tauxTva), lang })
 
@@ -1038,6 +1058,42 @@ export default function ProjetDetail() {
     setLignes(lg || [])
     setLotEnEdition(null)
     setSavingLotEdit(false)
+  }
+
+  // Ouvre le panneau "Remise exceptionnelle" (onglet Lignes) en le
+  // préremplissant avec ce qui est déjà enregistré sur le projet — à la
+  // différence de "Nouveau lot"/"Nouvelle ligne" ci-dessus, qui partent
+  // toujours d'un formulaire vierge, celui-ci édite une valeur existante.
+  function ouvrirRemise() {
+    setFormRemise({
+      active: !!projet.remise_active,
+      type: projet.remise_type || 'pourcentage',
+      valeur: projet.remise_active && projet.remise_valeur != null ? String(projet.remise_valeur) : '',
+    })
+    setRemiseError('')
+    setShowRemise(true)
+  }
+
+  // Enregistre la remise exceptionnelle du projet (3 colonnes dédiées, voir
+  // sql/projet_remise_migration.sql) — pas de ligne de devis à créer : une
+  // fois active, elle réduit directement le total vente "net" utilisé
+  // partout ailleurs (montantRemiseProjet/totalVenteNetRemise, lib/calculs.js).
+  async function enregistrerRemise() {
+    if (savingRemise) return // garde-fou anti double-clic
+    setRemiseError('')
+    let valeur = 0
+    if (formRemise.active) {
+      valeur = parseFloat(formRemise.valeur)
+      if (isNaN(valeur) || valeur < 0) { setRemiseError('Merci de saisir une valeur positive.'); return }
+      if (formRemise.type === 'pourcentage' && valeur > 100) { setRemiseError('Le pourcentage ne peut pas dépasser 100 %.'); return }
+    }
+    setSavingRemise(true)
+    const payload = { remise_active: formRemise.active, remise_type: formRemise.type, remise_valeur: valeur }
+    const { error } = await supabase.from('projets').update(payload).eq('id', id)
+    setSavingRemise(false)
+    if (error) { setRemiseError('Erreur : ' + error.message); return }
+    setProjet(prev => ({ ...prev, ...payload }))
+    setShowRemise(false)
   }
 
   async function supprimerLigne(ligneId) {
@@ -1721,6 +1777,12 @@ export default function ProjetDetail() {
         notes: projet.notes || null,
         montant_ht: projet.montant_ht || 0,
         taux_tva: projet.taux_tva ?? 20,
+        // La remise exceptionnelle fait partie du chiffrage au même titre
+        // que les lignes copiées plus bas — une copie "repart" avec
+        // exactement le même devis, remise comprise.
+        remise_active: projet.remise_active || false,
+        remise_type: projet.remise_type || 'pourcentage',
+        remise_valeur: projet.remise_valeur || 0,
       }]).select().single()
       if (error) throw error
 
@@ -2623,7 +2685,14 @@ export default function ProjetDetail() {
   // Options / variantes non retenues / texte n'entrent jamais dans les
   // totaux prévisionnels — voir ligneCompteDansTotal (lib/calculs.js).
   const lignesSansLotGlobal = lignes.filter(l => l.type === 'ligne' && !l.lot && ligneCompteDansTotal(l))
-  const totalVenteGlobal = lots.reduce((s, l) => s + (l.total_ht || 0), 0) + lignesSansLotGlobal.reduce((s, l) => s + (l.total_ht || 0), 0)
+  const totalVenteGlobalBrut = lots.reduce((s, l) => s + (l.total_ht || 0), 0) + lignesSansLotGlobal.reduce((s, l) => s + (l.total_ht || 0), 0)
+  // Remise exceptionnelle du devis (voir le bouton du même nom, onglet
+  // Lignes, et montantRemiseProjet/lib/calculs.js) — `totalVenteGlobal`
+  // devient le total NET partout dans ce composant (reste à facturer,
+  // marge/rentabilité, budget achat, header...) : c'est le vrai CA vendu,
+  // décision prise avec Louis plutôt que de ne le montrer que sur le PDF.
+  const montantRemise = montantRemiseProjet(projet, totalVenteGlobalBrut)
+  const totalVenteGlobal = totalVenteGlobalBrut - montantRemise
   const totalAchatGlobal = lots.reduce((s, l) => s + (l.total_achat || 0), 0) + lignesSansLotGlobal.reduce((s, l) => s + (l.total_achat || 0), 0)
   // Une commande "Annulée" ne consomme pas le budget achat.
   const totalCommandesActives = commandes.filter(c => c.statut !== 'Annulée').reduce((s, c) => s + (c.montant_ht || 0), 0)
@@ -2651,7 +2720,14 @@ export default function ProjetDetail() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0, justifyContent: isMobile ? 'space-between' : 'flex-start' }}>
-          <div style={{ fontWeight: 700, fontSize: 17, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(projet.montant_ht)}</div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 17, color: colors.ink, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(totalVenteGlobal)}</div>
+            {/* Total déjà net de la remise exceptionnelle (voir
+                totalVenteGlobal plus haut) — ce petit rappel évite de
+                penser à une erreur de saisie en comparant à vue avec le
+                total des lignes de l'onglet Lignes. */}
+            {montantRemise > 0 && <div style={{ fontSize: 10, color: colors.inkFaint }}>dont −{fmt(montantRemise)} de remise</div>}
+          </div>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.inkMuted }}>
             <span style={marker(statutProjetMarker[projet.statut])} />{projet.statut}
           </span>
@@ -2888,7 +2964,12 @@ export default function ProjetDetail() {
                   // envoyer" ne compte pas : tant qu'elle n'est pas sortie,
                   // le client n'a rien reçu (voir totalFcliEnvoyees plus
                   // haut). Tolérance d'un centime pour les arrondis.
-                  const resteAFacturer = Math.round(((projet.montant_ht || 0) - totalFcliEnvoyees) * 100) / 100
+                  // totalVenteGlobal (net de remise exceptionnelle, voir plus
+                  // haut) et non plus projet.montant_ht (brut) — sinon, avec
+                  // une remise active, ce garde-fou exigeait de facturer un
+                  // montant que le client ne doit plus, bloquant le passage
+                  // en finalisation indéfiniment.
+                  const resteAFacturer = Math.round((totalVenteGlobal - totalFcliEnvoyees) * 100) / 100
                   if (resteAFacturer > 0.01) { setValidationError('Il reste ' + fmt(resteAFacturer) + ' à facturer au client avant de pouvoir passer en finalisation.'); setValidating(false); return }
                 }
 
@@ -3103,7 +3184,11 @@ export default function ProjetDetail() {
                       ['Client', projet.clients?.nom],
                       ['Statut', projet.statut],
                       ['Surface', projet.surface ? projet.surface + ' m²' : null],
-                      ['Montant HT', fmt(projet.montant_ht)],
+                      ['Montant HT', fmt(totalVenteGlobal)],
+                      // N'apparaît que si une remise exceptionnelle est
+                      // active (onglet Lignes) — voir montantRemise plus
+                      // haut dans ce composant.
+                      ...(montantRemise > 0 ? [['Remise exceptionnelle', (projet.remise_type === 'montant' ? fmt(projet.remise_valeur) : (projet.remise_valeur || 0) + ' %') + ' (−' + fmt(montantRemise) + ')']] : []),
                       ['TVA', (projet.taux_tva ?? 20) === 0 ? '0 % (non applicable)' : (projet.taux_tva ?? 20) + ' %'],
                       ['Date début', fmtDate(projet.date_debut)],
                       ['Date fin prévue', fmtDate(projet.date_fin_prevue)],
@@ -3151,12 +3236,62 @@ export default function ProjetDetail() {
                 <button onClick={() => setShowAddLigne(!showAddLigne)} style={quietLink}>
                   + Ligne manuelle
                 </button>
+                {/* Remise exceptionnelle sur le total du devis — évite
+                    d'ajouter une ligne négative à chaque fois (demandé par
+                    Louis). Voir ouvrirRemise()/enregistrerRemise() et le
+                    panneau juste en dessous de ce header. */}
+                <button onClick={() => (showRemise ? setShowRemise(false) : ouvrirRemise())}
+                  style={{ ...quietLink, color: projet.remise_active ? colors.success : quietLink.color, borderBottomColor: projet.remise_active ? colors.success : quietLink.borderBottomColor }}>
+                  Remise exceptionnelle{projet.remise_active ? ' (−' + fmt(montantRemise) + ')' : ''}
+                </button>
                 <label style={{ ...btnPrimarySmall, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {importing ? 'Import...' : 'Importer Excel'}
                   <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleImportLignes} />
                 </label>
               </div>
             </div>
+
+            {showRemise && (
+              <div style={{ background: colors.surface, border: '1px solid ' + colors.line, padding: 20, marginBottom: 16 }}>
+                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Remise exceptionnelle</h4>
+                {remiseError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{remiseError}</div>}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: colors.ink, cursor: 'pointer', marginBottom: 14 }}>
+                  <input type="checkbox" checked={formRemise.active} onChange={e => setFormRemise(p => ({ ...p, active: e.target.checked }))} />
+                  Appliquer une remise exceptionnelle sur le total du devis
+                </label>
+                {formRemise.active && (<>
+                  <div style={{ display: 'flex', gap: 18, marginBottom: 14 }}>
+                    {[{ id: 'pourcentage', label: '% du total' }, { id: 'montant', label: 'Montant €' }].map(o => (
+                      <button key={o.id} type="button" onClick={() => setFormRemise(p => ({ ...p, type: o.id }))}
+                        style={{ background: 'none', border: 'none', padding: '0 0 3px', borderBottom: '1px solid ' + (formRemise.type === o.id ? colors.ink : 'transparent'),
+                          color: formRemise.type === o.id ? colors.ink : colors.inkMuted, cursor: 'pointer', fontSize: 12, fontFamily: fonts.display, fontWeight: formRemise.type === o.id ? 600 : 400 }}>
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ maxWidth: 220, marginBottom: 14 }}>
+                    <label style={fieldLabel}>{formRemise.type === 'montant' ? 'Montant de la remise (€)' : 'Pourcentage de remise (%)'}</label>
+                    <input type="number" min="0" max={formRemise.type === 'pourcentage' ? 100 : undefined} step="0.01"
+                      value={formRemise.valeur} onChange={e => setFormRemise(p => ({ ...p, valeur: e.target.value }))}
+                      placeholder={formRemise.type === 'montant' ? 'Ex. 500' : 'Ex. 5'} style={inputUnderline} />
+                  </div>
+                  {formRemise.valeur !== '' && !isNaN(parseFloat(formRemise.valeur)) && (() => {
+                    const m = montantRemiseProjet({ remise_active: true, remise_type: formRemise.type, remise_valeur: parseFloat(formRemise.valeur) }, totalVenteGlobalBrut)
+                    return (
+                      <div style={{ fontSize: 12, color: colors.success, marginBottom: 14, fontWeight: 500 }}>
+                        → Remise : −{fmt(m)} · Total net : {fmt(totalVenteGlobalBrut - m)}
+                      </div>
+                    )
+                  })()}
+                </>)}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => { setShowRemise(false); setRemiseError('') }} style={btnGhost}>Annuler</button>
+                  <button onClick={enregistrerRemise} disabled={savingRemise} style={btnPrimary}>
+                    {savingRemise ? 'Enregistrement...' : 'Enregistrer'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {importError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>{importError}</div>}
 
@@ -3383,15 +3518,9 @@ export default function ProjetDetail() {
             ) : (<>
               {/* Récap global */}
               {(() => {
-                // Inclure aussi les lignes sans lot — hors Options / variantes
-                // non retenues / texte, voir ligneCompteDansTotal.
-                const lignesSansLot = (lignesParLot['sans'] || []).filter(l => l.type === 'ligne' && ligneCompteDansTotal(l))
-                const venteLotsOnly = lots.reduce((s, l) => s + (l.total_ht || 0), 0)
-                const achatLotsOnly = lots.reduce((s, l) => s + (l.total_achat || 0), 0)
-                const venteSansLot = lignesSansLot.reduce((s, l) => s + (l.total_ht || 0), 0)
-                const achatSansLot = lignesSansLot.reduce((s, l) => s + (l.total_achat || 0), 0)
-                const totalVenteGlobal = venteLotsOnly + venteSansLot
-                const totalAchatGlobal = achatLotsOnly + achatSansLot
+                // totalVenteGlobal/totalAchatGlobal/montantRemise déjà
+                // calculés plus haut dans ce composant (totalVenteGlobal est
+                // net de la remise exceptionnelle éventuelle).
                 const margeGlobal = totalVenteGlobal - totalAchatGlobal
                 const tauxGlobal = totalVenteGlobal > 0 ? ((margeGlobal / totalVenteGlobal) * 100).toFixed(1) : 0
                 // Coefficient (Vente ÷ Achat) sur l'ensemble du projet —
@@ -3400,14 +3529,18 @@ export default function ProjetDetail() {
                 // après le taux de marge (et non plus dans une case à part)
                 // pour lever l'ambiguïté marge sur vente / taux de marque.
                 const coeffGlobal = totalAchatGlobal > 0 ? (totalVenteGlobal / totalAchatGlobal).toFixed(2) : '—'
+                const tiles = [
+                  { label: 'Total Vente HT', value: totalVenteGlobal, color: colors.success },
+                  // N'apparaît que si une remise exceptionnelle est active
+                  // (bouton du même nom ci-dessus).
+                  ...(montantRemise > 0 ? [{ label: 'Remise exceptionnelle', value: -montantRemise, color: colors.warning }] : []),
+                  { label: 'Total Achat HT', value: totalAchatGlobal, color: colors.focus },
+                  { label: 'Marge brute', value: margeGlobal, color: margeGlobal >= 0 ? colors.success : colors.danger },
+                  { label: 'Taux de marge', value: tauxGlobal + '% (coeff. ' + coeffGlobal + ')', color: ACCENT_MARGE, isText: true },
+                ]
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid ' + colors.line }}>
-                    {[
-                      { label: 'Total Vente HT', value: totalVenteGlobal, color: colors.success },
-                      { label: 'Total Achat HT', value: totalAchatGlobal, color: colors.focus },
-                      { label: 'Marge brute', value: margeGlobal, color: margeGlobal >= 0 ? colors.success : colors.danger },
-                      { label: 'Taux de marge', value: tauxGlobal + '% (coeff. ' + coeffGlobal + ')', color: ACCENT_MARGE, isText: true },
-                    ].map(({ label, value, color, isText }) => (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + tiles.length + ', 1fr)', gap: 24, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid ' + colors.line }}>
+                    {tiles.map(({ label, value, color, isText }) => (
                       <div key={label}>
                         <div style={eyebrow}>{label}</div>
                         <div style={{ fontSize: 18, fontWeight: 700, color, marginTop: 6, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{isText ? value : Number(value).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}</div>
@@ -4775,15 +4908,16 @@ export default function ProjetDetail() {
           // (mêmes totaux que ceux affichés dans l'onglet Lignes) — hors
           // Options / variantes non retenues / texte, voir ligneCompteDansTotal.
           const lignesSansLot = (lignesParLot['sans'] || []).filter(l => l.type === 'ligne' && ligneCompteDansTotal(l))
-          const venteLotsOnly = lots.reduce((s, l) => s + (l.total_ht || 0), 0)
           const achatLotsOnly = lots.reduce((s, l) => s + (l.total_achat || 0), 0)
-          const venteSansLot = lignesSansLot.reduce((s, l) => s + (l.total_ht || 0), 0)
           const achatSansLot = lignesSansLot.reduce((s, l) => s + (l.total_achat || 0), 0)
-          const venteTotalLignes = venteLotsOnly + venteSansLot
           const achatPrevu = achatLotsOnly + achatSansLot
 
-          // CA = montant du marché si renseigné, sinon total vente des lignes du projet
-          const ca = projet.montant_ht || venteTotalLignes || 0
+          // CA = totalVenteGlobal (calculé plus haut dans ce composant, déjà
+          // net de la remise exceptionnelle éventuelle — voir montantRemise)
+          // plutôt que projet.montant_ht (brut) : la marge/rentabilité doit
+          // refléter ce qui est réellement vendu, pas le chiffrage avant
+          // remise.
+          const ca = totalVenteGlobal
           const margePrevu = ca - achatPrevu
           const tauxMargePrevu = ca > 0 ? ((margePrevu / ca) * 100).toFixed(1) : 0
           // Coefficient (Vente ÷ Achat) affiché systématiquement à côté du

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { fmtEUR as fmt } from '../lib/calculs'
+import { fmtEUR as fmt, totalVenteNetRemise } from '../lib/calculs'
 import { useIsMobile } from '../lib/useIsMobile'
 import { ConditionsPaiement } from '../components/ConditionsPaiement'
 import { ContactsMultiples } from '../components/ContactsMultiples'
@@ -97,7 +97,11 @@ export default function Clients() {
 
   // ── Fiche client ─────────────────────────────────────────────
   if (clientOuvert) {
-    const totalCA = projets.reduce((s, p) => s + (p.montant_ht || 0), 0)
+    // totalVenteNetRemise : le CA d'un projet avec remise exceptionnelle
+    // active (voir lib/calculs.js) doit compter net, pas le total brut des
+    // lignes — sinon le CA client affiché ici ne correspond plus à ce qui
+    // sera réellement facturé.
+    const totalCA = projets.reduce((s, p) => s + totalVenteNetRemise(p, p.montant_ht), 0)
     return (
       <div style={{ padding: isMobile ? '28px 18px 60px' : '48px 40px 80px', fontFamily: fonts.display, color: colors.ink, maxWidth: 1180, margin: '0 auto' }}>
         {/* Header */}
@@ -251,7 +255,7 @@ export default function Clients() {
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontFamily: fonts.mono, fontWeight: 500, fontSize: 14, fontVariantNumeric: 'tabular-nums', marginBottom: 4 }}>{fmt(p.montant_ht)}</div>
+                    <div style={{ fontFamily: fonts.mono, fontWeight: 500, fontSize: 14, fontVariantNumeric: 'tabular-nums', marginBottom: 4 }}>{fmt(totalVenteNetRemise(p, p.montant_ht))}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted, justifyContent: 'flex-end' }}>
                       <span style={marker(statutProjetMarker[p.statut])} />{p.statut}
                     </div>

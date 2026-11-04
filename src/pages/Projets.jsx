@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../lib/useIsMobile'
-import { fmtEUR as fmt, ligneCompteDansTotal, calculerMarge } from '../lib/calculs'
+import { fmtEUR as fmt, ligneCompteDansTotal, calculerMarge, totalVenteNetRemise } from '../lib/calculs'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, statutProjetMarker } from '../lib/theme'
 import { IconClient, IconFournisseur, IconCommande } from '../components/Icons'
 
@@ -237,7 +237,11 @@ export default function Projets() {
   // ci-dessous) ni ces agrégats ne dépendent de `filtered`.
   const projetsAvecCouts = projets.map(pr => ({
     ...pr,
-    ca: pr.montant_ht || facturation.venteParProjet[pr.id] || 0,
+    // totalVenteNetRemise : un projet avec une remise exceptionnelle active
+    // (voir ProjetDetail.jsx, onglet Lignes) doit compter pour son CA net,
+    // pas le total brut des lignes — sinon ce widget et le total du
+    // dashboard surestiment le CA réel du périmètre sélectionné.
+    ca: totalVenteNetRemise(pr, pr.montant_ht || facturation.venteParProjet[pr.id] || 0),
     coutPrevu: facturation.achatParProjet[pr.id] || 0,
     coutEngage: facturation.commandeParProjet[pr.id] || 0,
   }))
@@ -527,7 +531,7 @@ export default function Projets() {
               // devis n'a normalement aucune facture, une barre à 0% ne
               // ferait que bruiter la liste (voir STATUTS_AVEC_FACTURATION).
               const hasBars = STATUTS_AVEC_FACTURATION.includes(p.statut)
-              const ca = p.montant_ht || facturation.venteParProjet[p.id] || 0
+              const ca = totalVenteNetRemise(p, p.montant_ht || facturation.venteParProjet[p.id] || 0)
               const achatPrevu = facturation.achatParProjet[p.id] || 0
               const factClient = facturation.factClientParProjet[p.id] || 0
               const factFournisseur = facturation.factFournisseurParProjet[p.id] || 0
@@ -584,7 +588,7 @@ export default function Projets() {
                           montant (qui varie selon le nombre de chiffres) et
                           de faire sauter "Supprimer" d'une ligne à l'autre. */}
                       <div style={{ width: isMobile ? undefined : 150, flexShrink: 0 }}>
-                        <div style={{ fontFamily: fonts.mono, fontWeight: 500, fontSize: 15, fontVariantNumeric: 'tabular-nums', marginBottom: 4 }}>{fmt(p.montant_ht)}</div>
+                        <div style={{ fontFamily: fonts.mono, fontWeight: 500, fontSize: 15, fontVariantNumeric: 'tabular-nums', marginBottom: 4 }}>{fmt(totalVenteNetRemise(p, p.montant_ht))}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: colors.inkMuted, justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
                           <span style={marker(statutProjetMarker[p.statut])} />{p.statut}
                         </div>
