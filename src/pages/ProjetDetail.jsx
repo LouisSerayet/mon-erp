@@ -304,6 +304,14 @@ export default function ProjetDetail() {
   const [formLotEdit, setFormLotEdit] = useState({ categorie: '', descriptif: '' })
   const [savingLotEdit, setSavingLotEdit] = useState(false)
   const [lotEditError, setLotEditError] = useState('')
+  // "Transformer en lot" — convertit en un clic tout le groupe "Lignes sans
+  // lot" en un vrai lot nommé (Louis voulait pouvoir nommer et déplacer ce
+  // groupe comme LOT 2/3/4/5, ce qu'il ne peut pas faire tant que les
+  // lignes n'appartiennent à aucun lot réel) — voir transformerSansLotEnLot.
+  const [showTransformSansLot, setShowTransformSansLot] = useState(false)
+  const [formTransformSansLot, setFormTransformSansLot] = useState({ categorie: '', descriptif: '' })
+  const [savingTransformSansLot, setSavingTransformSansLot] = useState(false)
+  const [transformSansLotError, setTransformSansLotError] = useState('')
   // Glisser-déposer d'un LOT pour le réordonner (distinct du glissement de
   // ligne ci-dessus, qui déplace une ligne entre lots) — voir deplacerLot.
   // `lotDrag` retient le numéro du lot en cours de glissement, `lotDragOverNumero`
@@ -1028,6 +1036,43 @@ export default function ProjetDetail() {
     setShowAddLot(false)
     setFormLot({ categorie: '', descriptif: '' })
     setSavingLot(false)
+  }
+
+  // Convertit en un clic tout le groupe "Lignes sans lot" en un vrai lot
+  // nommé : crée le lot (même logique qu'ajouterLot, en dernière position)
+  // puis rattache à ce nouveau N° toutes les lignes qui n'avaient aucun lot.
+  // Une fois fait, ce groupe bénéficie de tout ce que les autres lots ont
+  // déjà (nom modifiable via "Modifier", glisser-déposer pour le
+  // réordonner parmi les autres) sans rien dupliquer de cette logique.
+  async function transformerSansLotEnLot() {
+    setTransformSansLotError('')
+    const categorie = formTransformSansLot.categorie.trim()
+    if (!categorie) { setTransformSansLotError('La catégorie est obligatoire.'); return }
+    const aTransferer = lignes.filter(l => (l.type === 'ligne' || l.type === 'titre') && !l.lot)
+    if (aTransferer.length === 0) { setTransformSansLotError('Il n\'y a aucune ligne sans lot à regrouper.'); return }
+    setSavingTransformSansLot(true)
+    const maxOrdre = Math.max(...lignes.map(l => l.ordre || 0), 0)
+    const numero = String(lots.length + 1)
+    const { error: errLot } = await supabase.from('projet_lignes').insert([{
+      projet_id: id,
+      type: 'lot',
+      numero,
+      categorie,
+      descriptif: formTransformSansLot.descriptif.trim(),
+      total_ht: 0,
+      total_achat: 0,
+      ordre: maxOrdre + 1,
+      categorie_ligne: 'negoce',
+      variante_active: true,
+    }])
+    if (errLot) { setTransformSansLotError(errLot.message); setSavingTransformSansLot(false); return }
+    const { error: errMaj } = await supabase.from('projet_lignes').update({ lot: numero }).in('id', aTransferer.map(l => l.id))
+    if (errMaj) { setTransformSansLotError(errMaj.message); setSavingTransformSansLot(false); return }
+    const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
+    setLignes(lg || [])
+    setShowTransformSansLot(false)
+    setFormTransformSansLot({ categorie: '', descriptif: '' })
+    setSavingTransformSansLot(false)
   }
 
   function ouvrirEditionLot(lot) {
@@ -3914,11 +3959,43 @@ export default function ProjetDetail() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontWeight: 600, fontSize: 13 }}>Lignes sans lot</span>
                       {ligneDrag && ligneDrag.lot && <span style={{ fontSize: 10, color: colors.focus, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Déposer ici</span>}
+                      {/* Ce groupe n'est pas un vrai lot (pas de ligne `type:
+                          'lot'` en base) : impossible de le nommer ou de le
+                          glisser comme LOT 2/3/4/5 (remonté par Louis). Ce
+                          bouton crée un vrai lot et lui rattache toutes ces
+                          lignes en une fois — voir transformerSansLotEnLot. */}
+                      {!ligneDrag && !lotDrag && (lignesParLot['sans'] || []).some(l => l.type === 'ligne' || l.type === 'titre') && (
+                        <button onClick={() => setShowTransformSansLot(true)} style={quietLink}>Transformer en lot</button>
+                      )}
                     </div>
                     <span style={{ fontSize: 12, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>
                       Vente : {Number((lignesParLot['sans'] || []).filter(l => l.type === 'ligne' && ligneCompteDansTotal(l)).reduce((s, l) => s + (l.total_ht || 0), 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </span>
                   </div>
+                  {showTransformSansLot && (
+                    <div style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, padding: 16 }}>
+                      <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Transformer en lot — N° {lots.length + 1} (automatique)</h4>
+                      {transformSansLotError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{transformSansLotError}</div>}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginBottom: 12 }}>
+                        <div>
+                          <label style={fieldLabel}>Catégorie *</label>
+                          <input value={formTransformSansLot.categorie} onChange={e => setFormTransformSansLot(p => ({ ...p, categorie: e.target.value }))} placeholder="Ex. Généralités"
+                            style={inputUnderline} />
+                        </div>
+                        <div>
+                          <label style={fieldLabel}>Descriptif</label>
+                          <input value={formTransformSansLot.descriptif} onChange={e => setFormTransformSansLot(p => ({ ...p, descriptif: e.target.value }))} placeholder="Optionnel"
+                            style={inputUnderline} />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                        <button onClick={() => { setShowTransformSansLot(false); setTransformSansLotError(''); setFormTransformSansLot({ categorie: '', descriptif: '' }) }} style={btnGhost}>Annuler</button>
+                        <button onClick={transformerSansLotEnLot} disabled={savingTransformSansLot} style={btnPrimary}>
+                          {savingTransformSansLot ? 'Transformation...' : 'Créer le lot et y rattacher ces lignes'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {/* Même wrapper "défilement contenu" que le tableau du lot
                       ci-dessus. */}
                   <div style={{ overflow: isMobile ? 'auto' : 'hidden' }}>
