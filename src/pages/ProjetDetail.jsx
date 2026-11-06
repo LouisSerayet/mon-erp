@@ -1434,33 +1434,67 @@ export default function ProjetDetail() {
       const nouveauNumero = String(i + 1)
       if (lot.numero !== nouveauNumero) renommages.push({ id: lot.id, ancien: lot.numero, nouveau: nouveauNumero })
     })
-    if (renommages.length === 0) return true
+
+    // Recalcule aussi l'ordre réel en base (`ordre`) — c'est lui, et non le
+    // N°, qui détermine la position d'affichage des lots (voir plus bas
+    // `const lots = lignes.filter(l => l.type === 'lot')`, qui ne trie pas
+    // par N°). Avant ce correctif, seul le N° était renommé : un lot
+    // glissé en tête affichait bien "N° 1" mais revenait à sa position
+    // d'origine au rechargement suivant — remonté par Louis ("il se place
+    // pas au bon endroit... il est à la fin alors qu'il est numéro 1").
+    // Nouvelle séquence d'ordre : chaque lot, dans son nouvel ordre, suivi
+    // de ses lignes enfants (ordre relatif entre elles inchangé), puis les
+    // lignes sans lot à la fin (ordre relatif inchangé lui aussi).
+    const sansLot = lignesRef.filter(l => l.type !== 'lot' && !l.lot).sort((a, b) => (a.ordre || 0) - (b.ordre || 0))
+    const sequence = []
+    lotsOrdonnes.forEach(lot => {
+      sequence.push(lot)
+      const enfants = lignesRef.filter(l => l.type !== 'lot' && l.lot === lot.numero).sort((a, b) => (a.ordre || 0) - (b.ordre || 0))
+      sequence.push(...enfants)
+    })
+    sequence.push(...sansLot)
+    const ordreMaj = [] // [{ id, ordre }]
+    sequence.forEach((l, i) => {
+      const nouvelOrdre = i + 1
+      if ((l.ordre || 0) !== nouvelOrdre) ordreMaj.push({ id: l.id, ordre: nouvelOrdre })
+    })
+
+    if (renommages.length === 0 && ordreMaj.length === 0) return true
     // Aucune contrainte d'unicité en base sur (projet_id, numero) — voir
     // sql/, la seule validation existait côté client et a été retirée avec
     // la saisie manuelle. On peut donc réattribuer les numéros en une seule
     // passe, y compris pour une permutation (ex. lot 1 ↔ lot 2), sans
     // risque de collision transitoire visible (aucun rendu n'a lieu tant
     // que le setLignes final n'a pas eu lieu).
-    const resultatsLots = await Promise.all(renommages.map(r => supabase.from('projet_lignes').update({ numero: r.nouveau }).eq('id', r.id)))
-    const echecLot = resultatsLots.find(r => r.error)
-    if (echecLot) { alert('Erreur lors de la renumérotation des lots : ' + echecLot.error.message); return false }
-    for (const { ancien, nouveau } of renommages) {
-      const enfants = lignesRef.filter(l => l.type !== 'lot' && l.lot === ancien)
-      if (enfants.length > 0) {
-        const { error } = await supabase.from('projet_lignes').update({ lot: nouveau }).in('id', enfants.map(l => l.id))
-        if (error) { alert('Erreur lors de la mise à jour des lignes d\'un lot : ' + error.message); return false }
+    if (renommages.length > 0) {
+      const resultatsLots = await Promise.all(renommages.map(r => supabase.from('projet_lignes').update({ numero: r.nouveau }).eq('id', r.id)))
+      const echecLot = resultatsLots.find(r => r.error)
+      if (echecLot) { alert('Erreur lors de la renumérotation des lots : ' + echecLot.error.message); return false }
+      for (const { ancien, nouveau } of renommages) {
+        const enfants = lignesRef.filter(l => l.type !== 'lot' && l.lot === ancien)
+        if (enfants.length > 0) {
+          const { error } = await supabase.from('projet_lignes').update({ lot: nouveau }).in('id', enfants.map(l => l.id))
+          if (error) { alert('Erreur lors de la mise à jour des lignes d\'un lot : ' + error.message); return false }
+        }
       }
+    }
+    if (ordreMaj.length > 0) {
+      const resultatsOrdre = await Promise.all(ordreMaj.map(o => supabase.from('projet_lignes').update({ ordre: o.ordre }).eq('id', o.id)))
+      const echecOrdre = resultatsOrdre.find(r => r.error)
+      if (echecOrdre) { alert('Erreur lors de la mise à jour de l\'ordre des lots : ' + echecOrdre.error.message); return false }
     }
     // Fait suivre l'état plié/déplié de chaque lot à son nouveau numéro —
     // reconstruit depuis `prev` (et non modifié en place) pour éviter
     // qu'un renommage en chaîne (1→2, 2→3...) n'écrase la valeur d'un lot
     // par celle d'un autre avant qu'elle ait été reportée.
-    const numeroMap = new Map(renommages.map(r => [r.ancien, r.nouveau]))
-    setLotsReduits(prev => {
-      const next = {}
-      for (const [numero, valeurPliee] of Object.entries(prev)) next[numeroMap.get(numero) || numero] = valeurPliee
-      return next
-    })
+    if (renommages.length > 0) {
+      const numeroMap = new Map(renommages.map(r => [r.ancien, r.nouveau]))
+      setLotsReduits(prev => {
+        const next = {}
+        for (const [numero, valeurPliee] of Object.entries(prev)) next[numeroMap.get(numero) || numero] = valeurPliee
+        return next
+      })
+    }
     const { data: lg } = await supabase.from('projet_lignes').select('*').eq('projet_id', id).is('deleted_at', null).order('ordre')
     setLignes(lg || [])
     return true
