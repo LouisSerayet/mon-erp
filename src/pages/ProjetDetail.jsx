@@ -3576,9 +3576,16 @@ export default function ProjetDetail() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span draggable onDragStart={e => onDragStartLot(e, lot)} onDragEnd={onDragEndLot} onClick={e => e.stopPropagation()}
                         title="Glisser pour réordonner les lots — le N° suit automatiquement la position"
-                        style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
-                        <IconGlisser />
+                        // Icône agrandie, plus opaque par défaut et fond visible au survol :
+                        // Louis ne la repérait pas du tout ("je n'ai pas le truc pour
+                        // glisser") avec l'ancien style trop discret (13px, opacité 0.55
+                        // seulement au survol). Zone cliquable élargie (padding + marge
+                        // négative) comme pour les lignes.
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.inkFaint, cursor: 'grab',
+                          opacity: 0.85, padding: 6, margin: -6, borderRadius: 4, background: 'transparent', transition: 'background 0.15s, opacity 0.15s' }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = colors.line }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.85'; e.currentTarget.style.background = 'transparent' }}>
+                        <IconGlisser size={16} />
                       </span>
                       <span style={{ fontSize: 14, color: colors.inkFaint, transition: 'transform 0.2s', display: 'inline-block', transform: estReduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
                       <span style={{ fontWeight: 600, fontSize: 13 }}>LOT {lot.numero} — {lot.categorie}{lot.descriptif ? ' · ' + lot.descriptif : ''}</span>
