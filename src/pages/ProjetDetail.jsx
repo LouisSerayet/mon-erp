@@ -1279,7 +1279,11 @@ export default function ProjetDetail() {
   async function deplacerLigne(ligneId, { lot: lotCibleBrut, avantId }) {
     if (ligneDragBusy) return
     const ligneDeplacee = lignes.find(l => l.id === ligneId)
-    if (!ligneDeplacee || ligneDeplacee.type !== 'ligne') return
+    // 'titre' inclus (voir plus bas, les en-têtes/paragraphes de texte sont
+    // maintenant glissables comme les lignes normales — remonté par Louis,
+    // il ne pouvait pas déplacer la dernière ligne "Titre" d'un lot, qui
+    // n'avait ni poignée ni zone de dépôt).
+    if (!ligneDeplacee || (ligneDeplacee.type !== 'ligne' && ligneDeplacee.type !== 'titre')) return
     if (ligneId === avantId) return // déposée sur elle-même : rien à faire
     const nouveauLot = lotCibleBrut || null
     const ancienLot = ligneDeplacee.lot || null
@@ -3648,9 +3652,24 @@ export default function ProjetDetail() {
                       {(lignesParLot[lot.numero] || []).map((l, i) => {
                         const isEdited = !!lignesEditees[l.id]
                         const inputStyle = cellInput(isEdited)
+                        // Glissable comme une ligne normale (voir deplacerLigne,
+                        // désormais aussi autorisé pour 'titre') — avant, un
+                        // titre n'avait ni poignée ni zone de dépôt, impossible
+                        // à déplacer (remonté par Louis sur le dernier titre
+                        // d'un lot).
                         if (l.type === 'titre') return (
-                          <tr key={i} style={{ background: colors.bg }}>
-                            <td style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
+                          <tr key={i} onDragOver={e => onDragOverCible(e, l.id)} onDrop={e => onDropSurLigne(e, l)}
+                            style={{ background: colors.bg, borderTop: ligneDragOverKey === l.id ? '2px solid ' + colors.focus : '2px solid transparent', opacity: ligneDrag?.id === l.id ? 0.35 : 1 }}>
+                            <td style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <span draggable onDragStart={e => onDragStartLigne(e, l)} onDragEnd={onDragEndLigne} title="Glisser pour déplacer ce titre vers un autre lot"
+                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
+                                  onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
+                                  <IconGlisser />
+                                </span>
+                                {l.numero}
+                              </div>
+                            </td>
                             <td colSpan={10} style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
                           </tr>
                         )
@@ -3891,9 +3910,24 @@ export default function ProjetDetail() {
                       {(lignesParLot['sans'] || []).map((l, i) => {
                         const isEdited = !!lignesEditees[l.id]
                         const inputStyle = cellInput(isEdited)
+                        // Glissable comme une ligne normale (voir deplacerLigne,
+                        // désormais aussi autorisé pour 'titre') — avant, un
+                        // titre n'avait ni poignée ni zone de dépôt, impossible
+                        // à déplacer (remonté par Louis sur le dernier titre
+                        // d'un lot).
                         if (l.type === 'titre') return (
-                          <tr key={i} style={{ background: colors.bg }}>
-                            <td style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11 }}>{l.numero}</td>
+                          <tr key={i} onDragOver={e => onDragOverCible(e, l.id)} onDrop={e => onDropSurLigne(e, l)}
+                            style={{ background: colors.bg, borderTop: ligneDragOverKey === l.id ? '2px solid ' + colors.focus : '2px solid transparent', opacity: ligneDrag?.id === l.id ? 0.35 : 1 }}>
+                            <td style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <span draggable onDragStart={e => onDragStartLigne(e, l)} onDragEnd={onDragEndLigne} title="Glisser pour déplacer ce titre vers un autre lot"
+                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
+                                  onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
+                                  <IconGlisser />
+                                </span>
+                                {l.numero}
+                              </div>
+                            </td>
                             <td colSpan={10} style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
                           </tr>
                         )
