@@ -3670,7 +3670,19 @@ export default function ProjetDetail() {
                                 {l.numero}
                               </div>
                             </td>
-                            <td colSpan={10} style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
+                            <td colSpan={10} style={{ padding: '6px 10px' }}>
+                              {/* Avant, le texte du titre n'était affiché que
+                                  statiquement (ni éditable ni glissable) —
+                                  remonté par Louis, même correctif que la
+                                  poignée de glisser ci-dessus : même
+                                  mécanisme que la Désignation d'une ligne
+                                  normale (editLigne/getLigneVal), juste un
+                                  input simple sans mini-toolbar G/I/S (un
+                                  titre n'a pas besoin de mise en forme
+                                  riche). */}
+                              <input value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
+                                style={{ ...cellInput(isEdited), fontWeight: 600, fontSize: 11, textTransform: 'uppercase', color: colors.inkMuted }} />
+                            </td>
                           </tr>
                         )
                         const qte = parseFloat(getLigneVal(l, 'qte')) || 0
@@ -3928,7 +3940,19 @@ export default function ProjetDetail() {
                                 {l.numero}
                               </div>
                             </td>
-                            <td colSpan={10} style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{l.descriptif}</td>
+                            <td colSpan={10} style={{ padding: '6px 10px' }}>
+                              {/* Avant, le texte du titre n'était affiché que
+                                  statiquement (ni éditable ni glissable) —
+                                  remonté par Louis, même correctif que la
+                                  poignée de glisser ci-dessus : même
+                                  mécanisme que la Désignation d'une ligne
+                                  normale (editLigne/getLigneVal), juste un
+                                  input simple sans mini-toolbar G/I/S (un
+                                  titre n'a pas besoin de mise en forme
+                                  riche). */}
+                              <input value={getLigneVal(l, 'descriptif')} onChange={e => editLigne(l.id, 'descriptif', e.target.value, l)}
+                                style={{ ...cellInput(isEdited), fontWeight: 600, fontSize: 11, textTransform: 'uppercase', color: colors.inkMuted }} />
+                            </td>
                           </tr>
                         )
                         const qte = parseFloat(getLigneVal(l, 'qte')) || 0
