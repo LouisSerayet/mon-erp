@@ -1008,6 +1008,18 @@ export default function ProjetDetail() {
     setSavingLigne(false)
   }
 
+  // Prochain N° de lot : plus grand numéro de lot EXISTANT + 1 (et non le
+  // nombre de lots, lots.length + 1, qui collisionne dès qu'il y a un trou
+  // dans la numérotation — ex. un projet avec les lots 2,3,4,5 mais pas de
+  // lot 1, laissé par une ancienne suppression). Bug observé par Louis via
+  // "Transformer en lot" : le nouveau lot avait reçu le même numéro que
+  // LOT 5, mélangeant les lignes des deux sous le même en-tête. Voir
+  // sql/fusion_lots_doublons.sql pour nettoyer un doublon déjà créé.
+  function prochainNumeroLot(lignesArr) {
+    const maxNumero = lignesArr.filter(l => l.type === 'lot').reduce((m, l) => Math.max(m, parseInt(l.numero, 10) || 0), 0)
+    return String(maxNumero + 1)
+  }
+
   async function ajouterLot() {
     setLotError('')
     const categorie = formLot.categorie.trim()
@@ -1015,9 +1027,12 @@ export default function ProjetDetail() {
     setSavingLot(true)
     const maxOrdre = Math.max(...lignes.map(l => l.ordre || 0), 0)
     // Le N° est toujours automatique — voir renumeroterLots : un nouveau
-    // lot arrive en dernière position, donc son numéro est simplement
-    // "nombre de lots existants + 1".
-    const numero = String(lots.length + 1)
+    // lot arrive en dernière position. Le numéro se base sur le plus grand
+    // N° de lot EXISTANT (et non sur lots.length) : un projet dont la
+    // numérotation a un trou (ex. lots 2,3,4,5 sans lot 1) ferait sinon
+    // entrer en collision deux lots sur le même numéro — voir
+    // prochainNumeroLot et sql/fusion_lots_doublons.sql.
+    const numero = prochainNumeroLot(lignes)
     const { error } = await supabase.from('projet_lignes').insert([{
       projet_id: id,
       type: 'lot',
@@ -1052,7 +1067,7 @@ export default function ProjetDetail() {
     if (aTransferer.length === 0) { setTransformSansLotError('Il n\'y a aucune ligne sans lot à regrouper.'); return }
     setSavingTransformSansLot(true)
     const maxOrdre = Math.max(...lignes.map(l => l.ordre || 0), 0)
-    const numero = String(lots.length + 1)
+    const numero = prochainNumeroLot(lignes)
     const { error: errLot } = await supabase.from('projet_lignes').insert([{
       projet_id: id,
       type: 'lot',
@@ -3426,7 +3441,7 @@ export default function ProjetDetail() {
                 "N° Lot" du formulaire de ligne. */}
             {showAddLot && (
               <div style={{ background: colors.surface, border: '1px solid ' + colors.line, padding: 20, marginBottom: 16 }}>
-                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouveau lot — N° {lots.length + 1} (automatique)</h4>
+                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Nouveau lot — N° {prochainNumeroLot(lignes)} (automatique)</h4>
                 {lotError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{lotError}</div>}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginBottom: 12 }}>
                   <div>
@@ -3974,7 +3989,7 @@ export default function ProjetDetail() {
                   </div>
                   {showTransformSansLot && (
                     <div style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, padding: 16 }}>
-                      <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Transformer en lot — N° {lots.length + 1} (automatique)</h4>
+                      <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600 }}>Transformer en lot — N° {prochainNumeroLot(lignes)} (automatique)</h4>
                       {transformSansLotError && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{transformSansLotError}</div>}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginBottom: 12 }}>
                         <div>
