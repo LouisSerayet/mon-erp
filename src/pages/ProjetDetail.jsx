@@ -3663,7 +3663,11 @@ export default function ProjetDetail() {
                             <td style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                 <span draggable onDragStart={e => onDragStartLigne(e, l)} onDragEnd={onDragEndLigne} title="Glisser pour déplacer ce titre vers un autre lot"
-                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
+                                  // Zone cliquable agrandie (padding + marge négative pour ne
+                                  // pas déplacer le reste de la ligne) — l'icône elle-même ne
+                                  // fait que 13px, difficile à attraper précisément au trackpad
+                                  // (remonté par Louis).
+                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55, padding: 5, margin: -5 }}
                                   onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
                                   <IconGlisser />
                                 </span>
@@ -3704,7 +3708,11 @@ export default function ProjetDetail() {
                             <td style={{ padding: '4px 6px', color: colors.inkFaint, whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                                 <span draggable onDragStart={e => onDragStartLigne(e, l)} onDragEnd={onDragEndLigne} title="Glisser pour déplacer cette ligne vers un autre lot"
-                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
+                                  // Zone cliquable agrandie (padding + marge négative pour ne
+                                  // pas déplacer le reste de la ligne) — l'icône elle-même ne
+                                  // fait que 13px, difficile à attraper précisément au trackpad
+                                  // (remonté par Louis).
+                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55, padding: 5, margin: -5 }}
                                   onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
                                   <IconGlisser />
                                 </span>
@@ -3854,6 +3862,23 @@ export default function ProjetDetail() {
                           </tr>
                         )
                       })}
+                      {/* Zone de dépôt explicite en fin de lot — sans ça, le
+                          seul moyen de déposer une ligne APRÈS la dernière
+                          était le conteneur du lot en dehors du tableau, une
+                          zone en pratique inexistante puisque la dernière
+                          ligne occupe tout l'espace restant (remonté par
+                          Louis, "impossible" de replacer la dernière ligne
+                          d'un lot). Même principe que la zone "Déposer ici
+                          pour mettre en dernière position" des LOTS
+                          eux-mêmes, plus bas. */}
+                      {ligneDrag && (
+                        <tr onDragOver={e => onDragOverCible(e, 'fin:' + lot.numero)} onDrop={e => onDropFinGroupe(e, lot.numero)}>
+                          <td colSpan={11} style={{ padding: '7px 10px', textAlign: 'center', fontSize: 10, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '0.04em',
+                            border: '1px dashed ' + (ligneDragOverKey === 'fin:' + lot.numero ? colors.focus : colors.line) }}>
+                            Déposer ici pour mettre en dernière position
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                   </div>
@@ -3933,7 +3958,11 @@ export default function ProjetDetail() {
                             <td style={{ padding: '6px 10px', color: colors.inkMuted, fontWeight: 600, fontSize: 11 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                 <span draggable onDragStart={e => onDragStartLigne(e, l)} onDragEnd={onDragEndLigne} title="Glisser pour déplacer ce titre vers un autre lot"
-                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
+                                  // Zone cliquable agrandie (padding + marge négative pour ne
+                                  // pas déplacer le reste de la ligne) — l'icône elle-même ne
+                                  // fait que 13px, difficile à attraper précisément au trackpad
+                                  // (remonté par Louis).
+                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55, padding: 5, margin: -5 }}
                                   onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
                                   <IconGlisser />
                                 </span>
@@ -3975,7 +4004,11 @@ export default function ProjetDetail() {
                             <td style={{ padding: '4px 6px', color: colors.inkFaint, whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                                 <span draggable onDragStart={e => onDragStartLigne(e, l)} onDragEnd={onDragEndLigne} title="Glisser pour déplacer cette ligne vers un autre lot"
-                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55 }}
+                                  // Zone cliquable agrandie (padding + marge négative pour ne
+                                  // pas déplacer le reste de la ligne) — l'icône elle-même ne
+                                  // fait que 13px, difficile à attraper précisément au trackpad
+                                  // (remonté par Louis).
+                                  style={{ display: 'flex', color: colors.inkFaint, cursor: 'grab', opacity: 0.55, padding: 5, margin: -5 }}
                                   onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
                                   <IconGlisser />
                                 </span>
@@ -4092,6 +4125,16 @@ export default function ProjetDetail() {
                           </>
                         )
                       })}
+                      {/* Même zone de dépôt explicite que dans un lot
+                          ci-dessus — voir ce commentaire pour le pourquoi. */}
+                      {ligneDrag && (
+                        <tr onDragOver={e => onDragOverCible(e, 'fin:sans')} onDrop={e => onDropFinGroupe(e, null)}>
+                          <td colSpan={11} style={{ padding: '7px 10px', textAlign: 'center', fontSize: 10, color: colors.inkFaint, textTransform: 'uppercase', letterSpacing: '0.04em',
+                            border: '1px dashed ' + (ligneDragOverKey === 'fin:sans' ? colors.focus : colors.line) }}>
+                            Déposer ici pour mettre en dernière position
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                   </div>
