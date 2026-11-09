@@ -106,6 +106,15 @@ export default function Projets() {
   const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
   const [error, setError] = useState('')
   const [savingProjet, setSavingProjet] = useState(false) // garde-fou anti double-clic
+  // Raccourci "Clôturer" depuis la liste (demandé par Louis, nov. 2026) —
+  // rejoue à l'identique les règles déjà appliquées dans ProjetDetail.jsx
+  // pour le passage "Finalisation" → "Clôturé" (voir preuves['Clôturé'] et
+  // cloturerProjetRapide ci-dessous), sans avoir à ouvrir chaque projet.
+  // `clotureBusy` = id du projet en cours de vérification (anti double-clic
+  // + libellé du bouton) ; `clotureErreurs` = { [projetId]: message } pour
+  // le(s) motif(s) de blocage du dernier essai, affichés sous sa ligne.
+  const [clotureBusy, setClotureBusy] = useState(null)
+  const [clotureErreurs, setClotureErreurs] = useState({})
   // Widget "Vue globale des projets" — replié par défaut (voir le bouton
   // dans l'en-tête), avec ses propres filtres : statuts cochés (par défaut,
   // tout sauf les projets perdus, qui fausseraient les totaux) et base de
@@ -217,6 +226,72 @@ export default function Projets() {
         return
       }
     }
+    fetchAll()
+  }
+
+  // Clôture rapide d'un projet "Finalisation" depuis la liste, sans avoir à
+  // l'ouvrir. Rejoue EXACTEMENT les mêmes règles que le passage
+  // "Finalisation" → "Clôturé" dans ProjetDetail.jsx (voir
+  // preuves['Clôturé'] et validerEtape là-bas) : toutes les commandes
+  // fournisseurs "Validée" (ou "Annulée"), toutes les factures clients
+  // "Payée", toutes les factures fournisseurs déjà enregistrées "Payée", et
+  // chaque commande validée doit avoir au moins une facture fournisseur
+  // enregistrée. Charge ces données à la demande (pas au fetchAll général,
+  // qui ne garde que des agrégats par montant, pas le détail par statut).
+  async function cloturerProjetRapide(e, p) {
+    e.stopPropagation()
+    if (clotureBusy) return
+    setClotureBusy(p.id)
+    setClotureErreurs(prev => { const next = { ...prev }; delete next[p.id]; return next })
+
+    const [{ data: cmd, error: errCmd }, { data: fc, error: errFc }, { data: ff, error: errFf }] = await Promise.all([
+      supabase.from('commandes').select('id, statut').eq('projet_id', p.id).is('deleted_at', null),
+      supabase.from('factures_cli').select('id, statut').eq('projet_id', p.id).is('deleted_at', null),
+      supabase.from('factures_frs').select('id, statut, commande_id').eq('projet_id', p.id).is('deleted_at', null),
+    ])
+    const errChargement = errCmd || errFc || errFf
+    if (errChargement) {
+      setClotureErreurs(prev => ({ ...prev, [p.id]: 'Erreur de chargement : ' + errChargement.message }))
+      setClotureBusy(null)
+      return
+    }
+
+    const cmdNonValidees = (cmd || []).filter(c => c.statut !== 'Validée' && c.statut !== 'Annulée')
+    if (cmdNonValidees.length > 0) {
+      setClotureErreurs(prev => ({ ...prev, [p.id]: cmdNonValidees.length + ' commande(s) fournisseur pas encore "Validée".' }))
+      setClotureBusy(null)
+      return
+    }
+    const factCliNonPayees = (fc || []).filter(f => f.statut !== 'Payée')
+    if (factCliNonPayees.length > 0) {
+      setClotureErreurs(prev => ({ ...prev, [p.id]: factCliNonPayees.length + ' facture(s) client pas encore "Payée(s)".' }))
+      setClotureBusy(null)
+      return
+    }
+    const factFrsNonPayees = (ff || []).filter(f => f.statut !== 'Payée')
+    if (factFrsNonPayees.length > 0) {
+      setClotureErreurs(prev => ({ ...prev, [p.id]: factFrsNonPayees.length + ' facture(s) fournisseur pas encore "Payée(s)".' }))
+      setClotureBusy(null)
+      return
+    }
+    const cmdSansFactureFrs = (cmd || []).filter(c => c.statut === 'Validée' && !(ff || []).some(f => f.commande_id === c.id))
+    if (cmdSansFactureFrs.length > 0) {
+      setClotureErreurs(prev => ({ ...prev, [p.id]: cmdSansFactureFrs.length + ' commande(s) validée(s) sans facture fournisseur enregistrée.' }))
+      setClotureBusy(null)
+      return
+    }
+
+    if (!confirm('Clôturer "' + p.nom + '" ? Toutes les conditions sont réunies (commandes validées, factures client et fournisseur payées).')) {
+      setClotureBusy(null)
+      return
+    }
+    const { error } = await supabase.from('projets').update({ statut: 'Clôturé' }).eq('id', p.id)
+    if (error) {
+      setClotureErreurs(prev => ({ ...prev, [p.id]: 'Erreur : ' + error.message }))
+      setClotureBusy(null)
+      return
+    }
+    setClotureBusy(null)
     fetchAll()
   }
 
@@ -593,11 +668,26 @@ export default function Projets() {
                           <span style={marker(statutProjetMarker[p.statut])} />{p.statut}
                         </div>
                       </div>
+                      {/* Raccourci "Clôturer" — uniquement au stade
+                          "Finalisation" (étape juste avant "Clôturé" dans le
+                          flux), même précondition que le bouton "Valider"
+                          de ProjetDetail.jsx. Voir cloturerProjetRapide. */}
+                      {p.statut === 'Finalisation' && (
+                        <button onClick={e => cloturerProjetRapide(e, p)} disabled={clotureBusy === p.id}
+                          style={{ ...quietLink, flexShrink: 0, color: colors.success, borderBottomColor: colors.success, opacity: clotureBusy === p.id ? 0.6 : 1, cursor: clotureBusy === p.id ? 'default' : 'pointer' }}>
+                          {clotureBusy === p.id ? 'Vérification...' : 'Clôturer'}
+                        </button>
+                      )}
                       <button onClick={e => supprimerProjet(e, p.id)} style={{ ...quietLink, flexShrink: 0 }}>
                         Supprimer
                       </button>
                     </div>
                   </div>
+                  {clotureErreurs[p.id] && (
+                    <div onClick={e => e.stopPropagation()} style={{ padding: '0 0 10px', color: colors.danger, fontSize: 12 }}>
+                      Impossible de clôturer "{p.nom}" : {clotureErreurs[p.id]}
+                    </div>
+                  )}
                 </div>
               )
             })}
