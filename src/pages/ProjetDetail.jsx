@@ -2316,6 +2316,32 @@ export default function ProjetDetail() {
     setEnvoiEmailError('')
   }
 
+  // Passage automatique en "Finalisation" demandé par Louis : jusqu'ici,
+  // même une fois le projet facturé à 100 % au client et toutes les
+  // commandes validées, il fallait toujours ouvrir l'onglet Infos et
+  // cliquer "Valider" à la main pour passer l'étape — voir
+  // preuves['Finalisation'] et validerEtape plus bas, dont cette fonction
+  // reprend EXACTEMENT les mêmes conditions (même garde-fou sur les
+  // commandes, même calcul de resteAFacturer net de remise). Appelée après
+  // qu'une facture client vient de passer à "Envoyée" (voir
+  // envoyerEmailDepuisModal et saveFacCli), avec le jeu de factures tout
+  // juste rechargé (`facturesCliActuelles`) plutôt que l'état React
+  // `facturesCli`, pas encore à jour à cet instant (setFacturesCli est
+  // asynchrone). Ne s'applique qu'au départ du statut "En cours" — jamais
+  // de saut depuis un autre statut, ni de recul automatique.
+  async function verifierPassageFinalisationAuto(facturesCliActuelles) {
+    if (projet?.statut !== 'En cours') return
+    const cmdNonValidees = commandes.filter(c => c.statut !== 'Validée' && c.statut !== 'Annulée')
+    if (cmdNonValidees.length > 0) return
+    const totalFcliEnvoyeesNouveau = facturesCliActuelles.filter(f => f.statut !== 'À envoyer').reduce((s, f) => s + (f.montant_ht || 0), 0)
+    const resteAFacturer = Math.round((totalVenteGlobal - totalFcliEnvoyeesNouveau) * 100) / 100
+    if (resteAFacturer > 0.01) return
+    const { error } = await supabase.from('projets').update({ statut: 'Finalisation' }).eq('id', id)
+    if (error) return
+    setProjet(prev => ({ ...prev, statut: 'Finalisation' }))
+    alert('Toutes les commandes sont validées et le projet est facturé à 100 % au client : il passe automatiquement en "Finalisation".')
+  }
+
   async function envoyerEmailDepuisModal() {
     if (!envoiEmailModal) return
     setEnvoiEmailBusy(true)
@@ -2346,6 +2372,7 @@ export default function ProjetDetail() {
               setPennylaneError('Email envoyé, mais échec de l\'envoi automatique à Pennylane : ' + err.message)
             })
           }
+          await verifierPassageFinalisationAuto(data || [])
         }
       }
       setEnvoiEmailModal(null)
@@ -2669,6 +2696,7 @@ export default function ProjetDetail() {
           setPennylaneError('Enregistré, mais échec de l\'envoi automatique à Pennylane : ' + err.message)
         })
       }
+      await verifierPassageFinalisationAuto(data || [])
     }
 
     if (facture.pennylane_invoice_id) {
