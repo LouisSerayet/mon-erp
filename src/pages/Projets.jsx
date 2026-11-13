@@ -120,7 +120,16 @@ export default function Projets() {
   // tout sauf les projets perdus, qui fausseraient les totaux) et base de
   // coût utilisée pour la marge — prévu (devis, dispo même sans commande)
   // ou engagé (commandes fournisseurs actives).
-  const [showVueGlobale, setShowVueGlobale] = useState(false)
+  // Affichée par défaut à l'ouverture de l'onglet Projets (demandé par
+  // Louis, nov. 2026) — avant, repliée par défaut, il fallait cliquer
+  // "Vue globale" à chaque fois. Le bouton reste là pour la masquer si
+  // besoin.
+  const [showVueGlobale, setShowVueGlobale] = useState(true)
+  // Le tableau "détail par statut" (une ligne CA/Coût/Marge/Taux par
+  // statut), lui, reste replié par défaut — voir le petit triangle
+  // au-dessus de ce tableau plus bas : seuls les 4 chiffres de synthèse
+  // (Projets sélectionnés/CA/Coût/Marge) restent toujours visibles.
+  const [showDetailStatuts, setShowDetailStatuts] = useState(false)
   const [filtreStatutsGlobal, setFiltreStatutsGlobal] = useState(() => new Set(['Brouillon', 'Devis envoyé', 'Devis signé', 'En cours', 'Finalisation', 'Clôturé']))
   const [baseCoutGlobal, setBaseCoutGlobal] = useState('prevu') // 'prevu' | 'engage'
   const navigate = useNavigate()
@@ -447,30 +456,43 @@ export default function Projets() {
           </div>
 
           {breakdownStatuts.length > 0 && (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', minWidth: 600, borderCollapse: 'collapse', fontSize: 12.5 }}>
-                <thead>
-                  <tr>
-                    {['Statut', 'Nb', 'CA HT', 'Coût HT', 'Marge', 'Taux'].map((h, i) => (
-                      <th key={h} style={{ textAlign: i === 0 ? 'left' : 'right', fontWeight: 500, color: colors.inkFaint, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', padding: '12px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {breakdownStatuts.map(b => (
-                    <tr key={b.statut} style={{ opacity: b.actif ? 1 : 0.4, cursor: 'pointer' }} onClick={() => toggleStatutGlobal(b.statut)}>
-                      <td style={{ padding: '10px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={marker(statutProjetMarker[b.statut])} />{b.statut}</span>
-                      </td>
-                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line }}>{b.nb}</td>
-                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.ca)}</td>
-                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.cout)}</td>
-                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', color: b.marge >= 0 ? colors.success : colors.danger }}>{fmt(b.marge)}</td>
-                      <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{b.taux} % (coeff. {b.coeff ?? '—'})</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div>
+              {/* Repliée par défaut (voir showDetailStatuts plus haut) : le
+                  détail ligne par ligne n'est pas consulté aussi souvent que
+                  les 4 chiffres de synthèse ci-dessus, désormais toujours
+                  visibles dès l'ouverture de l'onglet Projets. */}
+              <button onClick={() => setShowDetailStatuts(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', padding: '14px 0 10px', cursor: 'pointer', fontFamily: fonts.display }}>
+                <span style={{ fontSize: 10, color: colors.inkFaint, transition: 'transform 0.15s', display: 'inline-block', transform: showDetailStatuts ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+                <span style={{ fontSize: 11, color: colors.inkMuted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Détail par statut</span>
+              </button>
+              {showDetailStatuts && (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', minWidth: 600, borderCollapse: 'collapse', fontSize: 12.5 }}>
+                    <thead>
+                      <tr>
+                        {['Statut', 'Nb', 'CA HT', 'Coût HT', 'Marge', 'Taux'].map((h, i) => (
+                          <th key={h} style={{ textAlign: i === 0 ? 'left' : 'right', fontWeight: 500, color: colors.inkFaint, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', padding: '12px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {breakdownStatuts.map(b => (
+                        <tr key={b.statut} style={{ opacity: b.actif ? 1 : 0.4, cursor: 'pointer' }} onClick={() => toggleStatutGlobal(b.statut)}>
+                          <td style={{ padding: '10px 10px 10px 0', borderBottom: '1px solid ' + colors.line }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={marker(statutProjetMarker[b.statut])} />{b.statut}</span>
+                          </td>
+                          <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line }}>{b.nb}</td>
+                          <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.ca)}</td>
+                          <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(b.cout)}</td>
+                          <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums', color: b.marge >= 0 ? colors.success : colors.danger }}>{fmt(b.marge)}</td>
+                          <td style={{ padding: '10px 10px 10px 0', textAlign: 'right', borderBottom: '1px solid ' + colors.line, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{b.taux} % (coeff. {b.coeff ?? '—'})</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>
