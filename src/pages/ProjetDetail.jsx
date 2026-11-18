@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
 import { supabase } from '../lib/supabase'
 import PdfPreviewModal from '../components/PdfPreviewModal'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
@@ -839,6 +839,17 @@ export default function ProjetDetail() {
   const [cmdDocs, setCmdDocs] = useState({}) // { [cmdId]: [docs] }
   const [uploadingDoc, setUploadingDoc] = useState(null) // cmdId ou 'projet'
   const [expandedCmd, setExpandedCmd] = useState(null) // commande ouverte pour voir ses docs
+  // Tri / regroupement du tableau "Commandes fournisseurs" (demandé par
+  // Louis, nov. 2026 — pattern à reprendre pour les autres tableaux de
+  // l'appli au fur et à mesure qu'on les retouche). { col: null | nom de
+  // colonne, dir: 'asc' | 'desc' } — voir valeurTriCmd/toggleTriCmd plus bas.
+  const [triCmd, setTriCmd] = useState({ col: null, dir: 'asc' })
+  // '' = pas de regroupement, sinon 'fournisseur' | 'statut' — voir le
+  // sélecteur "Grouper par" au-dessus du tableau Commandes fournisseurs.
+  const [groupeCmd, setGroupeCmd] = useState('')
+  // Sections de regroupement repliées (clé = label du groupe), même
+  // principe que lotsReduits pour les lots d'un devis.
+  const [groupesCmdReduits, setGroupesCmdReduits] = useState({})
 
   useEffect(() => { fetchAll() }, [id])
 
@@ -2009,6 +2020,34 @@ export default function ProjetDetail() {
   function getCmdVal(cmd, champ) {
     if (cmdEditees[cmd.id] && cmdEditees[cmd.id][champ] !== undefined) return cmdEditees[cmd.id][champ]
     return cmd[champ] ?? ''
+  }
+
+  // Valeur comparée pour le tri du tableau Commandes fournisseurs — une
+  // colonne par clé de triCmd.col (voir le <thead> de l'onglet commandes).
+  // Les colonnes texte sont comparées en minuscule (localeCompare 'fr'
+  // ensuite), les colonnes numériques renvoient un nombre.
+  function valeurTriCmd(c, col) {
+    switch (col) {
+      case 'numero': return (getCmdVal(c, 'numero') || '').toLowerCase()
+      case 'statut': return STATUTS_CMD.indexOf(getCmdVal(c, 'statut'))
+      case 'date': return getCmdVal(c, 'date_commande') || ''
+      case 'fournisseur': return (c.fournisseurs?.nom || '').toLowerCase()
+      case 'description': return (getCmdVal(c, 'description') || '').toLowerCase()
+      case 'montant': return parseFloat(getCmdVal(c, 'montant_ht')) || 0
+      case 'facture': {
+        const montantCmd = parseFloat(getCmdVal(c, 'montant_ht')) || 0
+        const montantFacture = facturesFrs.filter(f => f.commande_id === c.id).reduce((s, f) => s + (f.montant_ht || 0), 0)
+        return montantCmd > 0 ? montantFacture / montantCmd : (montantFacture > 0 ? Infinity : 0)
+      }
+      case 'tva': return getCmdVal(c, 'regime_tva') || 'normale'
+      default: return ''
+    }
+  }
+
+  // Clic sur un en-tête triable : 1er clic = ascendant, 2e clic sur la même
+  // colonne = descendant (flèche ▲/▼ affichée dans le <th>, voir plus bas).
+  function toggleTriCmd(col) {
+    setTriCmd(prev => prev.col === col ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' })
   }
 
   // Écrit le motif de déverrouillage en base — sert uniquement de trace
@@ -4452,17 +4491,48 @@ export default function ProjetDetail() {
                 <div style={{ fontSize: 14, fontWeight: 500, color: colors.ink }}>Aucune commande</div>
               </div>
             ) : (
+              <>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+                <label style={{ fontSize: 11, color: colors.inkMuted, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  Grouper par
+                  <select value={groupeCmd} onChange={e => setGroupeCmd(e.target.value)}
+                    style={{ ...inputUnderline, cursor: 'pointer', fontSize: 12, paddingTop: 2, paddingBottom: 2 }}>
+                    <option value="">Aucun</option>
+                    <option value="fournisseur">Fournisseur</option>
+                    <option value="statut">Statut</option>
+                  </select>
+                </label>
+              </div>
               <div style={{ background: colors.surface, border: '1px solid ' + colors.line, overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
-                      {['Code CF', 'Statut', 'Date', 'Fournisseur', 'Description', 'Achat HT', 'Facturé', 'TVA', 'Actions'].map(h => (
-                        <th key={h} style={{ padding: '10px 14px', textAlign: (h === 'Achat HT' || h === 'Facturé') ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                      {[
+                        { label: 'Code CF', col: 'numero' },
+                        { label: 'Statut', col: 'statut' },
+                        { label: 'Date', col: 'date' },
+                        { label: 'Fournisseur', col: 'fournisseur' },
+                        { label: 'Description', col: 'description' },
+                        { label: 'Achat HT', col: 'montant', right: true },
+                        { label: 'Facturé', col: 'facture', right: true },
+                        { label: 'TVA', col: 'tva' },
+                        { label: 'Actions', col: null },
+                      ].map(({ label, col, right }) => (
+                        <th key={label} onClick={col ? () => toggleTriCmd(col) : undefined}
+                          style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500, whiteSpace: 'nowrap', cursor: col ? 'pointer' : 'default', userSelect: 'none' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: right ? 'flex-end' : 'flex-start', width: '100%' }}>
+                            {label}
+                            {col && triCmd.col === col && (
+                              <span style={{ fontSize: 9, color: colors.focus }}>{triCmd.dir === 'asc' ? '▲' : '▼'}</span>
+                            )}
+                          </span>
+                        </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {commandes.map((c) => {
+                    {(() => {
+                      const renderLigneCommande = (c) => {
                       const isEdited = !!cmdEditees[c.id]
                       const inStyle = cellInput(isEdited)
                       // Tant qu'une commande Validée n'a pas été explicitement
@@ -4481,8 +4551,8 @@ export default function ProjetDetail() {
                       const styleBloqueModif = bloqueModif ? { opacity: 0.55, cursor: 'not-allowed' } : {}
                       const styleBloqueValidation = bloqueValidation ? { opacity: 0.55, cursor: 'not-allowed' } : {}
                       return (
-                        <>
-                        <tr key={c.id} id={'row-' + c.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: c.id === focusId ? '2px solid ' + colors.focus : 'none' }}>
+                        <Fragment key={c.id}>
+                        <tr id={'row-' + c.id} style={{ borderBottom: '1px solid ' + colors.line, borderLeft: c.id === focusId ? '2px solid ' + colors.focus : 'none' }}>
                           <td style={{ padding: '8px 14px', fontWeight: 600, color: colors.ink, fontSize: 12, whiteSpace: 'nowrap' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                               {c.statut === 'Validée' && !cmdDeverrouillees.has(c.id) && (
@@ -4622,12 +4692,64 @@ export default function ProjetDetail() {
                             </td>
                           </tr>
                         )}
-                        </>
+                        </Fragment>
                       )
-                    })}
+                      }
+
+                      // Tri (clic sur un en-tête de colonne, voir
+                      // toggleTriCmd/valeurTriCmd) appliqué avant un éventuel
+                      // regroupement ci-dessous.
+                      const commandesTriees = [...commandes]
+                      if (triCmd.col) {
+                        commandesTriees.sort((a, b) => {
+                          const va = valeurTriCmd(a, triCmd.col)
+                          const vb = valeurTriCmd(b, triCmd.col)
+                          const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb), 'fr')
+                          return triCmd.dir === 'asc' ? cmp : -cmp
+                        })
+                      }
+
+                      if (!groupeCmd) return commandesTriees.map(renderLigneCommande)
+
+                      // Regroupement "Grouper par" (Fournisseur / Statut) —
+                      // sections repliables avec sous-total (Achat HT), même
+                      // principe visuel que les lots de l'onglet Lignes
+                      // (voir lotsReduits).
+                      const groupes = new Map()
+                      commandesTriees.forEach(c => {
+                        const label = groupeCmd === 'fournisseur' ? (c.fournisseurs?.nom || 'Sans fournisseur') : (c.statut || 'Sans statut')
+                        if (!groupes.has(label)) groupes.set(label, [])
+                        groupes.get(label).push(c)
+                      })
+                      const groupesTries = Array.from(groupes.entries()).sort((a, b) => groupeCmd === 'statut'
+                        ? STATUTS_CMD.indexOf(a[0]) - STATUTS_CMD.indexOf(b[0])
+                        : a[0].localeCompare(b[0], 'fr'))
+
+                      return groupesTries.flatMap(([label, items]) => {
+                        const reduit = !!groupesCmdReduits[label]
+                        const sousTotal = items.reduce((s, c) => s + (parseFloat(getCmdVal(c, 'montant_ht')) || 0), 0)
+                        return [
+                          <tr key={'grp-' + label} onClick={() => setGroupesCmdReduits(p => ({ ...p, [label]: !p[label] }))}
+                            style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
+                            <td colSpan={9} style={{ padding: '8px 14px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ fontSize: 12, color: colors.inkFaint, transition: 'transform 0.2s', display: 'inline-block', transform: reduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+                                  <span style={{ fontWeight: 600, fontSize: 12 }}>{label}</span>
+                                  <span style={{ fontSize: 11, color: colors.inkFaint }}>({items.length})</span>
+                                </span>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: colors.focus, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(sousTotal)}</span>
+                              </div>
+                            </td>
+                          </tr>,
+                          ...(reduit ? [] : items.map(renderLigneCommande)),
+                        ]
+                      })
+                    })()}
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
         )}
