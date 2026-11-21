@@ -353,8 +353,15 @@ export default function Projets() {
 
   const filtered = projets.filter(p => {
     const matchSearch = p.nom?.toLowerCase().includes(search.toLowerCase()) || p.clients?.nom?.toLowerCase().includes(search.toLowerCase())
+    // Les statuts cochés/décochés dans "Vue globale des projets" (voir
+    // filtreStatutsGlobal, toggleStatutGlobal) ne servent plus seulement
+    // à calculer les chiffres du widget : décocher un statut là-haut
+    // (ex. "Brouillon") retire aussi ces projets de la liste ci-dessous,
+    // comme un vrai filtre sur toute la page (demandé par Louis, nov. 2026).
+    // Ne s'applique que pour "Tous" — si un statut précis est choisi dans
+    // le menu déroulant, ce choix reste prioritaire.
     const matchStatut = filtreStatut === 'Tous'
-      ? (!masquerClotures || p.statut !== 'Clôturé') && (!masquerPerdus || p.statut !== 'Perdu')
+      ? filtreStatutsGlobal.has(p.statut) && (!masquerClotures || p.statut !== 'Clôturé') && (!masquerPerdus || p.statut !== 'Perdu')
       : p.statut === filtreStatut
     const matchCreateur = filtreCreateur === 'Tous' || p.created_by_email === filtreCreateur
     return matchSearch && matchStatut && matchCreateur
