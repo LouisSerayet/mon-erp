@@ -850,6 +850,15 @@ export default function ProjetDetail() {
   // Sections de regroupement repliées (clé = label du groupe), même
   // principe que lotsReduits pour les lots d'un devis.
   const [groupesCmdReduits, setGroupesCmdReduits] = useState({})
+  // Même principe de tri/regroupement que les Commandes fournisseurs
+  // ci-dessus, étendu aux Factures frs et Factures clients (demandé par
+  // Louis, nov. 2026 — "le système de groupe/filtre partout, même ici").
+  const [triFfrs, setTriFfrs] = useState({ col: null, dir: 'asc' })
+  const [groupeFfrs, setGroupeFfrs] = useState('')
+  const [groupesFfrsReduits, setGroupesFfrsReduits] = useState({})
+  const [triFcli, setTriFcli] = useState({ col: null, dir: 'asc' })
+  const [groupeFcli, setGroupeFcli] = useState('')
+  const [groupesFcliReduits, setGroupesFcliReduits] = useState({})
 
   useEffect(() => { fetchAll() }, [id])
 
@@ -2668,6 +2677,22 @@ export default function ProjetDetail() {
     if (facCliEditees[f.id] && facCliEditees[f.id][champ] !== undefined) return facCliEditees[f.id][champ]
     return f[champ] ?? ''
   }
+
+  // Tri du tableau Factures clients — même principe que valeurTriCmd
+  // (Commandes fournisseurs) ci-dessus.
+  function valeurTriFcli(f, col) {
+    switch (col) {
+      case 'numero': return (f.numero || '').toLowerCase()
+      case 'date': return getFacCliVal(f, 'date_facture') || ''
+      case 'echeance': return getFacCliVal(f, 'date_echeance') || ''
+      case 'montant': return parseFloat(getFacCliVal(f, 'montant_ht')) || 0
+      case 'statut': return STATUTS_FCLI.indexOf(getFacCliVal(f, 'statut'))
+      default: return ''
+    }
+  }
+  function toggleTriFcli(col) {
+    setTriFcli(prev => prev.col === col ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' })
+  }
   function editFacCli(fId, champ, valeur, facture) {
     // Une facture client qui n'est plus "À envoyer" est censée être figée
     // (déjà envoyée au client, potentiellement déjà à Pennylane) — même
@@ -2754,6 +2779,24 @@ export default function ProjetDetail() {
   function getFacFrsVal(f, champ) {
     if (facFrsEditees[f.id] && facFrsEditees[f.id][champ] !== undefined) return facFrsEditees[f.id][champ]
     return f[champ] ?? ''
+  }
+
+  // Tri du tableau Factures fournisseurs — même principe que valeurTriCmd
+  // (Commandes fournisseurs) ci-dessus.
+  function valeurTriFfrs(f, col) {
+    switch (col) {
+      case 'numero': return (getFacFrsVal(f, 'numero') || '').toLowerCase()
+      case 'fournisseur': return (f.fournisseurs?.nom || '').toLowerCase()
+      case 'commande': return (f.commandes?.numero || '').toLowerCase()
+      case 'date': return getFacFrsVal(f, 'date_facture') || ''
+      case 'echeance': return getFacFrsVal(f, 'date_echeance') || ''
+      case 'montant': return parseFloat(getFacFrsVal(f, 'montant_ht')) || 0
+      case 'statut': return STATUTS_FFRS.indexOf(getFacFrsVal(f, 'statut'))
+      default: return ''
+    }
+  }
+  function toggleTriFfrs(col) {
+    setTriFfrs(prev => prev.col === col ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' })
   }
   function editFacFrs(fId, champ, valeur) {
     // Une facture fournisseur est verrouillée dès sa création (pas d'état
@@ -4853,15 +4896,46 @@ export default function ProjetDetail() {
                 <div style={{ fontSize: 14, fontWeight: 500, color: colors.ink }}>Aucune facture fournisseur</div>
               </div>
             ) : (
+              <>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+                <label style={{ fontSize: 11, color: colors.inkMuted, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  Grouper par
+                  <select value={groupeFfrs} onChange={e => setGroupeFfrs(e.target.value)}
+                    style={{ ...inputUnderline, cursor: 'pointer', fontSize: 12, paddingTop: 2, paddingBottom: 2 }}>
+                    <option value="">Aucun</option>
+                    <option value="fournisseur">Fournisseur</option>
+                    <option value="statut">Statut</option>
+                  </select>
+                </label>
+              </div>
               <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', background: colors.surface, border: '1px solid ' + colors.line, fontSize: 13 }}>
                 <thead><tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
-                  {['N°', 'Fournisseur', 'Commande', 'Date', 'Échéance', 'Montant HT', 'Statut', 'Pennylane', ''].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500 }}>{h}</th>
+                  {[
+                    { label: 'N°', col: 'numero' },
+                    { label: 'Fournisseur', col: 'fournisseur' },
+                    { label: 'Commande', col: 'commande' },
+                    { label: 'Date', col: 'date' },
+                    { label: 'Échéance', col: 'echeance' },
+                    { label: 'Montant HT', col: 'montant', right: true },
+                    { label: 'Statut', col: 'statut' },
+                    { label: 'Pennylane', col: null },
+                    { label: '', col: null },
+                  ].map(({ label, col, right }) => (
+                    <th key={label || 'actions'} onClick={col ? () => toggleTriFfrs(col) : undefined}
+                      style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500, cursor: col ? 'pointer' : 'default', userSelect: 'none' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: right ? 'flex-end' : 'flex-start', width: '100%' }}>
+                        {label}
+                        {col && triFfrs.col === col && (
+                          <span style={{ fontSize: 9, color: colors.focus }}>{triFfrs.dir === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </span>
+                    </th>
                   ))}
                 </tr></thead>
                 <tbody>
-                  {facturesFrs.map((f) => {
+                  {(() => {
+                    const renderLigneFacFrs = (f) => {
                     const isEdited = !!facFrsEditees[f.id]
                     const inStyle = cellInput(isEdited)
                     const enRetard = f.statut === 'À payer' && f.date_echeance && new Date(f.date_echeance) < new Date()
@@ -4960,10 +5034,57 @@ export default function ProjetDetail() {
                       </td>
                     </tr>
                     )
-                  })}
+                    }
+
+                    // Tri (voir toggleTriFfrs/valeurTriFfrs) puis regroupement
+                    // éventuel — même principe que Commandes fournisseurs.
+                    const facturesFrsTriees = [...facturesFrs]
+                    if (triFfrs.col) {
+                      facturesFrsTriees.sort((a, b) => {
+                        const va = valeurTriFfrs(a, triFfrs.col)
+                        const vb = valeurTriFfrs(b, triFfrs.col)
+                        const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb), 'fr')
+                        return triFfrs.dir === 'asc' ? cmp : -cmp
+                      })
+                    }
+
+                    if (!groupeFfrs) return facturesFrsTriees.map(renderLigneFacFrs)
+
+                    const groupes = new Map()
+                    facturesFrsTriees.forEach(f => {
+                      const label = groupeFfrs === 'fournisseur' ? (f.fournisseurs?.nom || 'Sans fournisseur') : (f.statut || 'Sans statut')
+                      if (!groupes.has(label)) groupes.set(label, [])
+                      groupes.get(label).push(f)
+                    })
+                    const groupesTries = Array.from(groupes.entries()).sort((a, b) => groupeFfrs === 'statut'
+                      ? STATUTS_FFRS.indexOf(a[0]) - STATUTS_FFRS.indexOf(b[0])
+                      : a[0].localeCompare(b[0], 'fr'))
+
+                    return groupesTries.flatMap(([label, items]) => {
+                      const reduit = !!groupesFfrsReduits[label]
+                      const sousTotal = items.reduce((s, f) => s + (parseFloat(getFacFrsVal(f, 'montant_ht')) || 0), 0)
+                      return [
+                        <tr key={'grp-' + label} onClick={() => setGroupesFfrsReduits(p => ({ ...p, [label]: !p[label] }))}
+                          style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
+                          <td colSpan={9} style={{ padding: '8px 14px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 12, color: colors.inkFaint, transition: 'transform 0.2s', display: 'inline-block', transform: reduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+                                <span style={{ fontWeight: 600, fontSize: 12 }}>{label}</span>
+                                <span style={{ fontSize: 11, color: colors.inkFaint }}>({items.length})</span>
+                              </span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: colors.warning, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(sousTotal)}</span>
+                            </div>
+                          </td>
+                        </tr>,
+                        ...(reduit ? [] : items.map(renderLigneFacFrs)),
+                      ]
+                    })
+                  })()}
                 </tbody>
               </table>
               </div>
+              </>
             )}
           </div>
         )}
@@ -5166,15 +5287,44 @@ export default function ProjetDetail() {
                 <div style={{ fontSize: 14, fontWeight: 500, color: colors.ink }}>Aucune facture client</div>
               </div>
             ) : (
+              <>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+                <label style={{ fontSize: 11, color: colors.inkMuted, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  Grouper par
+                  <select value={groupeFcli} onChange={e => setGroupeFcli(e.target.value)}
+                    style={{ ...inputUnderline, cursor: 'pointer', fontSize: 12, paddingTop: 2, paddingBottom: 2 }}>
+                    <option value="">Aucun</option>
+                    <option value="statut">Statut</option>
+                    <option value="type">Type de facture</option>
+                  </select>
+                </label>
+              </div>
               <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', background: colors.surface, border: '1px solid ' + colors.line, fontSize: 13 }}>
                 <thead><tr style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line }}>
-                  {['N°', 'Date', 'Échéance', 'Montant HT', 'Statut', 'Pennylane', ''].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Montant HT' ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500 }}>{h}</th>
+                  {[
+                    { label: 'N°', col: 'numero' },
+                    { label: 'Date', col: 'date' },
+                    { label: 'Échéance', col: 'echeance' },
+                    { label: 'Montant HT', col: 'montant', right: true },
+                    { label: 'Statut', col: 'statut' },
+                    { label: 'Pennylane', col: null },
+                    { label: '', col: null },
+                  ].map(({ label, col, right }) => (
+                    <th key={label || 'actions'} onClick={col ? () => toggleTriFcli(col) : undefined}
+                      style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', color: colors.inkMuted, fontWeight: 500, cursor: col ? 'pointer' : 'default', userSelect: 'none' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: right ? 'flex-end' : 'flex-start', width: '100%' }}>
+                        {label}
+                        {col && triFcli.col === col && (
+                          <span style={{ fontSize: 9, color: colors.focus }}>{triFcli.dir === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </span>
+                    </th>
                   ))}
                 </tr></thead>
                 <tbody>
-                  {facturesCli.map((f) => {
+                  {(() => {
+                    const renderLigneFacCli = (f) => {
                     const isEdited = !!facCliEditees[f.id]
                     const inStyle = cellInput(isEdited)
                     const enRetard = f.statut === 'Envoyée' && f.date_echeance && new Date(f.date_echeance) < new Date()
@@ -5278,10 +5428,52 @@ export default function ProjetDetail() {
                       </td>
                     </tr>
                     )
-                  })}
+                    }
+                    const TYPE_FACTURE_LABEL = { avancement: "Facture d'avancement", acompte: 'Acompte', avoir: 'Avoir' }
+                    const facturesCliTriees = [...facturesCli]
+                    if (triFcli.col) {
+                      facturesCliTriees.sort((a, b) => {
+                        const va = valeurTriFcli(a, triFcli.col)
+                        const vb = valeurTriFcli(b, triFcli.col)
+                        const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb), 'fr')
+                        return triFcli.dir === 'asc' ? cmp : -cmp
+                      })
+                    }
+                    if (!groupeFcli) return facturesCliTriees.map(renderLigneFacCli)
+                    const groupes = new Map()
+                    facturesCliTriees.forEach(f => {
+                      const label = groupeFcli === 'type' ? (TYPE_FACTURE_LABEL[f.type_facture] || 'Facture standard') : (f.statut || 'Sans statut')
+                      if (!groupes.has(label)) groupes.set(label, [])
+                      groupes.get(label).push(f)
+                    })
+                    const groupesTries = Array.from(groupes.entries()).sort((a, b) => groupeFcli === 'statut'
+                      ? STATUTS_FCLI.indexOf(a[0]) - STATUTS_FCLI.indexOf(b[0])
+                      : a[0].localeCompare(b[0], 'fr'))
+                    return groupesTries.flatMap(([label, items]) => {
+                      const reduit = !!groupesFcliReduits[label]
+                      const sousTotal = items.reduce((s, f) => s + (parseFloat(getFacCliVal(f, 'montant_ht')) || 0), 0)
+                      return [
+                        <tr key={'grp-' + label} onClick={() => setGroupesFcliReduits(p => ({ ...p, [label]: !p[label] }))}
+                          style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
+                          <td colSpan={7} style={{ padding: '8px 14px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 12, color: colors.inkFaint, transition: 'transform 0.2s', display: 'inline-block', transform: reduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+                                <span style={{ fontWeight: 600, fontSize: 12 }}>{label}</span>
+                                <span style={{ fontSize: 11, color: colors.inkFaint }}>({items.length})</span>
+                              </span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: colors.success, fontFamily: fonts.mono, fontVariantNumeric: 'tabular-nums' }}>{fmt(sousTotal)}</span>
+                            </div>
+                          </td>
+                        </tr>,
+                        ...(reduit ? [] : items.map(renderLigneFacCli)),
+                      ]
+                    })
+                  })()}
                 </tbody>
               </table>
               </div>
+              </>
             )}
           </div>
         )}
