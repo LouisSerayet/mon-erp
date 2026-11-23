@@ -7,6 +7,7 @@ import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/
 import { genererFactureCliPDF } from '../lib/pdfFacture'
 import { envoyerFacturesPennylane } from '../lib/usePennylane'
 import { chargerProfilsParEmail, contactPourProjet } from '../lib/contacts'
+import { getBankAccounts } from '../lib/useQonto'
 
 // Exports Excel pour la comptabilité — factures clients, factures
 // fournisseurs et commandes, tous projets confondus, avec un filtre de
@@ -192,6 +193,19 @@ export default function Exports() {
       if (errCmd) throw errCmd
       if (errProj) throw errProj
 
+      // Solde bancaire actuel (tous comptes Qonto confondus) — demandé par
+      // Louis (nov. 2026) pour que la synthèse donne un vrai solde prévu
+      // mois par mois, pas seulement une variation. Isolé dans son propre
+      // try/catch : un souci ponctuel côté API Qonto ne doit pas empêcher
+      // le reste de la prévision (échéances connues) de sortir quand même.
+      let soldeActuel = 0, soldeIndisponible = false
+      try {
+        const comptes = await getBankAccounts()
+        soldeActuel = (comptes || []).reduce((s, c) => s + (c.balance_cents || 0), 0) / 100
+      } catch {
+        soldeIndisponible = true
+      }
+
       const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0)
       // 12 mois glissants à partir du mois en cours.
       const MOIS = Array.from({ length: 12 }, (_, i) => {
@@ -217,17 +231,27 @@ export default function Exports() {
       frsAPayer.forEach(f => ajouter(decaissements, cleMois(f.date_echeance), f.montant_ht || 0))
 
       const arrondi = v => Math.round(v * 100) / 100
-      const lignesSynthese = [{
+      const encRetard = arrondi(encaissements['retard'] || 0)
+      const decRetard = arrondi(decaissements['retard'] || 0)
+      let cumul = soldeActuel
+      const lignesSynthese = [
+        {
+          'Mois': soldeIndisponible ? 'Solde actuel (Qonto indisponible — voir note)' : 'Solde actuel (comptes Qonto)',
+          'Encaissements prévus (clients)': '', 'Décaissements prévus (fournisseurs)': '', 'Net du mois': '',
+          'Solde prévisionnel': arrondi(soldeActuel),
+        },
+      ]
+      cumul = arrondi(cumul + encRetard - decRetard)
+      lignesSynthese.push({
         'Mois': 'En retard (échéance dépassée)',
-        'Encaissements prévus (clients)': arrondi(encaissements['retard'] || 0),
-        'Décaissements prévus (fournisseurs)': arrondi(decaissements['retard'] || 0),
-      }]
-      let cumul = 0
+        'Encaissements prévus (clients)': encRetard, 'Décaissements prévus (fournisseurs)': decRetard,
+        'Net du mois': arrondi(encRetard - decRetard), 'Solde prévisionnel': cumul,
+      })
       MOIS.forEach(m => {
         const enc = arrondi(encaissements[m.cle] || 0)
         const dec = arrondi(decaissements[m.cle] || 0)
         cumul = arrondi(cumul + enc - dec)
-        lignesSynthese.push({ 'Mois': m.label, 'Encaissements prévus (clients)': enc, 'Décaissements prévus (fournisseurs)': dec, 'Net du mois': arrondi(enc - dec), 'Variation cumulée (hors retard)': cumul })
+        lignesSynthese.push({ 'Mois': m.label, 'Encaissements prévus (clients)': enc, 'Décaissements prévus (fournisseurs)': dec, 'Net du mois': arrondi(enc - dec), 'Solde prévisionnel': cumul })
       })
 
       // Détail des échéances derrière la synthèse ci-dessus, pour
