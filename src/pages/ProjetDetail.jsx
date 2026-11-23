@@ -843,20 +843,20 @@ export default function ProjetDetail() {
   // Louis, nov. 2026 — pattern à reprendre pour les autres tableaux de
   // l'appli au fur et à mesure qu'on les retouche). { col: null | nom de
   // colonne, dir: 'asc' | 'desc' } — voir valeurTriCmd/toggleTriCmd plus bas.
-  const [triCmd, setTriCmd] = useState({ col: null, dir: 'asc' })
+  const [triCmd, setTriCmd] = useState({ col: 'date', dir: 'asc' })
   // '' = pas de regroupement, sinon 'fournisseur' | 'statut' — voir le
   // sélecteur "Grouper par" au-dessus du tableau Commandes fournisseurs.
-  const [groupeCmd, setGroupeCmd] = useState('')
+  const [groupeCmd, setGroupeCmd] = useState('fournisseur')
   // Sections de regroupement repliées (clé = label du groupe), même
   // principe que lotsReduits pour les lots d'un devis.
   const [groupesCmdReduits, setGroupesCmdReduits] = useState({})
   // Même principe de tri/regroupement que les Commandes fournisseurs
   // ci-dessus, étendu aux Factures frs et Factures clients (demandé par
   // Louis, nov. 2026 — "le système de groupe/filtre partout, même ici").
-  const [triFfrs, setTriFfrs] = useState({ col: null, dir: 'asc' })
-  const [groupeFfrs, setGroupeFfrs] = useState('')
+  const [triFfrs, setTriFfrs] = useState({ col: 'date', dir: 'asc' })
+  const [groupeFfrs, setGroupeFfrs] = useState('fournisseur')
   const [groupesFfrsReduits, setGroupesFfrsReduits] = useState({})
-  const [triFcli, setTriFcli] = useState({ col: null, dir: 'asc' })
+  const [triFcli, setTriFcli] = useState({ col: 'date', dir: 'asc' })
   const [groupeFcli, setGroupeFcli] = useState('')
   const [groupesFcliReduits, setGroupesFcliReduits] = useState({})
 
