@@ -166,6 +166,123 @@ export default function Exports() {
     setBusy('')
   }
 
+  // ── Flux de trésorerie prévisionnel ─────────────────────────────────
+  // Demandé par Louis (nov. 2026) : une synthèse des encaissements et
+  // décaissements à venir, tous projets confondus — pas un simple export
+  // brut d'une table comme les 3 boutons ci-dessus, mais un vrai calcul :
+  // les échéances connues (factures clients/fournisseurs non soldées)
+  // réparties par mois, + les engagements très probables mais sans
+  // échéance connue (commandes validées pas encore facturées par le
+  // fournisseur, reste à facturer aux clients sur les projets en cours)
+  // à part, pour ne pas les faire peser sur un mois arbitraire.
+  // Volontairement indépendant du filtre de période (du/au) ci-dessus :
+  // une prévision regarde toujours "à partir d'aujourd'hui", quelle que
+  // soit la période choisie pour les exports bruts.
+  async function exporterTresoreriePrevisionnelle() {
+    setBusy('tresorerie'); setError('')
+    try {
+      const [{ data: facCli, error: errCli }, { data: facFrs, error: errFrs }, { data: cmd, error: errCmd }, { data: proj, error: errProj }] = await Promise.all([
+        supabase.from('factures_cli').select('numero, date_echeance, montant_ht, statut, projet_id, projets(nom)').is('deleted_at', null),
+        supabase.from('factures_frs').select('numero, date_echeance, montant_ht, statut, commande_id, projets(nom), fournisseurs(nom)').is('deleted_at', null),
+        supabase.from('commandes').select('id, numero, montant_ht, statut, projets(nom), fournisseurs(nom)').is('deleted_at', null),
+        supabase.from('projets').select('id, nom, statut, montant_ht').is('deleted_at', null),
+      ])
+      if (errCli) throw errCli
+      if (errFrs) throw errFrs
+      if (errCmd) throw errCmd
+      if (errProj) throw errProj
+
+      const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0)
+      // 12 mois glissants à partir du mois en cours.
+      const MOIS = Array.from({ length: 12 }, (_, i) => {
+        const d = new Date(aujourdhui.getFullYear(), aujourdhui.getMonth() + i, 1)
+        return { cle: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'), label: d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }
+      })
+      // 'retard' = échéance déjà dépassée (ou absente) — isolé du mois en
+      // cours plutôt que noyé dedans, pour que ça saute aux yeux.
+      const cleMois = (dateStr) => {
+        if (!dateStr) return 'retard'
+        const d = new Date(dateStr)
+        return d < aujourdhui ? 'retard' : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))
+      }
+
+      const encaissements = {}
+      const decaissements = {}
+      const ajouter = (bucket, cle, montant) => { bucket[cle] = (bucket[cle] || 0) + montant }
+
+      const cliAEncaisser = (facCli || []).filter(f => f.statut !== 'Payée')
+      cliAEncaisser.forEach(f => ajouter(encaissements, cleMois(f.date_echeance), f.montant_ht || 0))
+
+      const frsAPayer = (facFrs || []).filter(f => f.statut === 'À payer')
+      frsAPayer.forEach(f => ajouter(decaissements, cleMois(f.date_echeance), f.montant_ht || 0))
+
+      const arrondi = v => Math.round(v * 100) / 100
+      const lignesSynthese = [{
+        'Mois': 'En retard (échéance dépassée)',
+        'Encaissements prévus (clients)': arrondi(encaissements['retard'] || 0),
+        'Décaissements prévus (fournisseurs)': arrondi(decaissements['retard'] || 0),
+      }]
+      let cumul = 0
+      MOIS.forEach(m => {
+        const enc = arrondi(encaissements[m.cle] || 0)
+        const dec = arrondi(decaissements[m.cle] || 0)
+        cumul = arrondi(cumul + enc - dec)
+        lignesSynthese.push({ 'Mois': m.label, 'Encaissements prévus (clients)': enc, 'Décaissements prévus (fournisseurs)': dec, 'Net du mois': arrondi(enc - dec), 'Variation cumulée (hors retard)': cumul })
+      })
+
+      // Détail des échéances derrière la synthèse ci-dessus, pour
+      // traçabilité (même esprit que les 3 exports bruts au-dessus).
+      const detailCli = cliAEncaisser.map(f => ({
+        'N° facture': f.numero, 'Projet': f.projets?.nom || '', 'Date échéance': fmtDateFr(f.date_echeance),
+        'Montant HT': f.montant_ht || 0, 'Statut': f.statut,
+      }))
+      const detailFrs = frsAPayer.map(f => ({
+        'N° facture': f.numero, 'Fournisseur': f.fournisseurs?.nom || '', 'Projet': f.projets?.nom || '',
+        'Date échéance': fmtDateFr(f.date_echeance), 'Montant HT': f.montant_ht || 0,
+      }))
+
+      // Engagements non datés : commandes validées pas encore facturées par
+      // le fournisseur, et reste à facturer aux clients sur les projets en
+      // cours — des sorties/entrées très probables mais sans échéance
+      // connue, donc volontairement hors du tableau mensuel ci-dessus.
+      // Même calcul que la colonne "Facturé" de l'onglet Commandes
+      // fournisseurs et que le passage automatique en Finalisation, voir
+      // ProjetDetail.jsx.
+      const factureFrsParCommande = {}
+      ;(facFrs || []).forEach(f => { if (f.commande_id) factureFrsParCommande[f.commande_id] = (factureFrsParCommande[f.commande_id] || 0) + (f.montant_ht || 0) })
+      const commandesNonFacturees = (cmd || [])
+        .filter(c => c.statut === 'Validée')
+        .map(c => ({ ...c, reste: arrondi((c.montant_ht || 0) - (factureFrsParCommande[c.id] || 0)) }))
+        .filter(c => c.reste > 0.01)
+
+      const factureCliParProjet = {}
+      ;(facCli || []).forEach(f => { if (f.projet_id) factureCliParProjet[f.projet_id] = (factureCliParProjet[f.projet_id] || 0) + (f.montant_ht || 0) })
+      const projetsResteAFacturer = (proj || [])
+        .filter(p => p.statut === 'En cours')
+        .map(p => ({ ...p, reste: arrondi((p.montant_ht || 0) - (factureCliParProjet[p.id] || 0)) }))
+        .filter(p => p.reste > 0.01)
+
+      const totalCommandesNonFacturees = arrondi(commandesNonFacturees.reduce((s, c) => s + c.reste, 0))
+      const totalResteAFacturerClients = arrondi(projetsResteAFacturer.reduce((s, p) => s + p.reste, 0))
+      const lignesEngagements = [
+        ...commandesNonFacturees.map(c => ({ 'Type': 'Décaissement probable (commande fournisseur)', 'Tiers / Projet': (c.fournisseurs?.nom || '') + ' — ' + (c.projets?.nom || ''), 'N°': c.numero || '', 'Montant HT restant': c.reste })),
+        { 'Type': 'TOTAL décaissements probables fournisseurs', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': totalCommandesNonFacturees },
+        ...projetsResteAFacturer.map(p => ({ 'Type': 'Encaissement probable (reste à facturer client)', 'Tiers / Projet': p.nom, 'N°': '', 'Montant HT restant': p.reste })),
+        { 'Type': 'TOTAL encaissements probables clients', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': totalResteAFacturerClients },
+      ]
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lignesSynthese), 'Synthèse mensuelle')
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailCli), 'Factures clients à encaisser')
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailFrs), 'Factures frs à payer')
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lignesEngagements), 'Engagements non datés')
+      XLSX.writeFile(wb, 'tresorerie-previsionnelle.xlsx')
+    } catch (err) {
+      setError('Erreur export trésorerie prévisionnelle : ' + err.message)
+    }
+    setBusy('')
+  }
+
   // Résumé textuel commun aux deux actions ci-dessous (email et ZIP).
   function resumerCompte({ nbCli = 0, nbFrs = 0, nbFrsIgnorees = 0, nbDep = 0, nbDepIgnorees = 0 } = {}) {
     const morceaux = []
@@ -353,6 +470,7 @@ export default function Exports() {
     { key: 'facturesCli', label: 'Factures clients', action: exporterFacturesCli },
     { key: 'facturesFrs', label: 'Factures fournisseurs', action: exporterFacturesFrs },
     { key: 'commandes', label: 'Commandes', action: exporterCommandes },
+    { key: 'tresorerie', label: 'Trésorerie prévisionnelle', action: exporterTresoreriePrevisionnelle },
   ]
 
   return (
@@ -375,7 +493,7 @@ export default function Exports() {
 
       {error && <div style={{ borderLeft: '2px solid ' + colors.danger, color: colors.danger, padding: '10px 14px', marginBottom: 24, fontSize: 13 }}>{error}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(' + CARTES.length + ', 1fr)' }}>
         {CARTES.map((c, i) => (
           <div key={c.key} style={{ padding: isMobile ? '20px 0' : '0 28px', borderLeft: (!isMobile && i > 0) ? '1px solid ' + colors.line : 'none', borderTop: (isMobile && i > 0) ? '1px solid ' + colors.line : 'none' }}>
             <div style={eyebrow}>{c.label}</div>
