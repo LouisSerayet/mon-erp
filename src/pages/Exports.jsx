@@ -10,6 +10,7 @@ import { envoyerFacturesPennylane } from '../lib/usePennylane'
 import { chargerProfilsParEmail, contactPourProjet } from '../lib/contacts'
 import { getBankAccounts } from '../lib/useQonto'
 import { calculerEcheance } from '../lib/calculs'
+import { ttcDepuisHt } from '../lib/tva'
 // Rendu "présentable" (PDF) de la trésorerie prévisionnelle — même mise en
 // page que les devis/factures, voir genererPdfTresoreriePrevisionnelle.
 import { creerDocumentPDF, enTeteDocument, bandeauHaut, titreSection, blocMetaBand, piedDePage, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_ALT_ROW_STYLE, WARNING, WARNING_BG, INK, MARGIN_L, MARGIN_R } from '../lib/pdfStyle'
@@ -194,10 +195,10 @@ export default function Exports() {
   // mises en forme.
   async function calculerTresoreriePrevisionnelle() {
     const [{ data: facCli, error: errCli }, { data: facFrs, error: errFrs }, { data: cmd, error: errCmd }, { data: proj, error: errProj }] = await Promise.all([
-      supabase.from('factures_cli').select('numero, date_facture, date_echeance, montant_ht, statut, projet_id, projets(nom)').is('deleted_at', null),
-      supabase.from('factures_frs').select('numero, date_facture, date_echeance, montant_ht, statut, commande_id, projet_id, projets(nom), fournisseurs(nom)').is('deleted_at', null),
-      supabase.from('commandes').select('id, numero, montant_ht, statut, projet_id, projets(nom, date_fin_prevue), fournisseurs(nom, delai_paiement_jours, delai_paiement_fin_mois)').is('deleted_at', null),
-      supabase.from('projets').select('id, nom, statut, montant_ht, date_fin_prevue, clients(delai_paiement_jours, delai_paiement_fin_mois)').is('deleted_at', null),
+      supabase.from('factures_cli').select('numero, date_facture, date_echeance, montant_ht, statut, projet_id, projets(nom, taux_tva)').is('deleted_at', null),
+      supabase.from('factures_frs').select('numero, date_facture, date_echeance, montant_ht, taux_tva, statut, commande_id, projet_id, projets(nom), fournisseurs(nom, autoliquidation), commandes(regime_tva)').is('deleted_at', null),
+      supabase.from('commandes').select('id, numero, montant_ht, taux_tva, regime_tva, statut, projet_id, projets(nom, date_fin_prevue), fournisseurs(nom, delai_paiement_jours, delai_paiement_fin_mois)').is('deleted_at', null),
+      supabase.from('projets').select('id, nom, statut, montant_ht, taux_tva, date_fin_prevue, clients(delai_paiement_jours, delai_paiement_fin_mois)').is('deleted_at', null),
     ])
     if (errCli) throw errCli
     if (errFrs) throw errFrs
@@ -240,11 +241,25 @@ export default function Exports() {
     const decaissementsEstimes = {}
     const ajouter = (bucket, cle, montant) => { bucket[cle] = (bucket[cle] || 0) + montant }
 
+    // Un encaissement/décaissement, c'est ce qui bouge réellement sur le
+    // compte en banque — donc du TTC, pas du HT (le HT est un montant
+    // comptable, pas une somme d'argent qui change de main). Même logique
+    // de régime TVA que calculerTva (lib/tva.js) : taux de TVA du projet
+    // côté client, taux de la ligne côté fournisseur, et aucune TVA
+    // physiquement payée en autoliquidation (le fournisseur ne la facture
+    // pas, Partenaires Particuliers l'autoliquide) — voir ce fichier pour
+    // le détail des règles.
+    const montantTtcFacCli = f => ttcDepuisHt(f.montant_ht || 0, f.projets?.taux_tva ?? 20)
+    const montantTtcFacFrs = f => {
+      const autoliquidation = f.commandes?.regime_tva ? f.commandes.regime_tva === 'autoliquidation' : !!f.fournisseurs?.autoliquidation
+      return autoliquidation ? (f.montant_ht || 0) : ttcDepuisHt(f.montant_ht || 0, f.taux_tva ?? 20)
+    }
+
     const cliAEncaisser = (facCli || []).filter(f => f.statut !== 'Payée')
-    cliAEncaisser.forEach(f => ajouter(encaissements, cleMois(f.date_echeance), f.montant_ht || 0))
+    cliAEncaisser.forEach(f => ajouter(encaissements, cleMois(f.date_echeance), montantTtcFacCli(f)))
 
     const frsAPayer = (facFrs || []).filter(f => f.statut === 'À payer')
-    frsAPayer.forEach(f => ajouter(decaissements, cleMois(f.date_echeance), f.montant_ht || 0))
+    frsAPayer.forEach(f => ajouter(decaissements, cleMois(f.date_echeance), montantTtcFacFrs(f)))
 
     const arrondi = v => Math.round(v * 100) / 100
 
@@ -282,14 +297,17 @@ export default function Exports() {
       .filter(c => c.statut === 'Validée')
       .map(c => {
         const reste = arrondi((c.montant_ht || 0) - (factureFrsParCommande[c.id] || 0))
+        // Autoliquidation = pas de TVA physiquement payée au fournisseur
+        // (même régime que la commande déjà facturée, voir calculerTva).
+        const resteTtc = c.regime_tva === 'autoliquidation' ? reste : ttcDepuisHt(reste, c.taux_tva ?? 20)
         const ancreDate = c.projets?.date_fin_prevue || derniereFactureFrsParProjet[c.projet_id] || null
         const ancreSource = c.projets?.date_fin_prevue ? 'Date de fin de projet' : (ancreDate ? 'Dernière facture fournisseur du projet' : null)
         const dateEstimee = ancreDate ? calculerEcheance(ancreDate, c.fournisseurs?.delai_paiement_jours ?? 30, c.fournisseurs?.delai_paiement_fin_mois ?? false) : null
-        return { ...c, reste, ancreDate, ancreSource, dateEstimee }
+        return { ...c, reste, resteTtc, ancreDate, ancreSource, dateEstimee }
       })
       .filter(c => c.reste > 0.01)
     commandesNonFactureesToutes.forEach(c => {
-      if (c.dateEstimee) { ajouter(decaissements, cleMois(c.dateEstimee), c.reste); ajouter(decaissementsEstimes, cleMois(c.dateEstimee), c.reste) }
+      if (c.dateEstimee) { ajouter(decaissements, cleMois(c.dateEstimee), c.resteTtc); ajouter(decaissementsEstimes, cleMois(c.dateEstimee), c.resteTtc) }
     })
 
     const factureCliParProjet = {}
@@ -298,14 +316,15 @@ export default function Exports() {
       .filter(p => p.statut === 'En cours')
       .map(p => {
         const reste = arrondi((p.montant_ht || 0) - (factureCliParProjet[p.id] || 0))
+        const resteTtc = ttcDepuisHt(reste, p.taux_tva ?? 20)
         const ancreDate = p.date_fin_prevue || derniereFactureCliParProjet[p.id] || null
         const ancreSource = p.date_fin_prevue ? 'Date de fin de projet' : (ancreDate ? 'Dernière facture client du projet' : null)
         const dateEstimee = ancreDate ? calculerEcheance(ancreDate, p.clients?.delai_paiement_jours ?? 30, p.clients?.delai_paiement_fin_mois ?? false) : null
-        return { ...p, reste, ancreDate, ancreSource, dateEstimee }
+        return { ...p, reste, resteTtc, ancreDate, ancreSource, dateEstimee }
       })
       .filter(p => p.reste > 0.01)
     projetsResteAFacturerTous.forEach(p => {
-      if (p.dateEstimee) { ajouter(encaissements, cleMois(p.dateEstimee), p.reste); ajouter(encaissementsEstimes, cleMois(p.dateEstimee), p.reste) }
+      if (p.dateEstimee) { ajouter(encaissements, cleMois(p.dateEstimee), p.resteTtc); ajouter(encaissementsEstimes, cleMois(p.dateEstimee), p.resteTtc) }
     })
 
     const retard = { enc: arrondi(encaissements['retard'] || 0), dec: arrondi(decaissements['retard'] || 0) }
@@ -320,29 +339,37 @@ export default function Exports() {
 
     // Détail des échéances derrière la synthèse ci-dessus, pour
     // traçabilité (même esprit que les 3 exports bruts au-dessus).
-    const detailCli = cliAEncaisser.map(f => ({ numero: f.numero, projet: f.projets?.nom || '', dateEcheance: f.date_echeance, montantHt: f.montant_ht || 0, statut: f.statut }))
-    const detailFrs = frsAPayer.map(f => ({ numero: f.numero, fournisseur: f.fournisseurs?.nom || '', projet: f.projets?.nom || '', dateEcheance: f.date_echeance, montantHt: f.montant_ht || 0 }))
+    const detailCli = cliAEncaisser.map(f => ({ numero: f.numero, projet: f.projets?.nom || '', dateEcheance: f.date_echeance, montantHt: f.montant_ht || 0, montantTtc: montantTtcFacCli(f), statut: f.statut }))
+    const detailFrs = frsAPayer.map(f => ({ numero: f.numero, fournisseur: f.fournisseurs?.nom || '', projet: f.projets?.nom || '', dateEcheance: f.date_echeance, montantHt: f.montant_ht || 0, montantTtc: montantTtcFacFrs(f) }))
 
     const commandesEstimees = commandesNonFactureesToutes.filter(c => c.dateEstimee)
     const commandesNonFacturees = commandesNonFactureesToutes.filter(c => !c.dateEstimee)
     const projetsEstimes = projetsResteAFacturerTous.filter(p => p.dateEstimee)
     const projetsResteAFacturer = projetsResteAFacturerTous.filter(p => !p.dateEstimee)
 
+    // Totaux en HT (montant comptable des lignes, pour s'y retrouver face
+    // aux autres écrans de l'app) ET en TTC (ce qui pèse vraiment sur la
+    // trésorerie) — voir montantTtcFacCli/Frs plus haut pour la même
+    // distinction sur les échéances déjà connues.
     const totalCommandesNonFacturees = arrondi(commandesNonFacturees.reduce((s, c) => s + c.reste, 0))
+    const totalCommandesNonFactureesTtc = arrondi(commandesNonFacturees.reduce((s, c) => s + c.resteTtc, 0))
     const totalResteAFacturerClients = arrondi(projetsResteAFacturer.reduce((s, p) => s + p.reste, 0))
+    const totalResteAFacturerClientsTtc = arrondi(projetsResteAFacturer.reduce((s, p) => s + p.resteTtc, 0))
     const totalCommandesEstimees = arrondi(commandesEstimees.reduce((s, c) => s + c.reste, 0))
+    const totalCommandesEstimeesTtc = arrondi(commandesEstimees.reduce((s, c) => s + c.resteTtc, 0))
     const totalProjetsEstimes = arrondi(projetsEstimes.reduce((s, p) => s + p.reste, 0))
+    const totalProjetsEstimesTtc = arrondi(projetsEstimes.reduce((s, p) => s + p.resteTtc, 0))
 
     return {
       soldeActuel, soldeIndisponible, retard, soldeDepart, mois,
       detailCli, detailFrs,
       // Ce qui a pu être estimé (date de fin de projet ou dernière facture +
-      // délai de paiement) — déjà inclus dans `mois` ci-dessus, listé ici
-      // pour traçabilité (voir page "Estimations" du PDF).
-      commandesEstimees, projetsEstimes, totalCommandesEstimees, totalProjetsEstimes,
+      // délai de paiement) — déjà inclus dans `mois` ci-dessus (en TTC),
+      // listé ici pour traçabilité (voir page "Estimations" du PDF).
+      commandesEstimees, projetsEstimes, totalCommandesEstimees, totalCommandesEstimeesTtc, totalProjetsEstimes, totalProjetsEstimesTtc,
       // Ce qui n'a vraiment aucune base pour estimer une échéance (ni date
       // de fin de projet, ni facture antérieure sur ce projet).
-      commandesNonFacturees, projetsResteAFacturer, totalCommandesNonFacturees, totalResteAFacturerClients,
+      commandesNonFacturees, projetsResteAFacturer, totalCommandesNonFacturees, totalCommandesNonFactureesTtc, totalResteAFacturerClients, totalResteAFacturerClientsTtc,
     }
   }
 
@@ -350,28 +377,31 @@ export default function Exports() {
     setBusy('tresorerieExcel'); setError('')
     try {
       const d = await calculerTresoreriePrevisionnelle()
+      // La synthèse (et le solde) raisonne en TTC — c'est ce qui bouge
+      // réellement sur le compte en banque, pas le HT.
       const lignesSynthese = [
-        { 'Mois': d.soldeIndisponible ? 'Solde actuel (Qonto indisponible)' : 'Solde actuel (comptes Qonto)', 'Encaissements prévus (clients)': '', 'Décaissements prévus (fournisseurs)': '', 'Net du mois': '', 'Solde prévisionnel': d.soldeActuel },
-        { 'Mois': 'En retard (échéance dépassée)', 'Encaissements prévus (clients)': d.retard.enc, 'Décaissements prévus (fournisseurs)': d.retard.dec, 'Net du mois': d.retard.enc - d.retard.dec, 'Solde prévisionnel': d.soldeDepart },
-        ...d.mois.map(m => ({ 'Mois': m.label, 'Encaissements prévus (clients)': m.enc, 'Décaissements prévus (fournisseurs)': m.dec, 'Net du mois': m.net, 'Solde prévisionnel': m.solde })),
+        { 'Mois': d.soldeIndisponible ? 'Solde actuel (Qonto indisponible)' : 'Solde actuel (comptes Qonto)', 'Encaissements prévus TTC (clients)': '', 'Décaissements prévus TTC (fournisseurs)': '', 'Net du mois (TTC)': '', 'Solde prévisionnel': d.soldeActuel },
+        { 'Mois': 'En retard (échéance dépassée)', 'Encaissements prévus TTC (clients)': d.retard.enc, 'Décaissements prévus TTC (fournisseurs)': d.retard.dec, 'Net du mois (TTC)': d.retard.enc - d.retard.dec, 'Solde prévisionnel': d.soldeDepart },
+        ...d.mois.map(m => ({ 'Mois': m.label, 'Encaissements prévus TTC (clients)': m.enc, 'Décaissements prévus TTC (fournisseurs)': m.dec, 'Net du mois (TTC)': m.net, 'Solde prévisionnel': m.solde })),
       ]
-      const detailCli = d.detailCli.map(f => ({ 'N° facture': f.numero, 'Projet': f.projet, 'Date échéance': fmtDateFr(f.dateEcheance), 'Montant HT': f.montantHt, 'Statut': f.statut }))
-      const detailFrs = d.detailFrs.map(f => ({ 'N° facture': f.numero, 'Fournisseur': f.fournisseur, 'Projet': f.projet, 'Date échéance': fmtDateFr(f.dateEcheance), 'Montant HT': f.montantHt }))
+      const detailCli = d.detailCli.map(f => ({ 'N° facture': f.numero, 'Projet': f.projet, 'Date échéance': fmtDateFr(f.dateEcheance), 'Montant HT': f.montantHt, 'Montant TTC': f.montantTtc, 'Statut': f.statut }))
+      const detailFrs = d.detailFrs.map(f => ({ 'N° facture': f.numero, 'Fournisseur': f.fournisseur, 'Projet': f.projet, 'Date échéance': fmtDateFr(f.dateEcheance), 'Montant HT': f.montantHt, 'Montant TTC': f.montantTtc }))
       // Pas encore facturé, mais daté par estimation (date de fin de projet,
       // ou à défaut la dernière facture du projet, + délai de paiement du
-      // tiers) — déjà compté dans la synthèse mensuelle ci-dessus, listé ici
-      // pour que Louis voie sur quoi repose chaque estimation.
+      // tiers) — le TTC est déjà compté dans la synthèse mensuelle
+      // ci-dessus, listé ici pour que Louis voie sur quoi repose chaque
+      // estimation.
       const lignesEstimations = [
-        ...d.commandesEstimees.map(c => ({ 'Type': 'Décaissement estimé (commande fournisseur)', 'Tiers / Projet': (c.fournisseurs?.nom || '') + ' — ' + (c.projets?.nom || ''), 'N°': c.numero || '', 'Base de l\'estimation': c.ancreSource, 'Date échéance estimée': fmtDateFr(c.dateEstimee), 'Montant HT restant': c.reste })),
-        { 'Type': 'TOTAL décaissements estimés fournisseurs', 'Tiers / Projet': '', 'N°': '', 'Base de l\'estimation': '', 'Date échéance estimée': '', 'Montant HT restant': d.totalCommandesEstimees },
-        ...d.projetsEstimes.map(p => ({ 'Type': 'Encaissement estimé (reste à facturer client)', 'Tiers / Projet': p.nom, 'N°': '', 'Base de l\'estimation': p.ancreSource, 'Date échéance estimée': fmtDateFr(p.dateEstimee), 'Montant HT restant': p.reste })),
-        { 'Type': 'TOTAL encaissements estimés clients', 'Tiers / Projet': '', 'N°': '', 'Base de l\'estimation': '', 'Date échéance estimée': '', 'Montant HT restant': d.totalProjetsEstimes },
+        ...d.commandesEstimees.map(c => ({ 'Type': 'Décaissement estimé (commande fournisseur)', 'Tiers / Projet': (c.fournisseurs?.nom || '') + ' — ' + (c.projets?.nom || ''), 'N°': c.numero || '', 'Base de l\'estimation': c.ancreSource, 'Date échéance estimée': fmtDateFr(c.dateEstimee), 'Montant HT restant': c.reste, 'Montant TTC estimé': c.resteTtc })),
+        { 'Type': 'TOTAL décaissements estimés fournisseurs', 'Tiers / Projet': '', 'N°': '', 'Base de l\'estimation': '', 'Date échéance estimée': '', 'Montant HT restant': d.totalCommandesEstimees, 'Montant TTC estimé': d.totalCommandesEstimeesTtc },
+        ...d.projetsEstimes.map(p => ({ 'Type': 'Encaissement estimé (reste à facturer client)', 'Tiers / Projet': p.nom, 'N°': '', 'Base de l\'estimation': p.ancreSource, 'Date échéance estimée': fmtDateFr(p.dateEstimee), 'Montant HT restant': p.reste, 'Montant TTC estimé': p.resteTtc })),
+        { 'Type': 'TOTAL encaissements estimés clients', 'Tiers / Projet': '', 'N°': '', 'Base de l\'estimation': '', 'Date échéance estimée': '', 'Montant HT restant': d.totalProjetsEstimes, 'Montant TTC estimé': d.totalProjetsEstimesTtc },
       ]
       const lignesEngagements = [
-        ...d.commandesNonFacturees.map(c => ({ 'Type': 'Décaissement probable (commande fournisseur)', 'Tiers / Projet': (c.fournisseurs?.nom || '') + ' — ' + (c.projets?.nom || ''), 'N°': c.numero || '', 'Montant HT restant': c.reste })),
-        { 'Type': 'TOTAL décaissements probables fournisseurs', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': d.totalCommandesNonFacturees },
-        ...d.projetsResteAFacturer.map(p => ({ 'Type': 'Encaissement probable (reste à facturer client)', 'Tiers / Projet': p.nom, 'N°': '', 'Montant HT restant': p.reste })),
-        { 'Type': 'TOTAL encaissements probables clients', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': d.totalResteAFacturerClients },
+        ...d.commandesNonFacturees.map(c => ({ 'Type': 'Décaissement probable (commande fournisseur)', 'Tiers / Projet': (c.fournisseurs?.nom || '') + ' — ' + (c.projets?.nom || ''), 'N°': c.numero || '', 'Montant HT restant': c.reste, 'Montant TTC': c.resteTtc })),
+        { 'Type': 'TOTAL décaissements probables fournisseurs', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': d.totalCommandesNonFacturees, 'Montant TTC': d.totalCommandesNonFactureesTtc },
+        ...d.projetsResteAFacturer.map(p => ({ 'Type': 'Encaissement probable (reste à facturer client)', 'Tiers / Projet': p.nom, 'N°': '', 'Montant HT restant': p.reste, 'Montant TTC': p.resteTtc })),
+        { 'Type': 'TOTAL encaissements probables clients', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': d.totalResteAFacturerClients, 'Montant TTC': d.totalResteAFacturerClientsTtc },
       ]
 
       const wb = XLSX.utils.book_new()
@@ -426,7 +456,7 @@ export default function Exports() {
 
       autoTable(doc, {
         startY: y,
-        head: [['Mois', 'Encaissements (€)', 'Décaissements (€)', 'Net du mois (€)', 'Solde prévisionnel (€)']],
+        head: [['Mois', 'Encaissements TTC (€)', 'Décaissements TTC (€)', 'Net du mois TTC (€)', 'Solde prévisionnel (€)']],
         body: [
           [{ content: d.soldeIndisponible ? 'Solde actuel (Qonto indisponible)' : 'Solde actuel (comptes Qonto)', styles: { fontStyle: 'bold' } }, '', '', '', styleMontant(d.soldeActuel, { gras: true })],
           [{ content: 'En retard (échéance dépassée)', styles: { fontStyle: 'bold', textColor: WARNING } }, styleMontant(d.retard.enc), styleMontant(d.retard.dec), styleMontant(d.retard.enc - d.retard.dec), styleMontant(d.soldeDepart, { gras: true })],
@@ -446,19 +476,19 @@ export default function Exports() {
       // date de fin de projet, ou à défaut la dernière facture du projet,
       // plus le délai de paiement du tiers) ─────────────────────────
       doc.addPage(); bandeauHaut(doc)
-      y = titreSection(doc, 20, { titre: 'Estimations (pas encore facturé)', sousTitre: 'Déjà comptées dans la synthèse mensuelle — datées via la fin de projet (ou la dernière facture du projet) + le délai de paiement du tiers' })
+      y = titreSection(doc, 20, { titre: 'Estimations (pas encore facturé)', sousTitre: "Le TTC est déjà compté dans la synthèse mensuelle — datées via la fin de projet (ou la dernière facture du projet) + le délai de paiement du tiers" })
 
       const bodyEstimations = [
-        ...d.commandesEstimees.map(c => [c.fournisseurs?.nom || '—', c.projets?.nom || '—', c.numero || '—', c.ancreSource, fmtDateFr(c.dateEstimee) || '—', styleMontant(-c.reste)]),
-        [{ content: 'TOTAL décaissements estimés (commandes pas encore facturées)', styles: { fontStyle: 'bold' } }, '', '', '', '', styleMontant(-d.totalCommandesEstimees, { gras: true })],
-        ...d.projetsEstimes.map(p => ['—', p.nom, '—', p.ancreSource, fmtDateFr(p.dateEstimee) || '—', styleMontant(p.reste)]),
-        [{ content: 'TOTAL encaissements estimés (reste à facturer clients)', styles: { fontStyle: 'bold' } }, '', '', '', '', styleMontant(d.totalProjetsEstimes, { gras: true })],
+        ...d.commandesEstimees.map(c => [c.fournisseurs?.nom || '—', c.projets?.nom || '—', c.numero || '—', c.ancreSource, fmtDateFr(c.dateEstimee) || '—', styleMontant(-c.reste), styleMontant(-c.resteTtc, { gras: true })]),
+        [{ content: 'TOTAL décaissements estimés (commandes pas encore facturées)', styles: { fontStyle: 'bold' } }, '', '', '', '', styleMontant(-d.totalCommandesEstimees, { gras: true }), styleMontant(-d.totalCommandesEstimeesTtc, { gras: true })],
+        ...d.projetsEstimes.map(p => ['—', p.nom, '—', p.ancreSource, fmtDateFr(p.dateEstimee) || '—', styleMontant(p.reste), styleMontant(p.resteTtc, { gras: true })]),
+        [{ content: 'TOTAL encaissements estimés (reste à facturer clients)', styles: { fontStyle: 'bold' } }, '', '', '', '', styleMontant(d.totalProjetsEstimes, { gras: true }), styleMontant(d.totalProjetsEstimesTtc, { gras: true })],
       ]
       autoTable(doc, {
         startY: y,
-        head: [['Tiers', 'Projet', 'N°', 'Base de l\'estimation', 'Échéance estimée', 'Montant HT (€)']],
+        head: [['Tiers', 'Projet', 'N°', 'Base de l\'estimation', 'Échéance estimée', 'Montant HT (€)', 'Montant TTC (€)']],
         body: bodyEstimations,
-        styles: { ...TABLE_STYLE, fontSize: 8.5 },
+        styles: { ...TABLE_STYLE, fontSize: 8 },
         headStyles: TABLE_HEAD_STYLE,
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
         margin: { left: MARGIN_L, right: 210 - MARGIN_R, top: 20 },
@@ -470,14 +500,14 @@ export default function Exports() {
       y = titreSection(doc, 20, { titre: 'Engagements non datés', sousTitre: "Ni date de fin de projet, ni facture antérieure sur le projet pour estimer une échéance — hors synthèse mensuelle" })
 
       const bodyEngagements = [
-        ...d.commandesNonFacturees.map(c => [c.fournisseurs?.nom || '—', c.projets?.nom || '—', c.numero || '—', styleMontant(-c.reste)]),
-        [{ content: 'TOTAL décaissements probables (commandes non facturées)', styles: { fontStyle: 'bold' } }, '', '', styleMontant(-d.totalCommandesNonFacturees, { gras: true })],
-        ...d.projetsResteAFacturer.map(p => ['—', p.nom, '—', styleMontant(p.reste)]),
-        [{ content: 'TOTAL encaissements probables (reste à facturer clients)', styles: { fontStyle: 'bold' } }, '', '', styleMontant(d.totalResteAFacturerClients, { gras: true })],
+        ...d.commandesNonFacturees.map(c => [c.fournisseurs?.nom || '—', c.projets?.nom || '—', c.numero || '—', styleMontant(-c.reste), styleMontant(-c.resteTtc, { gras: true })]),
+        [{ content: 'TOTAL décaissements probables (commandes non facturées)', styles: { fontStyle: 'bold' } }, '', '', styleMontant(-d.totalCommandesNonFacturees, { gras: true }), styleMontant(-d.totalCommandesNonFactureesTtc, { gras: true })],
+        ...d.projetsResteAFacturer.map(p => ['—', p.nom, '—', styleMontant(p.reste), styleMontant(p.resteTtc, { gras: true })]),
+        [{ content: 'TOTAL encaissements probables (reste à facturer clients)', styles: { fontStyle: 'bold' } }, '', '', styleMontant(d.totalResteAFacturerClients, { gras: true }), styleMontant(d.totalResteAFacturerClientsTtc, { gras: true })],
       ]
       autoTable(doc, {
         startY: y,
-        head: [['Tiers', 'Projet', 'N°', 'Montant HT (€)']],
+        head: [['Tiers', 'Projet', 'N°', 'Montant HT (€)', 'Montant TTC (€)']],
         body: bodyEngagements,
         styles: { ...TABLE_STYLE, fontSize: 8.5 },
         headStyles: TABLE_HEAD_STYLE,
@@ -491,8 +521,8 @@ export default function Exports() {
       y = titreSection(doc, 20, { titre: 'Détail — Factures clients à encaisser' })
       autoTable(doc, {
         startY: y,
-        head: [['N° facture', 'Projet', 'Date échéance', 'Statut', 'Montant HT (€)']],
-        body: d.detailCli.map(f => [f.numero, f.projet, fmtDateFr(f.dateEcheance) || '—', f.statut, styleMontant(f.montantHt)]),
+        head: [['N° facture', 'Projet', 'Date échéance', 'Statut', 'Montant HT (€)', 'Montant TTC (€)']],
+        body: d.detailCli.map(f => [f.numero, f.projet, fmtDateFr(f.dateEcheance) || '—', f.statut, styleMontant(f.montantHt), styleMontant(f.montantTtc, { gras: true })]),
         styles: { ...TABLE_STYLE, fontSize: 8.5 },
         headStyles: TABLE_HEAD_STYLE,
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
@@ -504,8 +534,8 @@ export default function Exports() {
       y = titreSection(doc, 20, { titre: 'Détail — Factures fournisseurs à payer' })
       autoTable(doc, {
         startY: y,
-        head: [['N° facture', 'Fournisseur', 'Projet', 'Date échéance', 'Montant HT (€)']],
-        body: d.detailFrs.map(f => [f.numero, f.fournisseur, f.projet, fmtDateFr(f.dateEcheance) || '—', styleMontant(f.montantHt)]),
+        head: [['N° facture', 'Fournisseur', 'Projet', 'Date échéance', 'Montant HT (€)', 'Montant TTC (€)']],
+        body: d.detailFrs.map(f => [f.numero, f.fournisseur, f.projet, fmtDateFr(f.dateEcheance) || '—', styleMontant(f.montantHt), styleMontant(f.montantTtc, { gras: true })]),
         styles: { ...TABLE_STYLE, fontSize: 8.5 },
         headStyles: TABLE_HEAD_STYLE,
         alternateRowStyles: TABLE_ALT_ROW_STYLE,
