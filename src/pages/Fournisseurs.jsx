@@ -67,6 +67,12 @@ export default function Fournisseurs() {
   const [metierLibre, setMetierLibre] = useState(false)
   const { cle: triCle, sens: triSens, trierPar } = useTri()
   const { cle: triCmdCle, sens: triCmdSens, trierPar: trierParCmd } = useTri('date', 'desc')
+  // "Grouper par" sur la liste des fournisseurs — même principe que dans
+  // ProjetDetail.jsx (Commandes/Factures) : '' = pas de regroupement,
+  // sinon 'metier'. Groupé par Métier par défaut (demande de Louis que ce
+  // genre de vue soit regroupée par défaut, pas juste disponible en option).
+  const [groupeFournisseur, setGroupeFournisseur] = useState('metier')
+  const [groupesFournisseurReduits, setGroupesFournisseurReduits] = useState({})
 
   const FORM_VIDE = { nom: '', contact: '', email: '', telephone: '', metier: '', rue: '', code_postal: '', ville: '', pays: 'FR', delai_paiement_jours: 30, delai_paiement_fin_mois: false, autoliquidation: false }
 
@@ -141,6 +147,18 @@ export default function Fournisseurs() {
     return matchSearch && (filtreMetier === 'Tous' || f.metier === filtreMetier)
   })
   const filteredTries = appliquerTri(filtered, triCle, triSens, COLONNES_TRI_FOURNISSEURS)
+  // Regroupement par Métier — le tri (ThTri/useTri ci-dessus) s'applique
+  // avant le regroupement, donc l'ordre à l'intérieur de chaque groupe
+  // suit déjà la colonne triée (tri à deux niveaux : groupe puis colonne).
+  const groupesFournisseurTries = !groupeFournisseur ? null : (() => {
+    const groupes = new Map()
+    filteredTries.forEach(f => {
+      const label = f.metier || 'Sans métier'
+      if (!groupes.has(label)) groupes.set(label, [])
+      groupes.get(label).push(f)
+    })
+    return Array.from(groupes.entries()).sort((a, b) => a[0].localeCompare(b[0], 'fr'))
+  })()
 
   const totalCommandes = commandes.reduce((s, c) => s + (c.montant_ht || 0), 0)
   const commandesTriees = appliquerTri(commandes, triCmdCle, triCmdSens, COLONNES_TRI_COMMANDES)
@@ -378,13 +396,23 @@ export default function Fournisseurs() {
       </div>
 
       {/* Filtres */}
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, marginBottom: 32 }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, marginBottom: 14 }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..."
           style={{ ...inputUnderline, flex: 2 }} />
         <select value={filtreMetier} onChange={e => setFiltreMetier(e.target.value)}
           style={{ ...inputUnderline, flex: 1, cursor: 'pointer' }}>
           {metiersDispos.map(m => <option key={m}>{m}</option>)}
         </select>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18 }}>
+        <label style={{ fontSize: 11, color: colors.inkMuted, display: 'flex', alignItems: 'center', gap: 8 }}>
+          Grouper par
+          <select value={groupeFournisseur} onChange={e => setGroupeFournisseur(e.target.value)}
+            style={{ ...inputUnderline, cursor: 'pointer', fontSize: 12, paddingTop: 2, paddingBottom: 2 }}>
+            <option value="">Aucun</option>
+            <option value="metier">Métier</option>
+          </select>
+        </label>
       </div>
 
       {/* Modal nouveau fournisseur */}
@@ -401,8 +429,8 @@ export default function Fournisseurs() {
           // colonnes ne rentre pas sur un écran de téléphone, alors que
           // c'est justement le cas d'usage principal ici (retrouver le
           // téléphone d'un fournisseur depuis le chantier).
-          <div>
-            {filteredTries.map(f => (
+          (() => {
+            const renderCarteFournisseur = f => (
               <div key={f.id} onClick={() => ouvrirFournisseur(f)}
                 style={{ borderTop: '1px solid ' + colors.line, padding: '14px 0', cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
@@ -413,31 +441,70 @@ export default function Fournisseurs() {
                   {[f.contact, f.email, f.telephone].filter(Boolean).join(' · ') || '—'}
                 </div>
               </div>
-            ))}
-          </div>
+            )
+            if (!groupesFournisseurTries) return <div>{filteredTries.map(renderCarteFournisseur)}</div>
+            return (
+              <div>
+                {groupesFournisseurTries.map(([label, items]) => {
+                  const reduit = !!groupesFournisseurReduits[label]
+                  return (
+                    <div key={label}>
+                      <div onClick={() => setGroupesFournisseurReduits(p => ({ ...p, [label]: !p[label] }))}
+                        style={{ background: colors.bg, borderTop: '1px solid ' + colors.line, padding: '10px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12, color: colors.inkFaint, transition: 'transform 0.2s', display: 'inline-block', transform: reduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+                        <span style={{ fontWeight: 600, fontSize: 12 }}>{label}</span>
+                        <span style={{ fontSize: 11, color: colors.inkFaint }}>({items.length})</span>
+                      </div>
+                      {!reduit && items.map(renderCarteFournisseur)}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr>
-                <ThTri col="nom" label="Nom" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
-                <ThTri col="contact" label="Contact" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
-                <ThTri col="email" label="Email" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
-                <ThTri col="telephone" label="Téléphone" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
-                <ThTri col="metier" label="Métier" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+          (() => {
+            const renderLigneFournisseur = f => (
+              <tr key={f.id} onClick={() => ouvrirFournisseur(f)} style={{ borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
+                <td style={{ padding: '12px 14px 12px 0', fontWeight: 600 }}>{f.nom}</td>
+                <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{f.contact || '—'}</td>
+                <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{f.email || '—'}</td>
+                <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{f.telephone || '—'}</td>
+                <td style={{ padding: '12px 0 12px 14px', color: colors.inkMuted }}>{f.metier || '—'}</td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredTries.map(f => (
-                <tr key={f.id} onClick={() => ouvrirFournisseur(f)} style={{ borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
-                  <td style={{ padding: '12px 14px 12px 0', fontWeight: 600 }}>{f.nom}</td>
-                  <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{f.contact || '—'}</td>
-                  <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{f.email || '—'}</td>
-                  <td style={{ padding: '12px 14px', color: colors.inkMuted }}>{f.telephone || '—'}</td>
-                  <td style={{ padding: '12px 0 12px 14px', color: colors.inkMuted }}>{f.metier || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            )
+            return (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    <ThTri col="nom" label="Nom" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                    <ThTri col="contact" label="Contact" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                    <ThTri col="email" label="Email" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                    <ThTri col="telephone" label="Téléphone" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                    <ThTri col="metier" label="Métier" triActuel={{ cle: triCle, sens: triSens }} onClick={trierPar} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {!groupesFournisseurTries ? filteredTries.map(renderLigneFournisseur) : groupesFournisseurTries.flatMap(([label, items]) => {
+                    const reduit = !!groupesFournisseurReduits[label]
+                    return [
+                      <tr key={'grp-' + label} onClick={() => setGroupesFournisseurReduits(p => ({ ...p, [label]: !p[label] }))}
+                        style={{ background: colors.bg, borderBottom: '1px solid ' + colors.line, cursor: 'pointer' }}>
+                        <td colSpan={5} style={{ padding: '8px 14px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, color: colors.inkFaint, transition: 'transform 0.2s', display: 'inline-block', transform: reduit ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+                            <span style={{ fontWeight: 600, fontSize: 12 }}>{label}</span>
+                            <span style={{ fontSize: 11, color: colors.inkFaint }}>({items.length})</span>
+                          </span>
+                        </td>
+                      </tr>,
+                      ...(reduit ? [] : items.map(renderLigneFournisseur)),
+                    ]
+                  })}
+                </tbody>
+              </table>
+            )
+          })()
         )}
     </div>
   )
