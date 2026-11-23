@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
+import autoTable from 'jspdf-autotable'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
@@ -8,6 +9,10 @@ import { genererFactureCliPDF } from '../lib/pdfFacture'
 import { envoyerFacturesPennylane } from '../lib/usePennylane'
 import { chargerProfilsParEmail, contactPourProjet } from '../lib/contacts'
 import { getBankAccounts } from '../lib/useQonto'
+// Rendu "présentable" (PDF) de la trésorerie prévisionnelle — même mise en
+// page que les devis/factures, voir genererPdfTresoreriePrevisionnelle.
+import { creerDocumentPDF, enTeteDocument, bandeauHaut, titreSection, blocMetaBand, piedDePage, TABLE_STYLE, TABLE_HEAD_STYLE, TABLE_ALT_ROW_STYLE, WARNING, WARNING_BG, INK, MARGIN_L, MARGIN_R } from '../lib/pdfStyle'
+import { fmtMontant } from '../lib/pdfI18n'
 
 // Exports Excel pour la comptabilité — factures clients, factures
 // fournisseurs et commandes, tous projets confondus, avec un filtre de
@@ -172,127 +177,131 @@ export default function Exports() {
   // décaissements à venir, tous projets confondus — pas un simple export
   // brut d'une table comme les 3 boutons ci-dessus, mais un vrai calcul :
   // les échéances connues (factures clients/fournisseurs non soldées)
-  // réparties par mois, + les engagements très probables mais sans
-  // échéance connue (commandes validées pas encore facturées par le
-  // fournisseur, reste à facturer aux clients sur les projets en cours)
-  // à part, pour ne pas les faire peser sur un mois arbitraire.
+  // réparties par mois, à partir du solde bancaire réel (comptes Qonto),
+  // + les engagements très probables mais sans échéance connue (commandes
+  // validées pas encore facturées par le fournisseur, reste à facturer
+  // aux clients sur les projets en cours) à part, pour ne pas les faire
+  // peser sur un mois arbitraire.
   // Volontairement indépendant du filtre de période (du/au) ci-dessus :
   // une prévision regarde toujours "à partir d'aujourd'hui", quelle que
   // soit la période choisie pour les exports bruts.
-  async function exporterTresoreriePrevisionnelle() {
-    setBusy('tresorerie'); setError('')
+  //
+  // Calcul partagé par les deux formats de sortie ci-dessous (PDF — le
+  // rendu présentable, demandé par Louis "limite fait par un expert
+  // comptable" — et Excel, gardé pour qui veut remanipuler les chiffres
+  // ou les transmettre tels quels à la compta) : une seule requête, deux
+  // mises en forme.
+  async function calculerTresoreriePrevisionnelle() {
+    const [{ data: facCli, error: errCli }, { data: facFrs, error: errFrs }, { data: cmd, error: errCmd }, { data: proj, error: errProj }] = await Promise.all([
+      supabase.from('factures_cli').select('numero, date_echeance, montant_ht, statut, projet_id, projets(nom)').is('deleted_at', null),
+      supabase.from('factures_frs').select('numero, date_echeance, montant_ht, statut, commande_id, projets(nom), fournisseurs(nom)').is('deleted_at', null),
+      supabase.from('commandes').select('id, numero, montant_ht, statut, projets(nom), fournisseurs(nom)').is('deleted_at', null),
+      supabase.from('projets').select('id, nom, statut, montant_ht').is('deleted_at', null),
+    ])
+    if (errCli) throw errCli
+    if (errFrs) throw errFrs
+    if (errCmd) throw errCmd
+    if (errProj) throw errProj
+
+    // Solde bancaire actuel (tous comptes Qonto confondus) — pour que la
+    // synthèse donne un vrai solde prévu mois par mois, pas seulement une
+    // variation. Isolé dans son propre try/catch : un souci ponctuel côté
+    // API Qonto ne doit pas empêcher le reste de la prévision (échéances
+    // connues) de sortir quand même.
+    let soldeActuel = 0, soldeIndisponible = false
     try {
-      const [{ data: facCli, error: errCli }, { data: facFrs, error: errFrs }, { data: cmd, error: errCmd }, { data: proj, error: errProj }] = await Promise.all([
-        supabase.from('factures_cli').select('numero, date_echeance, montant_ht, statut, projet_id, projets(nom)').is('deleted_at', null),
-        supabase.from('factures_frs').select('numero, date_echeance, montant_ht, statut, commande_id, projets(nom), fournisseurs(nom)').is('deleted_at', null),
-        supabase.from('commandes').select('id, numero, montant_ht, statut, projets(nom), fournisseurs(nom)').is('deleted_at', null),
-        supabase.from('projets').select('id, nom, statut, montant_ht').is('deleted_at', null),
-      ])
-      if (errCli) throw errCli
-      if (errFrs) throw errFrs
-      if (errCmd) throw errCmd
-      if (errProj) throw errProj
+      const comptes = await getBankAccounts()
+      soldeActuel = (comptes || []).reduce((s, c) => s + (c.balance_cents || 0), 0) / 100
+    } catch {
+      soldeIndisponible = true
+    }
 
-      // Solde bancaire actuel (tous comptes Qonto confondus) — demandé par
-      // Louis (nov. 2026) pour que la synthèse donne un vrai solde prévu
-      // mois par mois, pas seulement une variation. Isolé dans son propre
-      // try/catch : un souci ponctuel côté API Qonto ne doit pas empêcher
-      // le reste de la prévision (échéances connues) de sortir quand même.
-      let soldeActuel = 0, soldeIndisponible = false
-      try {
-        const comptes = await getBankAccounts()
-        soldeActuel = (comptes || []).reduce((s, c) => s + (c.balance_cents || 0), 0) / 100
-      } catch {
-        soldeIndisponible = true
-      }
+    const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0)
+    // 12 mois glissants à partir du mois en cours.
+    const MOIS = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(aujourdhui.getFullYear(), aujourdhui.getMonth() + i, 1)
+      return { cle: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'), label: d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }
+    })
+    // 'retard' = échéance déjà dépassée (ou absente) — isolé du mois en
+    // cours plutôt que noyé dedans, pour que ça saute aux yeux.
+    const cleMois = (dateStr) => {
+      if (!dateStr) return 'retard'
+      const d = new Date(dateStr)
+      return d < aujourdhui ? 'retard' : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))
+    }
 
-      const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0)
-      // 12 mois glissants à partir du mois en cours.
-      const MOIS = Array.from({ length: 12 }, (_, i) => {
-        const d = new Date(aujourdhui.getFullYear(), aujourdhui.getMonth() + i, 1)
-        return { cle: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'), label: d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }
-      })
-      // 'retard' = échéance déjà dépassée (ou absente) — isolé du mois en
-      // cours plutôt que noyé dedans, pour que ça saute aux yeux.
-      const cleMois = (dateStr) => {
-        if (!dateStr) return 'retard'
-        const d = new Date(dateStr)
-        return d < aujourdhui ? 'retard' : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))
-      }
+    const encaissements = {}
+    const decaissements = {}
+    const ajouter = (bucket, cle, montant) => { bucket[cle] = (bucket[cle] || 0) + montant }
 
-      const encaissements = {}
-      const decaissements = {}
-      const ajouter = (bucket, cle, montant) => { bucket[cle] = (bucket[cle] || 0) + montant }
+    const cliAEncaisser = (facCli || []).filter(f => f.statut !== 'Payée')
+    cliAEncaisser.forEach(f => ajouter(encaissements, cleMois(f.date_echeance), f.montant_ht || 0))
 
-      const cliAEncaisser = (facCli || []).filter(f => f.statut !== 'Payée')
-      cliAEncaisser.forEach(f => ajouter(encaissements, cleMois(f.date_echeance), f.montant_ht || 0))
+    const frsAPayer = (facFrs || []).filter(f => f.statut === 'À payer')
+    frsAPayer.forEach(f => ajouter(decaissements, cleMois(f.date_echeance), f.montant_ht || 0))
 
-      const frsAPayer = (facFrs || []).filter(f => f.statut === 'À payer')
-      frsAPayer.forEach(f => ajouter(decaissements, cleMois(f.date_echeance), f.montant_ht || 0))
+    const arrondi = v => Math.round(v * 100) / 100
+    const retard = { enc: arrondi(encaissements['retard'] || 0), dec: arrondi(decaissements['retard'] || 0) }
+    let cumul = arrondi(soldeActuel + retard.enc - retard.dec)
+    const soldeDepart = cumul
+    const mois = MOIS.map(m => {
+      const enc = arrondi(encaissements[m.cle] || 0)
+      const dec = arrondi(decaissements[m.cle] || 0)
+      cumul = arrondi(cumul + enc - dec)
+      return { label: m.label, enc, dec, net: arrondi(enc - dec), solde: cumul }
+    })
 
-      const arrondi = v => Math.round(v * 100) / 100
-      const encRetard = arrondi(encaissements['retard'] || 0)
-      const decRetard = arrondi(decaissements['retard'] || 0)
-      let cumul = soldeActuel
+    // Détail des échéances derrière la synthèse ci-dessus, pour
+    // traçabilité (même esprit que les 3 exports bruts au-dessus).
+    const detailCli = cliAEncaisser.map(f => ({ numero: f.numero, projet: f.projets?.nom || '', dateEcheance: f.date_echeance, montantHt: f.montant_ht || 0, statut: f.statut }))
+    const detailFrs = frsAPayer.map(f => ({ numero: f.numero, fournisseur: f.fournisseurs?.nom || '', projet: f.projets?.nom || '', dateEcheance: f.date_echeance, montantHt: f.montant_ht || 0 }))
+
+    // Engagements non datés : commandes validées pas encore facturées par
+    // le fournisseur, et reste à facturer aux clients sur les projets en
+    // cours — des sorties/entrées très probables mais sans échéance
+    // connue, donc volontairement hors du tableau mensuel ci-dessus. Même
+    // calcul que la colonne "Facturé" de l'onglet Commandes fournisseurs
+    // et que le passage automatique en Finalisation, voir ProjetDetail.jsx.
+    const factureFrsParCommande = {}
+    ;(facFrs || []).forEach(f => { if (f.commande_id) factureFrsParCommande[f.commande_id] = (factureFrsParCommande[f.commande_id] || 0) + (f.montant_ht || 0) })
+    const commandesNonFacturees = (cmd || [])
+      .filter(c => c.statut === 'Validée')
+      .map(c => ({ ...c, reste: arrondi((c.montant_ht || 0) - (factureFrsParCommande[c.id] || 0)) }))
+      .filter(c => c.reste > 0.01)
+
+    const factureCliParProjet = {}
+    ;(facCli || []).forEach(f => { if (f.projet_id) factureCliParProjet[f.projet_id] = (factureCliParProjet[f.projet_id] || 0) + (f.montant_ht || 0) })
+    const projetsResteAFacturer = (proj || [])
+      .filter(p => p.statut === 'En cours')
+      .map(p => ({ ...p, reste: arrondi((p.montant_ht || 0) - (factureCliParProjet[p.id] || 0)) }))
+      .filter(p => p.reste > 0.01)
+
+    const totalCommandesNonFacturees = arrondi(commandesNonFacturees.reduce((s, c) => s + c.reste, 0))
+    const totalResteAFacturerClients = arrondi(projetsResteAFacturer.reduce((s, p) => s + p.reste, 0))
+
+    return {
+      soldeActuel, soldeIndisponible, retard, soldeDepart, mois,
+      detailCli, detailFrs,
+      commandesNonFacturees, projetsResteAFacturer, totalCommandesNonFacturees, totalResteAFacturerClients,
+    }
+  }
+
+  async function exporterTresoreriePrevisionnelleExcel() {
+    setBusy('tresorerieExcel'); setError('')
+    try {
+      const d = await calculerTresoreriePrevisionnelle()
       const lignesSynthese = [
-        {
-          'Mois': soldeIndisponible ? 'Solde actuel (Qonto indisponible — voir note)' : 'Solde actuel (comptes Qonto)',
-          'Encaissements prévus (clients)': '', 'Décaissements prévus (fournisseurs)': '', 'Net du mois': '',
-          'Solde prévisionnel': arrondi(soldeActuel),
-        },
+        { 'Mois': d.soldeIndisponible ? 'Solde actuel (Qonto indisponible)' : 'Solde actuel (comptes Qonto)', 'Encaissements prévus (clients)': '', 'Décaissements prévus (fournisseurs)': '', 'Net du mois': '', 'Solde prévisionnel': d.soldeActuel },
+        { 'Mois': 'En retard (échéance dépassée)', 'Encaissements prévus (clients)': d.retard.enc, 'Décaissements prévus (fournisseurs)': d.retard.dec, 'Net du mois': d.retard.enc - d.retard.dec, 'Solde prévisionnel': d.soldeDepart },
+        ...d.mois.map(m => ({ 'Mois': m.label, 'Encaissements prévus (clients)': m.enc, 'Décaissements prévus (fournisseurs)': m.dec, 'Net du mois': m.net, 'Solde prévisionnel': m.solde })),
       ]
-      cumul = arrondi(cumul + encRetard - decRetard)
-      lignesSynthese.push({
-        'Mois': 'En retard (échéance dépassée)',
-        'Encaissements prévus (clients)': encRetard, 'Décaissements prévus (fournisseurs)': decRetard,
-        'Net du mois': arrondi(encRetard - decRetard), 'Solde prévisionnel': cumul,
-      })
-      MOIS.forEach(m => {
-        const enc = arrondi(encaissements[m.cle] || 0)
-        const dec = arrondi(decaissements[m.cle] || 0)
-        cumul = arrondi(cumul + enc - dec)
-        lignesSynthese.push({ 'Mois': m.label, 'Encaissements prévus (clients)': enc, 'Décaissements prévus (fournisseurs)': dec, 'Net du mois': arrondi(enc - dec), 'Solde prévisionnel': cumul })
-      })
-
-      // Détail des échéances derrière la synthèse ci-dessus, pour
-      // traçabilité (même esprit que les 3 exports bruts au-dessus).
-      const detailCli = cliAEncaisser.map(f => ({
-        'N° facture': f.numero, 'Projet': f.projets?.nom || '', 'Date échéance': fmtDateFr(f.date_echeance),
-        'Montant HT': f.montant_ht || 0, 'Statut': f.statut,
-      }))
-      const detailFrs = frsAPayer.map(f => ({
-        'N° facture': f.numero, 'Fournisseur': f.fournisseurs?.nom || '', 'Projet': f.projets?.nom || '',
-        'Date échéance': fmtDateFr(f.date_echeance), 'Montant HT': f.montant_ht || 0,
-      }))
-
-      // Engagements non datés : commandes validées pas encore facturées par
-      // le fournisseur, et reste à facturer aux clients sur les projets en
-      // cours — des sorties/entrées très probables mais sans échéance
-      // connue, donc volontairement hors du tableau mensuel ci-dessus.
-      // Même calcul que la colonne "Facturé" de l'onglet Commandes
-      // fournisseurs et que le passage automatique en Finalisation, voir
-      // ProjetDetail.jsx.
-      const factureFrsParCommande = {}
-      ;(facFrs || []).forEach(f => { if (f.commande_id) factureFrsParCommande[f.commande_id] = (factureFrsParCommande[f.commande_id] || 0) + (f.montant_ht || 0) })
-      const commandesNonFacturees = (cmd || [])
-        .filter(c => c.statut === 'Validée')
-        .map(c => ({ ...c, reste: arrondi((c.montant_ht || 0) - (factureFrsParCommande[c.id] || 0)) }))
-        .filter(c => c.reste > 0.01)
-
-      const factureCliParProjet = {}
-      ;(facCli || []).forEach(f => { if (f.projet_id) factureCliParProjet[f.projet_id] = (factureCliParProjet[f.projet_id] || 0) + (f.montant_ht || 0) })
-      const projetsResteAFacturer = (proj || [])
-        .filter(p => p.statut === 'En cours')
-        .map(p => ({ ...p, reste: arrondi((p.montant_ht || 0) - (factureCliParProjet[p.id] || 0)) }))
-        .filter(p => p.reste > 0.01)
-
-      const totalCommandesNonFacturees = arrondi(commandesNonFacturees.reduce((s, c) => s + c.reste, 0))
-      const totalResteAFacturerClients = arrondi(projetsResteAFacturer.reduce((s, p) => s + p.reste, 0))
+      const detailCli = d.detailCli.map(f => ({ 'N° facture': f.numero, 'Projet': f.projet, 'Date échéance': fmtDateFr(f.dateEcheance), 'Montant HT': f.montantHt, 'Statut': f.statut }))
+      const detailFrs = d.detailFrs.map(f => ({ 'N° facture': f.numero, 'Fournisseur': f.fournisseur, 'Projet': f.projet, 'Date échéance': fmtDateFr(f.dateEcheance), 'Montant HT': f.montantHt }))
       const lignesEngagements = [
-        ...commandesNonFacturees.map(c => ({ 'Type': 'Décaissement probable (commande fournisseur)', 'Tiers / Projet': (c.fournisseurs?.nom || '') + ' — ' + (c.projets?.nom || ''), 'N°': c.numero || '', 'Montant HT restant': c.reste })),
-        { 'Type': 'TOTAL décaissements probables fournisseurs', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': totalCommandesNonFacturees },
-        ...projetsResteAFacturer.map(p => ({ 'Type': 'Encaissement probable (reste à facturer client)', 'Tiers / Projet': p.nom, 'N°': '', 'Montant HT restant': p.reste })),
-        { 'Type': 'TOTAL encaissements probables clients', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': totalResteAFacturerClients },
+        ...d.commandesNonFacturees.map(c => ({ 'Type': 'Décaissement probable (commande fournisseur)', 'Tiers / Projet': (c.fournisseurs?.nom || '') + ' — ' + (c.projets?.nom || ''), 'N°': c.numero || '', 'Montant HT restant': c.reste })),
+        { 'Type': 'TOTAL décaissements probables fournisseurs', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': d.totalCommandesNonFacturees },
+        ...d.projetsResteAFacturer.map(p => ({ 'Type': 'Encaissement probable (reste à facturer client)', 'Tiers / Projet': p.nom, 'N°': '', 'Montant HT restant': p.reste })),
+        { 'Type': 'TOTAL encaissements probables clients', 'Tiers / Projet': '', 'N°': '', 'Montant HT restant': d.totalResteAFacturerClients },
       ]
 
       const wb = XLSX.utils.book_new()
@@ -303,6 +312,115 @@ export default function Exports() {
       XLSX.writeFile(wb, 'tresorerie-previsionnelle.xlsx')
     } catch (err) {
       setError('Erreur export trésorerie prévisionnelle : ' + err.message)
+    }
+    setBusy('')
+  }
+
+  // Rendu PDF "présentable" de la même prévision — mise en page identique
+  // aux devis/factures (bandeau navy, logo, tableaux à entête plein,
+  // voir lib/pdfStyle.js) plutôt que la grille brute d'un tableur : demandé
+  // par Louis (nov. 2026), "je veux un truc super lisible, limite fait par
+  // un expert comptable". L'alerte en haut de page 1 (premier mois où le
+  // solde prévisionnel passerait sous 0) est le vrai apport d'une prévision
+  // de trésorerie — les chiffres mois par mois ne suffisent pas s'il faut
+  // les relire un par un pour repérer le problème.
+  async function genererPdfTresoreriePrevisionnelle() {
+    setBusy('tresoreriePdf'); setError('')
+    try {
+      const d = await calculerTresoreriePrevisionnelle()
+      const doc = creerDocumentPDF({ unit: 'mm', format: 'a4' })
+      const styleMontant = (v, { gras = false } = {}) => ({ content: fmtMontant(v), styles: { halign: 'right', font: 'courier', fontStyle: gras ? 'bold' : 'normal', textColor: v < 0 ? WARNING : INK } })
+
+      let y = enTeteDocument(doc, { titre: 'TRÉSORERIE PRÉVISIONNELLE' })
+      y = blocMetaBand(doc, y, [
+        ['Généré le', new Date().toLocaleDateString('fr-FR')],
+        ['Solde actuel (Qonto)', d.soldeIndisponible ? 'indisponible' : fmtMontant(d.soldeActuel) + ' €'],
+        ['Horizon', '12 mois glissants'],
+      ])
+
+      const premierMoisNegatif = d.mois.find(m => m.solde < 0)
+      if (premierMoisNegatif) {
+        const boxH = 13
+        doc.setFillColor(...WARNING_BG)
+        doc.rect(MARGIN_L, y, MARGIN_R - MARGIN_L, boxH, 'F')
+        doc.setTextColor(...WARNING); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
+        doc.text('Trésorerie prévue négative à partir de ' + premierMoisNegatif.label + ' (' + fmtMontant(premierMoisNegatif.solde) + ' €)', MARGIN_L + 5, y + boxH / 2 + 1.5)
+        doc.setTextColor(...INK)
+        y += boxH + 8
+      } else {
+        y += 2
+      }
+
+      y = titreSection(doc, y, { titre: 'Synthèse mensuelle', sousTitre: "Échéances connues (factures déjà émises, non soldées) — les engagements sans échéance connue sont en page suivante" })
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Mois', 'Encaissements (€)', 'Décaissements (€)', 'Net du mois (€)', 'Solde prévisionnel (€)']],
+        body: [
+          [{ content: d.soldeIndisponible ? 'Solde actuel (Qonto indisponible)' : 'Solde actuel (comptes Qonto)', styles: { fontStyle: 'bold' } }, '', '', '', styleMontant(d.soldeActuel, { gras: true })],
+          [{ content: 'En retard (échéance dépassée)', styles: { fontStyle: 'bold', textColor: WARNING } }, styleMontant(d.retard.enc), styleMontant(d.retard.dec), styleMontant(d.retard.enc - d.retard.dec), styleMontant(d.soldeDepart, { gras: true })],
+          ...d.mois.map(m => [m.label, styleMontant(m.enc), styleMontant(m.dec), styleMontant(m.net), styleMontant(m.solde, { gras: true })]),
+        ],
+        styles: { ...TABLE_STYLE, fontSize: 8.5 },
+        headStyles: TABLE_HEAD_STYLE,
+        columnStyles: { 0: { cellWidth: 46 } },
+        alternateRowStyles: TABLE_ALT_ROW_STYLE,
+        margin: { left: MARGIN_L, right: 210 - MARGIN_R, top: 20 },
+        didDrawPage: () => bandeauHaut(doc),
+      })
+
+      // ── Page suivante : engagements non datés ──────────────────────
+      doc.addPage(); bandeauHaut(doc)
+      y = titreSection(doc, 20, { titre: 'Engagements non datés', sousTitre: 'Très probables mais sans échéance connue — hors synthèse mensuelle ci-dessus' })
+
+      const bodyEngagements = [
+        ...d.commandesNonFacturees.map(c => [c.fournisseurs?.nom || '—', c.projets?.nom || '—', c.numero || '—', styleMontant(-c.reste)]),
+        [{ content: 'TOTAL décaissements probables (commandes non facturées)', styles: { fontStyle: 'bold' } }, '', '', styleMontant(-d.totalCommandesNonFacturees, { gras: true })],
+        ...d.projetsResteAFacturer.map(p => ['—', p.nom, '—', styleMontant(p.reste)]),
+        [{ content: 'TOTAL encaissements probables (reste à facturer clients)', styles: { fontStyle: 'bold' } }, '', '', styleMontant(d.totalResteAFacturerClients, { gras: true })],
+      ]
+      autoTable(doc, {
+        startY: y,
+        head: [['Tiers', 'Projet', 'N°', 'Montant HT (€)']],
+        body: bodyEngagements,
+        styles: { ...TABLE_STYLE, fontSize: 8.5 },
+        headStyles: TABLE_HEAD_STYLE,
+        alternateRowStyles: TABLE_ALT_ROW_STYLE,
+        margin: { left: MARGIN_L, right: 210 - MARGIN_R, top: 20 },
+        didDrawPage: () => bandeauHaut(doc),
+      })
+
+      // ── Pages de détail (traçabilité) ───────────────────────────────
+      doc.addPage(); bandeauHaut(doc)
+      y = titreSection(doc, 20, { titre: 'Détail — Factures clients à encaisser' })
+      autoTable(doc, {
+        startY: y,
+        head: [['N° facture', 'Projet', 'Date échéance', 'Statut', 'Montant HT (€)']],
+        body: d.detailCli.map(f => [f.numero, f.projet, fmtDateFr(f.dateEcheance) || '—', f.statut, styleMontant(f.montantHt)]),
+        styles: { ...TABLE_STYLE, fontSize: 8.5 },
+        headStyles: TABLE_HEAD_STYLE,
+        alternateRowStyles: TABLE_ALT_ROW_STYLE,
+        margin: { left: MARGIN_L, right: 210 - MARGIN_R, top: 20 },
+        didDrawPage: () => bandeauHaut(doc),
+      })
+
+      doc.addPage(); bandeauHaut(doc)
+      y = titreSection(doc, 20, { titre: 'Détail — Factures fournisseurs à payer' })
+      autoTable(doc, {
+        startY: y,
+        head: [['N° facture', 'Fournisseur', 'Projet', 'Date échéance', 'Montant HT (€)']],
+        body: d.detailFrs.map(f => [f.numero, f.fournisseur, f.projet, fmtDateFr(f.dateEcheance) || '—', styleMontant(f.montantHt)]),
+        styles: { ...TABLE_STYLE, fontSize: 8.5 },
+        headStyles: TABLE_HEAD_STYLE,
+        alternateRowStyles: TABLE_ALT_ROW_STYLE,
+        margin: { left: MARGIN_L, right: 210 - MARGIN_R, top: 20 },
+        didDrawPage: () => bandeauHaut(doc),
+      })
+
+      piedDePage(doc, 'Trésorerie prévisionnelle')
+      doc.save('tresorerie-previsionnelle.pdf')
+    } catch (err) {
+      setError('Erreur génération PDF trésorerie prévisionnelle : ' + err.message)
     }
     setBusy('')
   }
@@ -491,10 +609,17 @@ export default function Exports() {
   }
 
   const CARTES = [
-    { key: 'facturesCli', label: 'Factures clients', action: exporterFacturesCli },
-    { key: 'facturesFrs', label: 'Factures fournisseurs', action: exporterFacturesFrs },
-    { key: 'commandes', label: 'Commandes', action: exporterCommandes },
-    { key: 'tresorerie', label: 'Trésorerie prévisionnelle', action: exporterTresoreriePrevisionnelle },
+    { key: 'facturesCli', label: 'Factures clients', action: exporterFacturesCli, actionLabel: 'Exporter en Excel', busyLabel: 'Export...' },
+    { key: 'facturesFrs', label: 'Factures fournisseurs', action: exporterFacturesFrs, actionLabel: 'Exporter en Excel', busyLabel: 'Export...' },
+    { key: 'commandes', label: 'Commandes', action: exporterCommandes, actionLabel: 'Exporter en Excel', busyLabel: 'Export...' },
+    {
+      key: 'tresoreriePdf', label: 'Trésorerie prévisionnelle', action: genererPdfTresoreriePrevisionnelle, actionLabel: 'Générer le PDF', busyLabel: 'Génération...',
+      // Rapport PDF présentable en action principale (demandé par Louis,
+      // nov. 2026 — "super lisible, limite fait par un expert comptable"),
+      // le détail Excel brut reste accessible juste en dessous pour qui
+      // veut remanipuler les chiffres ou les transmettre à la compta.
+      secondaire: { key: 'tresorerieExcel', label: 'Détail en Excel', action: exporterTresoreriePrevisionnelleExcel, busyLabel: 'Export...' },
+    },
   ]
 
   return (
@@ -522,8 +647,13 @@ export default function Exports() {
           <div key={c.key} style={{ padding: isMobile ? '20px 0' : '0 28px', borderLeft: (!isMobile && i > 0) ? '1px solid ' + colors.line : 'none', borderTop: (isMobile && i > 0) ? '1px solid ' + colors.line : 'none' }}>
             <div style={eyebrow}>{c.label}</div>
             <button onClick={c.action} disabled={busy === c.key} style={{ ...quietLink, display: 'inline-block', marginTop: 14 }}>
-              {busy === c.key ? 'Export...' : 'Exporter en Excel'}
+              {busy === c.key ? c.busyLabel : c.actionLabel}
             </button>
+            {c.secondaire && (
+              <button onClick={c.secondaire.action} disabled={busy === c.secondaire.key} style={{ ...quietLink, display: 'block', marginTop: 8, fontSize: 11, color: colors.inkFaint }}>
+                {busy === c.secondaire.key ? c.secondaire.busyLabel : c.secondaire.label}
+              </button>
+            )}
           </div>
         ))}
       </div>
