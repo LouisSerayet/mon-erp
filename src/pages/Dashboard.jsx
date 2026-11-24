@@ -6,7 +6,7 @@ import { useRelance } from '../lib/useRelance'
 import { ModalRelance } from '../components/ModalRelance'
 import { getBankAccounts } from '../lib/useQonto'
 import { useIsMobile } from '../lib/useIsMobile'
-import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, couleurAvatar, initiales } from '../lib/theme'
+import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, couleurAvatar, initiales, statutProjetMarker } from '../lib/theme'
 
 export default function Dashboard() {
   const isMobile = useIsMobile()
@@ -69,8 +69,12 @@ export default function Dashboard() {
       // undefined, géré par le `|| []` ci-dessous, sans planter le dashboard.
       supabase.from('depenses_generales').select('*, fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
       // Favoris — voir toggleFavori dans Projets.jsx et la section
-      // "Favoris" plus bas.
-      supabase.from('projets').select('id, nom, clients(nom)').is('deleted_at', null).eq('favori', true).eq('statut', 'En cours').order('nom'),
+      // "Favoris" plus bas. Tous statuts confondus (pas seulement "En
+      // cours") : un favori épinglé doit toujours ressortir ici, quel que
+      // soit son stade — sinon l'étoile ne "fait rien" de visible tant que
+      // le projet n'a pas changé de statut, ce qui a dérouté Louis à
+      // l'usage (nov. 2026).
+      supabase.from('projets').select('id, nom, statut, clients(nom)').is('deleted_at', null).eq('favori', true).order('nom'),
     ])
 
     const cmdData = cmd || []
@@ -204,17 +208,20 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Favoris — projets épinglés (étoile dans Projets.jsx) qui sont "En
-          cours" en ce moment, pour y accéder directement plutôt que de les
-          rechercher (demande de Louis, nov. 2026). Juste sous les Relances
-          (même demande) : les deux sont des raccourcis "ce qui me concerne
-          en priorité", avant le reste du tableau de bord. Badge coloré +
-          initiales du client plutôt qu'un vrai logo, pour repérer le projet
-          plus vite d'un coup d'œil sans avoir à gérer un fichier par client. */}
+      {/* Favoris — projets épinglés (étoile dans Projets.jsx), tous statuts
+          confondus, pour y accéder directement plutôt que de les rechercher
+          (demande de Louis, nov. 2026 — d'abord limité aux projets "En
+          cours", élargi à tous les statuts suite à son retour : l'étoile
+          doit toujours faire apparaître le projet ici, pas seulement à
+          certains stades). Juste sous les Relances (même demande) : les
+          deux sont des raccourcis "ce qui me concerne en priorité", avant
+          le reste du tableau de bord. Badge coloré + initiales du client
+          plutôt qu'un vrai logo, pour repérer le projet plus vite d'un
+          coup d'œil sans avoir à gérer un fichier par client. */}
       {favoris.length > 0 && (
         <div style={{ marginTop: 48 }}>
           <h2 style={{ ...sectionTitle, marginBottom: 18 }}>
-            Favoris <span style={{ color: colors.inkFaint, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— projets épinglés en cours</span>
+            Favoris <span style={{ color: colors.inkFaint, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— projets épinglés</span>
           </h2>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             {favoris.map(p => {
@@ -227,7 +234,12 @@ export default function Dashboard() {
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nom}</div>
-                    <div style={{ fontSize: 11.5, color: colors.inkMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nomClient}</div>
+                    <div style={{ fontSize: 11.5, color: colors.inkMuted, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nomClient}</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                        <span style={marker(statutProjetMarker[p.statut])} />{p.statut}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )
