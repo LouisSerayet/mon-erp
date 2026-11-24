@@ -6,7 +6,7 @@ import { useRelance } from '../lib/useRelance'
 import { ModalRelance } from '../components/ModalRelance'
 import { getBankAccounts } from '../lib/useQonto'
 import { useIsMobile } from '../lib/useIsMobile'
-import { colors, fonts, eyebrow, sectionTitle, quietLink, marker } from '../lib/theme'
+import { colors, fonts, eyebrow, sectionTitle, quietLink, marker, couleurAvatar, initiales } from '../lib/theme'
 
 export default function Dashboard() {
   const isMobile = useIsMobile()
@@ -15,6 +15,11 @@ export default function Dashboard() {
   const [facturesFrsAPayer, setFacturesFrsAPayer] = useState([])
   const [facturesCliAEncaisser, setFacturesCliAEncaisser] = useState([])
   const [depensesAPayer, setDepensesAPayer] = useState([])
+  // Projets "favoris" (étoile épinglée depuis Projets.jsx) qui sont "En
+  // cours" — section "Favoris" tout en bas, pour y accéder sans repasser
+  // par la recherche (demande de Louis, nov. 2026). Voir
+  // sql/projet_favori_migration.sql.
+  const [favoris, setFavoris] = useState([])
   const [relances, setRelances] = useState([])
   const [loading, setLoading] = useState(true)
   // Bouton "Relancer" (facture client en retard) — logique partagée avec
@@ -47,7 +52,7 @@ export default function Dashboard() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: cmd }, { data: ffrs }, { data: fcli }, { data: dep }] = await Promise.all([
+    const [{ data: cmd }, { data: ffrs }, { data: fcli }, { data: dep }, { data: favs }] = await Promise.all([
       supabase.from('commandes').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'Brouillon').order('created_at', { ascending: false }),
       supabase.from('factures_frs').select('*, projets(nom), fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
       // Le client vient du projet (projets → clients), pas du client_id
@@ -63,12 +68,16 @@ export default function Dashboard() {
       // exécuté — dans ce cas Supabase renvoie une erreur et `dep` reste
       // undefined, géré par le `|| []` ci-dessous, sans planter le dashboard.
       supabase.from('depenses_generales').select('*, fournisseurs(nom)').is('deleted_at', null).eq('statut', 'À payer').order('date_echeance', { ascending: true }),
+      // Favoris — voir toggleFavori dans Projets.jsx et la section
+      // "Favoris" plus bas.
+      supabase.from('projets').select('id, nom, clients(nom)').is('deleted_at', null).eq('favori', true).eq('statut', 'En cours').order('nom'),
     ])
 
     const cmdData = cmd || []
     const ffrsData = ffrs || []
     const fcliData = fcli || []
     const depData = dep || []
+    setFavoris(favs || [])
 
     const today = new Date()
     const totalFfrs = ffrsData.reduce((s, x) => s + (x.montant_ht || 0), 0)
@@ -331,6 +340,36 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Favoris — projets épinglés (étoile dans Projets.jsx) qui sont "En
+          cours" en ce moment, pour y accéder directement plutôt que de les
+          rechercher (demande de Louis, nov. 2026). Badge coloré + initiales
+          du client plutôt qu'un vrai logo, pour repérer le projet plus vite
+          d'un coup d'œil sans avoir à gérer un fichier par client. */}
+      {favoris.length > 0 && (
+        <div style={{ marginTop: 56 }}>
+          <h2 style={{ ...sectionTitle, marginBottom: 18 }}>
+            Favoris <span style={{ color: colors.inkFaint, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— projets épinglés en cours</span>
+          </h2>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            {favoris.map(p => {
+              const nomClient = p.clients?.nom || 'Sans client'
+              return (
+                <div key={p.id} onClick={() => navigate('/projets/' + p.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1px solid ' + colors.line, cursor: 'pointer', minWidth: 220, flex: isMobile ? '1 1 100%' : '0 1 auto' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: couleurAvatar(nomClient), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
+                    {initiales(nomClient)}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nom}</div>
+                    <div style={{ fontSize: 11.5, color: colors.inkMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nomClient}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

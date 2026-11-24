@@ -304,6 +304,20 @@ export default function Projets() {
     fetchAll()
   }
 
+  // Étoile "favori" (demande de Louis, nov. 2026) : épingle un projet pour
+  // qu'il ressorte tout en bas du Dashboard, sans avoir à le rechercher —
+  // voir sql/projet_favori_migration.sql et la section "Favoris" de
+  // Dashboard.jsx. Mise à jour optimiste (réactif au clic), avec repli sur
+  // l'état précédent si l'enregistrement échoue, pour ne jamais laisser
+  // l'étoile mentir sur ce qui est vraiment en base.
+  async function toggleFavori(e, p) {
+    e.stopPropagation()
+    const nouveauFavori = !p.favori
+    setProjets(prev => prev.map(x => x.id === p.id ? { ...x, favori: nouveauFavori } : x))
+    const { error } = await supabase.from('projets').update({ favori: nouveauFavori }).eq('id', p.id)
+    if (error) setProjets(prev => prev.map(x => x.id === p.id ? { ...x, favori: p.favori } : x))
+  }
+
   // Coche/décoche un statut dans le widget "Vue globale des projets".
   function toggleStatutGlobal(s) {
     setFiltreStatutsGlobal(prev => {
@@ -655,8 +669,22 @@ export default function Projets() {
                   )}
                   <div onClick={() => navigate('/projets/' + p.id)}
                     style={{ borderTop: '1px solid ' + colors.line, padding: isMobile ? '14px 0' : '16px 0', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 8 : 16, cursor: 'pointer' }}>
+                    {!isMobile && (
+                      <button onClick={e => toggleFavori(e, p)} title={p.favori ? 'Retirer des favoris' : 'Épingler en favori (visible sur le Dashboard)'}
+                        style={{ flexShrink: 0, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 16, lineHeight: 1, color: p.favori ? colors.warning : colors.inkFaint }}>
+                        {p.favori ? '★' : '☆'}
+                      </button>
+                    )}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 15 }}>{p.nom}</div>
+                      <div style={{ fontWeight: 600, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {isMobile && (
+                          <button onClick={e => toggleFavori(e, p)} title={p.favori ? 'Retirer des favoris' : 'Épingler en favori (visible sur le Dashboard)'}
+                            style={{ flexShrink: 0, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 15, lineHeight: 1, color: p.favori ? colors.warning : colors.inkFaint }}>
+                            {p.favori ? '★' : '☆'}
+                          </button>
+                        )}
+                        {p.nom}
+                      </div>
                       <div style={{ fontSize: 12, color: colors.inkMuted, marginTop: 3 }}>
                         {p.clients?.nom || 'Sans client'}
                         {p.date_debut ? ' · ' + new Date(p.date_debut).toLocaleDateString('fr-FR') : ''}

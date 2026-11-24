@@ -77,6 +77,24 @@ export function marker(color) {
   return { width: 7, height: 7, flexShrink: 0, display: 'inline-block', background: color }
 }
 
+// Badge "avatar" (initiales + couleur) pour identifier un client en un coup
+// d'œil sans logo réel à gérer (voir Dashboard.jsx, section "Favoris") —
+// une palette discrète plutôt qu'une couleur vive tirée au hasard, et
+// toujours la même couleur pour un même nom (hash simple, déterministe).
+const PALETTE_AVATAR = ['#5b6f8a', '#8a6b4f', '#4f8a6b', '#8a4f6b', '#6b4f8a', '#8a7a4f', '#4f6b8a', '#6b8a4f']
+export function couleurAvatar(nom) {
+  const s = nom || '?'
+  let hash = 0
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) | 0
+  return PALETTE_AVATAR[Math.abs(hash) % PALETTE_AVATAR.length]
+}
+export function initiales(nom) {
+  const mots = (nom || '').trim().split(/\s+/).filter(Boolean)
+  if (mots.length === 0) return '?'
+  if (mots.length === 1) return mots[0].slice(0, 2).toUpperCase()
+  return (mots[0][0] + mots[1][0]).toUpperCase()
+}
+
 // Couleur de statut projet, partagée entre Dashboard, Projets et ProjetDetail
 // pour que le même statut soit toujours identifié par la même couleur,
 // où qu'on le voie dans l'app.
