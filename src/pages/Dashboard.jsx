@@ -204,6 +204,38 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Favoris — projets épinglés (étoile dans Projets.jsx) qui sont "En
+          cours" en ce moment, pour y accéder directement plutôt que de les
+          rechercher (demande de Louis, nov. 2026). Juste sous les Relances
+          (même demande) : les deux sont des raccourcis "ce qui me concerne
+          en priorité", avant le reste du tableau de bord. Badge coloré +
+          initiales du client plutôt qu'un vrai logo, pour repérer le projet
+          plus vite d'un coup d'œil sans avoir à gérer un fichier par client. */}
+      {favoris.length > 0 && (
+        <div style={{ marginTop: 48 }}>
+          <h2 style={{ ...sectionTitle, marginBottom: 18 }}>
+            Favoris <span style={{ color: colors.inkFaint, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— projets épinglés en cours</span>
+          </h2>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            {favoris.map(p => {
+              const nomClient = p.clients?.nom || 'Sans client'
+              return (
+                <div key={p.id} onClick={() => navigate('/projets/' + p.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1px solid ' + colors.line, cursor: 'pointer', minWidth: 220, flex: isMobile ? '1 1 100%' : '0 1 auto' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: couleurAvatar(nomClient), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
+                    {initiales(nomClient)}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nom}</div>
+                    <div style={{ fontSize: 11.5, color: colors.inkMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nomClient}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Commandes en attente, factures frs./cli., dépenses — la "Vue
           globale des projets" (filtres par statut, prévu/engagé) et
           "Projets actifs" ont été retirés de ce tableau de bord, remplacés
@@ -340,36 +372,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {/* Favoris — projets épinglés (étoile dans Projets.jsx) qui sont "En
-          cours" en ce moment, pour y accéder directement plutôt que de les
-          rechercher (demande de Louis, nov. 2026). Badge coloré + initiales
-          du client plutôt qu'un vrai logo, pour repérer le projet plus vite
-          d'un coup d'œil sans avoir à gérer un fichier par client. */}
-      {favoris.length > 0 && (
-        <div style={{ marginTop: 56 }}>
-          <h2 style={{ ...sectionTitle, marginBottom: 18 }}>
-            Favoris <span style={{ color: colors.inkFaint, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— projets épinglés en cours</span>
-          </h2>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-            {favoris.map(p => {
-              const nomClient = p.clients?.nom || 'Sans client'
-              return (
-                <div key={p.id} onClick={() => navigate('/projets/' + p.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1px solid ' + colors.line, cursor: 'pointer', minWidth: 220, flex: isMobile ? '1 1 100%' : '0 1 auto' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: couleurAvatar(nomClient), color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
-                    {initiales(nomClient)}
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nom}</div>
-                    <div style={{ fontSize: 11.5, color: colors.inkMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nomClient}</div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
