@@ -183,6 +183,12 @@ export default function ProjetDetail() {
   const [profilsParEmail, setProfilsParEmail] = useState(new Map())
   const [fournisseurs, setFournisseurs] = useState([])
   const [clientsListe, setClientsListe] = useState([]) // pour le sélecteur "Client" du formulaire Infos — voir saveInfos
+  // Contacts du client choisi, pour le sélecteur "Contact" du formulaire
+  // Infos (voir fetchContactsEdit/saveInfos) — demandé par Louis, nov.
+  // 2026 : un client type ESA a plusieurs personnes côté commercial, le
+  // bon interlocuteur peut changer d'un projet à l'autre et doit pouvoir
+  // être corrigé après coup, pas seulement à la création.
+  const [contactsEditClient, setContactsEditClient] = useState([])
   const [commandes, setCommandes] = useState([])
   const [facturesFrs, setFacturesFrs] = useState([])
   const [facturesCli, setFacturesCli] = useState([])
@@ -1664,7 +1670,7 @@ export default function ProjetDetail() {
   async function fetchAll() {
     setLoading(true)
     const [{ data: p }, { data: f }, { data: cl }, { data: cmd }, { data: ffrs }, { data: fcli }, { data: lg }, profils] = await Promise.all([
-      supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois, libelle_facturation)').eq('id', id).single(),
+      supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois, libelle_facturation), client_contacts(id, type, nom, email, telephone)').eq('id', id).single(),
       supabase.from('fournisseurs').select('id, nom, email, rue, code_postal, ville, pays, pennylane_supplier_id, delai_paiement_jours, delai_paiement_fin_mois, autoliquidation').is('deleted_at', null).order('nom'),
       supabase.from('clients').select('id, nom').is('deleted_at', null).order('nom'),
       supabase.from('commandes').select('*, fournisseurs(nom)').eq('projet_id', id).is('deleted_at', null).order('created_at', { ascending: false }),
@@ -1829,6 +1835,16 @@ export default function ProjetDetail() {
     setImporting(false); e.target.value = ''
   }
 
+  // Recharge les contacts du client pour le sélecteur "Contact" du
+  // formulaire Infos — appelé à l'ouverture de l'édition et à chaque
+  // changement de client dans le formulaire (les contacts d'un client ne
+  // valent rien pour un autre).
+  async function fetchContactsEdit(clientId) {
+    if (!clientId) { setContactsEditClient([]); return }
+    const { data } = await supabase.from('client_contacts').select('id, type, nom, email, telephone').eq('client_id', clientId).is('deleted_at', null).order('created_at')
+    setContactsEditClient(data || [])
+  }
+
   // ── Save infos ────────────────────────────────────────────────
   async function saveInfos() {
     setInfosError('')
@@ -1845,6 +1861,11 @@ export default function ProjetDetail() {
     const payload = {
       ...formInfos,
       client_id: formInfos.client_id || null,
+      // Même souci que client_id : contact_id est une colonne uuid
+      // (sql/projet_contact_migration.sql), '' lève "invalid input syntax
+      // for type uuid" — null veut dire "pas de contact spécifique,
+      // retombe sur le contact principal du client".
+      contact_id: formInfos.contact_id || null,
       date_debut: formInfos.date_debut || null,
       date_fin_prevue: formInfos.date_fin_prevue || null,
     }
@@ -1862,7 +1883,7 @@ export default function ProjetDetail() {
     // ne renvoie que les colonnes de "projets" (client_id en brut, pas
     // l'objet clients() joint) — sans ce rechargement, le nom du client
     // affiché resterait celui d'avant après un changement de client_id.
-    const { data: refresh } = await supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois, libelle_facturation)').eq('id', id).single()
+    const { data: refresh } = await supabase.from('projets').select('*, clients(id, nom, email, telephone, adresse, rue, code_postal, ville, pays, pennylane_customer_id, delai_paiement_jours, delai_paiement_fin_mois, libelle_facturation), client_contacts(id, type, nom, email, telephone)').eq('id', id).single()
     if (refresh) setProjet(refresh)
     setEditInfos(false)
   }
@@ -1886,6 +1907,7 @@ export default function ProjetDetail() {
       const { data: nouveauProjet, error } = await supabase.from('projets').insert([{
         nom: nomCopie,
         client_id: projet.client_id || null,
+        contact_id: projet.contact_id || null,
         statut: 'Brouillon',
         date_debut: null,
         date_fin_prevue: null,
@@ -3102,7 +3124,7 @@ export default function ProjetDetail() {
               <div style={{ padding: '16px 20px', borderBottom: '1px solid ' + colors.line, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={sectionTitle}>Informations du projet</div>
                 {!editInfos && (
-                  <button onClick={() => { setEditInfos(true); setInfosError(''); setFormInfos({ nom: projet.nom, client_id: projet.client_id || '', statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20, numero_bon_commande_client: projet.numero_bon_commande_client || '' }) }}
+                  <button onClick={() => { setEditInfos(true); setInfosError(''); setFormInfos({ nom: projet.nom, client_id: projet.client_id || '', contact_id: projet.contact_id || '', statut: projet.statut, surface: projet.surface || '', adresse_chantier: projet.adresse_chantier || '', date_debut: projet.date_debut || '', date_fin_prevue: projet.date_fin_prevue || '', notes: projet.notes || '', acces_livraison: projet.acces_livraison || '', taux_tva: projet.taux_tva ?? 20, numero_bon_commande_client: projet.numero_bon_commande_client || '' }); fetchContactsEdit(projet.client_id) }}
                     style={quietLink}>Modifier</button>
                 )}
               </div>
@@ -3323,12 +3345,29 @@ export default function ProjetDetail() {
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
                       <label style={fieldLabel}>Client</label>
-                      <select value={formInfos.client_id || ''} onChange={e => setFormInfos(p => ({ ...p, client_id: e.target.value }))}
+                      <select value={formInfos.client_id || ''} onChange={e => { setFormInfos(p => ({ ...p, client_id: e.target.value, contact_id: '' })); fetchContactsEdit(e.target.value) }}
                         style={{ ...inputUnderline, cursor: 'pointer' }}>
                         <option value=''>—</option>
                         {clientsListe.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                       </select>
                     </div>
+                    {/* N'apparaît que si le client a au moins un contact
+                        enregistré — permet de choisir/corriger quel
+                        interlocuteur est rattaché à CE projet (demandé par
+                        Louis, nov. 2026 : un client type ESA a plusieurs
+                        personnes côté commercial). Laissé vide, le projet
+                        retombe sur le contact principal de la fiche
+                        client, comme avant. */}
+                    {formInfos.client_id && contactsEditClient.length > 0 && (
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={fieldLabel}>Contact</label>
+                        <select value={formInfos.contact_id || ''} onChange={e => setFormInfos(p => ({ ...p, contact_id: e.target.value }))}
+                          style={{ ...inputUnderline, cursor: 'pointer' }}>
+                          <option value=''>— Contact principal du client —</option>
+                          {contactsEditClient.map(c => <option key={c.id} value={c.id}>{c.type}{c.nom ? ' — ' + c.nom : ''}</option>)}
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label style={fieldLabel}>Statut</label>
                       <select value={formInfos.statut || ''} onChange={e => setFormInfos(p => ({ ...p, statut: e.target.value }))}
@@ -3390,6 +3429,11 @@ export default function ProjetDetail() {
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px 32px' }}>
                     {[
                       ['Client', projet.clients?.nom],
+                      // N'apparaît que si un contact précis est rattaché à
+                      // ce projet (voir "Modifier" ci-dessus) — sinon le
+                      // projet retombe sur le contact principal du client,
+                      // déjà visible dans le bloc juste en dessous.
+                      ['Contact', projet.client_contacts ? (projet.client_contacts.type + (projet.client_contacts.nom ? ' — ' + projet.client_contacts.nom : '')) : null],
                       ['Statut', projet.statut],
                       ['Surface', projet.surface ? projet.surface + ' m²' : null],
                       ['Montant HT', fmt(totalVenteGlobal)],
@@ -3415,14 +3459,27 @@ export default function ProjetDetail() {
                       {projet.notes}
                     </div>
                   )}
-                  {projet.clients && (
-                    <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid ' + colors.line, fontSize: 13 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 4 }}>{projet.clients.nom}</div>
-                      {projet.clients.email && <div style={{ color: colors.inkMuted }}>{projet.clients.email}</div>}
-                      {projet.clients.telephone && <div style={{ color: colors.inkMuted }}>{projet.clients.telephone}</div>}
-                      {projet.clients.adresse && <div style={{ color: colors.inkMuted }}>{projet.clients.adresse}</div>}
-                    </div>
-                  )}
+                  {projet.clients && (() => {
+                    // Si un contact précis est rattaché à ce projet (voir
+                    // "Modifier" ci-dessus), c'est son nom/email/téléphone
+                    // qui priment sur ceux de la fiche client — c'est
+                    // justement le but de pouvoir en choisir un (demandé
+                    // par Louis, nov. 2026). L'adresse reste toujours
+                    // celle du client (jamais saisie par contact).
+                    const contact = projet.client_contacts
+                    const email = contact?.email || projet.clients.email
+                    const telephone = contact?.telephone || projet.clients.telephone
+                    return (
+                      <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid ' + colors.line, fontSize: 13 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                          {projet.clients.nom}{contact?.nom ? ' — ' + contact.nom : ''}
+                        </div>
+                        {email && <div style={{ color: colors.inkMuted }}>{email}</div>}
+                        {telephone && <div style={{ color: colors.inkMuted }}>{telephone}</div>}
+                        {projet.clients.adresse && <div style={{ color: colors.inkMuted }}>{projet.clients.adresse}</div>}
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
             </div>

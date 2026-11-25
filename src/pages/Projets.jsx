@@ -99,11 +99,18 @@ export default function Projets() {
   const [masquerPerdus, setMasquerPerdus] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [clients, setClients] = useState([])
+  // Contacts multiples par client (table client_contacts — voir
+  // ContactsMultiples.jsx dans Clients.jsx), pour pouvoir choisir dès la
+  // création quel interlocuteur est rattaché au projet (demandé par
+  // Louis, nov. 2026 : un client type ESA peut avoir plusieurs personnes
+  // côté commercial). Chargés une fois pour tous les clients, filtrés
+  // côté UI par client_id dans le formulaire de création.
+  const [clientContacts, setClientContacts] = useState([])
   // Agrégats de facturation par projet (barres "% facturé"/"% commandé"),
   // calculés une fois au chargement de la liste — voir fetchAll. Objets
   // {projet_id: montant}.
   const [facturation, setFacturation] = useState({ venteParProjet: {}, achatParProjet: {}, factClientParProjet: {}, factFournisseurParProjet: {}, commandeParProjet: {} })
-  const [form, setForm] = useState({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
+  const [form, setForm] = useState({ nom: '', client_id: '', contact_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
   const [error, setError] = useState('')
   const [savingProjet, setSavingProjet] = useState(false) // garde-fou anti double-clic
   // Raccourci "Clôturer" depuis la liste (demandé par Louis, nov. 2026) —
@@ -139,7 +146,7 @@ export default function Projets() {
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: p }, { data: c }, { data: fc }, { data: ff }, { data: lg }, { data: cmd }] = await Promise.all([
+    const [{ data: p }, { data: c }, { data: fc }, { data: ff }, { data: lg }, { data: cmd }, { data: cc }] = await Promise.all([
       supabase.from('projets').select('*, clients(nom)').is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('clients').select('id, nom').is('deleted_at', null).order('nom'),
       supabase.from('factures_cli').select('projet_id, montant_ht').is('deleted_at', null),
@@ -149,9 +156,11 @@ export default function Projets() {
       // Dashboard (une commande annulée puis remplacée ne doit pas compter
       // double, ni comme un engagement réel).
       supabase.from('commandes').select('projet_id, montant_ht, statut').is('deleted_at', null),
+      supabase.from('client_contacts').select('id, client_id, type, nom').is('deleted_at', null).order('created_at'),
     ])
     setProjets(p || [])
     setClients(c || [])
+    setClientContacts(cc || [])
 
     // Même logique que les budgets prévisionnels de l'onglet Rentabilité
     // (ProjetDetail.jsx) : vente/achat prévus = total des lots + lignes
@@ -194,6 +203,7 @@ export default function Projets() {
     const { data, error } = await supabase.from('projets').insert([{
       nom: form.nom.trim(),
       client_id: form.client_id || null,
+      contact_id: form.contact_id || null,
       statut: form.statut,
       taux_tva: form.taux_tva ?? 20,
       date_debut: form.date_debut || null,
@@ -206,7 +216,7 @@ export default function Projets() {
     // Remis à la même valeur que l'état initial ('Brouillon') — avant, ce
     // reset mettait 'En cours', donc un 2e projet créé juste après le 1er
     // démarrait silencieusement avec le mauvais statut par défaut.
-    setForm({ nom: '', client_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
+    setForm({ nom: '', client_id: '', contact_id: '', statut: 'Brouillon', taux_tva: 20, date_debut: '', date_fin_prevue: '', notes: '' })
     setSavingProjet(false)
     navigate('/projets/' + data.id)
   }
@@ -582,11 +592,30 @@ export default function Projets() {
               style={{ ...inputUnderline, marginBottom: 18 }} />
 
             <label style={label}>Client</label>
-            <select value={form.client_id} onChange={e => setForm(p => ({ ...p, client_id: e.target.value }))}
+            <select value={form.client_id} onChange={e => setForm(p => ({ ...p, client_id: e.target.value, contact_id: '' }))}
               style={{ ...inputUnderline, marginBottom: 18, cursor: 'pointer' }}>
               <option value=''>— Aucun —</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
             </select>
+
+            {/* N'apparaît que si le client choisi a au moins un contact
+                enregistré (onglet Clients → Contacts) — sinon le sélecteur
+                n'aurait que l'option de repli, sans intérêt. Permet de
+                choisir le bon interlocuteur dès la création plutôt que de
+                toujours retomber sur le contact principal de la fiche
+                client (demandé par Louis, nov. 2026). */}
+            {form.client_id && clientContacts.some(c => c.client_id === form.client_id) && (
+              <>
+                <label style={label}>Contact</label>
+                <select value={form.contact_id} onChange={e => setForm(p => ({ ...p, contact_id: e.target.value }))}
+                  style={{ ...inputUnderline, marginBottom: 18, cursor: 'pointer' }}>
+                  <option value=''>— Contact principal du client —</option>
+                  {clientContacts.filter(c => c.client_id === form.client_id).map(c => (
+                    <option key={c.id} value={c.id}>{c.type}{c.nom ? ' — ' + c.nom : ''}</option>
+                  ))}
+                </select>
+              </>
+            )}
 
             <div style={{ display: 'flex', gap: 16, marginBottom: 18 }}>
               <div style={{ flex: 1 }}>
