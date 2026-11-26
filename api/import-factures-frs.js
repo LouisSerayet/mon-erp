@@ -58,7 +58,9 @@ const REGEX_NUMERO_FACTURE = [
   /\bn[°ºo]\s*(?:de\s*)?facture\s*[:-]?\s*([A-Za-z0-9][A-Za-z0-9/.-]{2,29})/i,
   /\binvoice\s*(?:number|no\.?|#)\s*[:-]?\s*([A-Za-z0-9][A-Za-z0-9/.-]{2,29})/i,
 ]
-const REGEX_MONTANT_HT = /(?:total|montant|sous[-\s]?total)\s*h\.?\s*t\.?\s*[:-]?\s*(\d[\d\s.,]*\d)(?:\s*€)?/gi
+// "net"/"base" en plus de "total"/"montant"/"sous-total" — variantes vues
+// sur des factures réelles ("Net HT", "Base HT").
+const REGEX_MONTANT_HT = /(?:total|montant|sous[-\s]?total|net|base)\s*h\.?\s*t\.?\s*[:-]?\s*(\d[\d\s.,]*\d)(?:\s*€)?/gi
 
 function extraireNumeroFacture(texte) {
   for (const re of REGEX_NUMERO_FACTURE) {
@@ -75,6 +77,98 @@ function extraireMontantHT(texte) {
   // (après d'éventuels sous-totaux intermédiaires).
   const brut = matches[matches.length - 1][1]
   const nombre = parseFloat(brut.replace(/\s/g, '').replace(',', '.'))
+  return Number.isFinite(nombre) ? nombre : null
+}
+
+// ── Date de facture / échéance / taux de TVA ────────────────────────
+// Même logique "best-effort" que ci-dessus (voir sql/
+// factures_frs_a_traiter_detection_dates_migration.sql) : Louis doit
+// retaper à la main la date de facture et l'échéance à CHAQUE facture
+// reçue par email alors qu'elles sont imprimées sur le PDF — ce n'était
+// pas encore tenté. Toujours modifiable à la validation (voir
+// BoiteReceptionFactures.jsx), jamais injecté tel quel.
+const MOIS_FR = {
+  janvier: 1, février: 2, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6,
+  juillet: 7, août: 8, aout: 8, septembre: 9, octobre: 10, novembre: 11, décembre: 12, decembre: 12,
+}
+const REGEX_DATE_NUM = /\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b/
+const REGEX_DATE_TEXTE = /\b(\d{1,2})\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+(\d{4})\b/i
+
+// Repère une date numérique (12/01/2026, 12-01-2026, 12.01.2026) ou en
+// toutes lettres (12 janvier 2026) dans un court fragment de texte, et la
+// renvoie au format ISO (yyyy-mm-dd) attendu par les champs <input
+// type="date">. `null` si rien d'exploitable (pas de panique : la
+// suggestion reste juste vide, à saisir à la main comme avant).
+function parseDateFr(fragment) {
+  if (!fragment) return null
+  let m = fragment.match(REGEX_DATE_NUM)
+  if (m) {
+    const j = parseInt(m[1], 10)
+    const mo = parseInt(m[2], 10)
+    let a = parseInt(m[3], 10)
+    if (a < 100) a += 2000
+    if (mo < 1 || mo > 12 || j < 1 || j > 31) return null
+    return `${a}-${String(mo).padStart(2, '0')}-${String(j).padStart(2, '0')}`
+  }
+  m = fragment.match(REGEX_DATE_TEXTE)
+  if (m) {
+    const mo = MOIS_FR[m[2].toLowerCase()]
+    if (!mo) return null
+    return `${m[3]}-${String(mo).padStart(2, '0')}-${String(parseInt(m[1], 10)).padStart(2, '0')}`
+  }
+  return null
+}
+
+// Cherche chaque libellé dans l'ordre et tente de lire une date juste
+// après (fenêtre de 40 caractères, large pour une mise en page avec
+// espaces/tabulations mais bornée pour ne pas dériver sur la phrase
+// suivante) — le premier libellé qui donne une date exploitable gagne.
+function extraireDateAvecLabels(texte, labels) {
+  for (const re of labels) {
+    const m = texte.match(re)
+    if (!m) continue
+    const fenetre = texte.slice(m.index + m[0].length, m.index + m[0].length + 40)
+    const date = parseDateFr(fenetre)
+    if (date) return date
+  }
+  return null
+}
+
+const LABELS_DATE_FACTURE = [
+  /date\s*(?:de\s*)?facture\s*[:-]?\s*/i,
+  /facture\s+du\s*/i,
+  /date\s*d['’]\s*émission\s*[:-]?\s*/i,
+  /émis(?:e)?\s+le\s*/i,
+]
+// Avant "échéance" générique : les libellés plus spécifiques d'abord,
+// pour éviter qu'une mention isolée du mot "échéance" dans un paragraphe
+// de conditions générales prenne le dessus sur un vrai "À régler avant
+// le ...".
+const LABELS_DATE_ECHEANCE = [
+  /date\s*d['’]\s*échéance\s*[:-]?\s*/i,
+  /date\s*limite\s*de\s*paiement\s*[:-]?\s*/i,
+  /(?:à|a)\s*régler\s*avant\s*le\s*/i,
+  /payable\s*avant\s*le\s*/i,
+  /date\s*de\s*règlement\s*[:-]?\s*/i,
+  /échéance\s*[:-]?\s*/i,
+]
+
+function extraireDateFacture(texte) { return extraireDateAvecLabels(texte, LABELS_DATE_FACTURE) }
+function extraireDateEcheance(texte) { return extraireDateAvecLabels(texte, LABELS_DATE_ECHEANCE) }
+
+// Taux de TVA : un nombre suivi de "%" dans les ~15 caractères qui
+// suivent la mention "TVA" (orthographes avec points tolérées : "T.V.A.").
+// Best-effort comme le reste : une facture peut mentionner plusieurs
+// taux (lignes à taux différents) ou aucun taux explicite du tout (TVA à
+// 0%, autoliquidation) — dans ce cas, la suggestion reste vide et l'app
+// retombe sur son hypothèse habituelle (20%, voir sql/
+// taux_tva_achats_migration.sql).
+const REGEX_TAUX_TVA = /\bT\.?\s?V\.?\s?A\.?\b[^\d%]{0,15}?(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i
+
+function extraireTauxTva(texte) {
+  const m = texte.match(REGEX_TAUX_TVA)
+  if (!m) return null
+  const nombre = parseFloat(m[1].replace(',', '.'))
   return Number.isFinite(nombre) ? nombre : null
 }
 
@@ -202,6 +296,9 @@ export default async function handler(req, res) {
         const matchNumero = (texte.match(REGEX_NUMERO_COMMANDE) || (msg.subject || '').match(REGEX_NUMERO_COMMANDE) || [])[0]
         const numeroFactureDetecte = texte ? extraireNumeroFacture(texte) : null
         const montantHtDetecte = texte ? extraireMontantHT(texte) : null
+        const dateFactureDetectee = texte ? extraireDateFacture(texte) : null
+        const dateEcheanceDetectee = texte ? extraireDateEcheance(texte) : null
+        const tauxTvaDetecte = texte ? extraireTauxTva(texte) : null
         const commandeMatch = matchNumero
           ? (commandes || []).find(c => (c.numero || '').toLowerCase() === matchNumero.toLowerCase())
           : null
@@ -230,6 +327,9 @@ export default async function handler(req, res) {
           numero_commande_detecte: matchNumero || null,
           numero_facture_detecte: numeroFactureDetecte,
           montant_ht_detecte: montantHtDetecte,
+          date_facture_detectee: dateFactureDetectee,
+          date_echeance_detectee: dateEcheanceDetectee,
+          taux_tva_detecte: tauxTvaDetecte,
           fichier_path: cheminStorage,
           texte_extrait: texte ? texte.slice(0, 20000) : null, // borne large mais raisonnable, pas la peine de stocker un roman
           alerte,

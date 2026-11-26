@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
-import { fmtEUR as fmt, fmtDateFr as fmtDate } from '../lib/calculs'
+import { fmtEUR as fmt, fmtDateFr as fmtDate, calculerEcheance } from '../lib/calculs'
 import { colors, fonts, eyebrow, quietLink } from '../lib/theme'
 import { verifierNouvellesFactures } from '../lib/useImportFactures'
 import { envoyerFactureFrsAutoPennylane } from '../lib/usePennylane'
@@ -109,7 +109,11 @@ export default function BoiteReceptionFactures() {
     setLoading(true)
     const [{ data: items }, { data: frs }, { data: cmds }, { data: prjs }, { data: fexist }, { data: dexist }] = await Promise.all([
       supabase.from('factures_frs_a_traiter').select('*').eq('statut', 'a_traiter').is('deleted_at', null).order('created_at', { ascending: false }),
-      supabase.from('fournisseurs').select('id, nom').is('deleted_at', null).order('nom'),
+      // delai_paiement_jours/delai_paiement_fin_mois : nécessaires pour
+      // calculer une échéance par défaut quand le PDF n'en mentionne pas
+      // une explicitement (voir dateEcheanceDetectee ci-dessous et
+      // editForm — même calcul que echeanceFfrsAuto dans ProjetDetail.jsx).
+      supabase.from('fournisseurs').select('id, nom, delai_paiement_jours, delai_paiement_fin_mois').is('deleted_at', null).order('nom'),
       supabase.from('commandes').select('id, numero, description, fournisseur_id, projet_id').is('deleted_at', null),
       supabase.from('projets').select('id, nom').is('deleted_at', null).order('nom'),
       // Pour la détection de doublon ci-dessous (voir doublonProbable) —
@@ -133,29 +137,41 @@ export default function BoiteReceptionFactures() {
       const next = { ...prev }
       for (const item of (items || [])) {
         if (next[item.id]) continue
+        // Échéance : on respecte celle lue directement sur le PDF
+        // (date_echeance_detectee) quand il y en a une ; sinon, dès qu'on a
+        // une date de facture détectée, on calcule un repli à partir des
+        // conditions de paiement du fournisseur déjà reconnu (même calcul
+        // que echeanceFfrsAuto dans ProjetDetail.jsx) plutôt que de
+        // laisser le champ vide — recalculé automatiquement ensuite si la
+        // date de facture ou le fournisseur changent (voir editForm).
+        const frsMatch = (frs || []).find(x => x.id === item.fournisseur_id)
+        const dateEcheanceInitiale = item.date_echeance_detectee || (item.date_facture_detectee
+          ? calculerEcheance(item.date_facture_detectee, frsMatch?.delai_paiement_jours ?? 30, frsMatch?.delai_paiement_fin_mois ?? false)
+          : '')
         next[item.id] = {
           type: 'facture', // 'facture' | 'depense' — voir TYPES_VALIDATION
           fournisseur_id: item.fournisseur_id || '',
           commande_id: item.commande_id || '',
           projet_id: item.projet_id || '',
           // Pré-remplis à partir de ce que l'extraction du PDF a repéré
-          // (voir extraireNumeroFacture/extraireMontantHT côté
+          // (voir extraireNumeroFacture/extraireMontantHT/
+          // extraireDateFacture/extraireDateEcheance/extraireTauxTva côté
           // api/import-factures-frs.js) — moins fiable que le
           // rapprochement fournisseur/commande/projet vu que le format
           // d'une facture varie d'un fournisseur à l'autre, donc à
           // vérifier avant de valider. Reste vide si rien n'a été trouvé.
           numero: item.numero_facture_detecte || '',
           montant_ht: item.montant_ht_detecte != null ? String(item.montant_ht_detecte) : '',
+          taux_tva: item.taux_tva_detecte ?? tauxTvaDepense(CATEGORIES[0]),
           statut: 'À payer',
-          date_facture: '',
-          date_echeance: '',
+          date_facture: item.date_facture_detectee || '',
+          date_echeance: dateEcheanceInitiale,
           // Champs utilisés uniquement si type === 'depense' (voir
           // tresorerie/Depenses.jsx, même schéma) — libellé pré-rempli à partir du
           // sujet de l'email (nettoyé d'un éventuel préfixe "Fw:"/"Tr:"),
           // modifiable avant validation.
           libelle: (item.sujet || '').replace(/^(fwd?|tr)\s*:\s*/i, ''),
           categorie: CATEGORIES[0],
-          taux_tva: tauxTvaDepense(CATEGORIES[0]),
         }
       }
       return next
@@ -189,6 +205,18 @@ export default function BoiteReceptionFactures() {
       // défaut associé (ex. Assurance -> 0%) — même logique que le
       // formulaire de création dans tresorerie/Depenses.jsx.
       if (champ === 'categorie') courant.taux_tva = tauxTvaDepense(valeur)
+      // Recalcule l'échéance quand la date de facture ou le fournisseur
+      // changent (une commande déduit le fournisseur, voir plus haut) —
+      // SAUF si une échéance a été directement repérée sur le PDF
+      // (date_echeance_detectee) : dans ce cas on respecte la vraie
+      // valeur lue sur la facture, jamais écrasée par un calcul.
+      if (champ === 'date_facture' || champ === 'fournisseur_id' || champ === 'commande_id') {
+        const item = boite.find(b => b.id === itemId)
+        if (!item?.date_echeance_detectee) {
+          const frs = fournisseurs.find(fr => fr.id === courant.fournisseur_id)
+          courant.date_echeance = calculerEcheance(courant.date_facture, frs?.delai_paiement_jours ?? 30, frs?.delai_paiement_fin_mois ?? false)
+        }
+      }
       return { ...prev, [itemId]: courant }
     })
   }
@@ -226,6 +254,11 @@ export default function BoiteReceptionFactures() {
       projet_id: f.projet_id,
       numero: f.numero.trim(),
       montant_ht: parseFloat(f.montant_ht) || 0,
+      // Avant, le taux de TVA n'était même pas demandé ici : la facture
+      // créée retombait silencieusement sur l'hypothèse par défaut de
+      // l'app (20%, voir sql/taux_tva_achats_migration.sql) alors qu'il
+      // est lui aussi imprimé sur le PDF (voir extraireTauxTva).
+      taux_tva: Number(f.taux_tva ?? 20),
       statut: f.statut || 'À payer',
       date_facture: f.date_facture || null,
       date_echeance: f.date_echeance || null,
@@ -298,7 +331,7 @@ export default function BoiteReceptionFactures() {
       <p style={eyebrow}>Partenaires Particuliers</p>
       <h1 style={{ margin: '14px 0 0', fontSize: isMobile ? 26 : 34, fontWeight: 700, letterSpacing: '-0.015em' }}>Boîte de réception factures</h1>
       <p style={{ color: colors.inkMuted, fontSize: 13, margin: '10px 0 0', maxWidth: 640 }}>
-        Transfère tes factures fournisseurs reçues par email vers l'adresse dédiée — elles arrivent ici en brouillon, avec le fournisseur et la commande pré-remplis quand la référence de commande est reconnue sur la facture. Il ne reste qu'à vérifier et valider.
+        Transfère tes factures fournisseurs reçues par email vers l'adresse dédiée — elles arrivent ici en brouillon, avec le fournisseur, la commande, le numéro, le montant, les dates et la TVA pré-remplis à partir du PDF quand ils sont reconnus. Il ne reste qu'à vérifier et valider.
       </p>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '28px 0 8px' }}>
@@ -446,7 +479,9 @@ export default function BoiteReceptionFactures() {
                       </div>
                       <div>
                         <label style={fieldLabel}>Montant HT</label>
-                        <input type="number" step="0.01" value={f.montant_ht || ''} onChange={e => editForm(item.id, 'montant_ht', e.target.value)} style={inputUnderline} />
+                        <SaisieMontantTva montantHt={f.montant_ht} tauxTva={f.taux_tva}
+                          onChangeMontant={v => editForm(item.id, 'montant_ht', v)}
+                          onChangeTaux={v => editForm(item.id, 'taux_tva', v)} />
                       </div>
                       <div>
                         <label style={fieldLabel}>Date facture</label>
